@@ -1,0 +1,59 @@
+import os
+from typing import Any, Dict, List, Optional
+from app.core.config import settings
+
+class EmbeddedQdrantVectorStoreAdapter:
+    def __init__(self, path: str = settings.QDRANT_PATH, collection_name: str = settings.QDRANT_COLLECTION) -> None:
+        self.path = path
+        self.collection_name = collection_name
+        self._client = None
+        self._init_qdrant()
+
+    def _init_qdrant(self) -> None:
+        try:
+            from qdrant_client import QdrantClient
+            from qdrant_client.models import Distance, VectorParams
+            
+            os.makedirs(self.path, exist_ok=True)
+            self._client = QdrantClient(path=self.path)
+            
+            collections = [c.name for c in self._client.get_collections().collections]
+            if self.collection_name not in collections:
+                self._client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(size=384, distance=Distance.COSINE)
+                )
+        except ImportError:
+            self._client = None
+
+    async def upsert(self, ids: List[str], vectors: List[List[float]], payloads: List[Dict[str, Any]]) -> None:
+        if not self._client:
+            return
+        from qdrant_client.models import PointStruct
+        points = [
+            PointStruct(id=idx, vector=vec, payload=pay)
+            for idx, vec, pay in zip(ids, vectors, payloads)
+        ]
+        self._client.upsert(collection_name=self.collection_name, points=points)
+
+    async def search(self, query_vector: List[float], limit: int = 5, filter_media_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        if not self._client:
+            return []
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        
+        query_filter = None
+        if filter_media_id:
+            query_filter = Filter(
+                must=[FieldCondition(key="media_id", match=MatchValue(value=filter_media_id))]
+            )
+
+        results = self._client.search(
+            collection_name=self.collection_name,
+            query_vector=query_vector,
+            limit=limit,
+            query_filter=query_filter
+        )
+        return [
+            {"id": str(hit.id), "score": hit.score, "payload": hit.payload}
+            for hit in results
+        ]
