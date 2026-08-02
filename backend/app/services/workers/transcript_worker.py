@@ -29,18 +29,47 @@ class TranscriptWorker:
         if not media_path:
             return
 
-        # 1. Extract audio WAV file
-        audio_path = f"{media_path}.wav"
         try:
+            current_stage = "audio_extraction"
+            # 1. Emit ProcessingStartedEvent
+            await self.event_bus.publish(DomainEvent(
+                event_type="ProcessingStartedEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": workspace_id,
+                    "stage": "audio_extraction",
+                    "progress": 25,
+                    "message": "Extracting 16kHz mono WAV audio track..."
+                }
+            ))
+
+            # 2. Extract audio WAV file
+            audio_path = f"{media_path}.wav"
             await self.audio_extractor.extract_audio(media_path, audio_path)
+
+            current_stage = "transcription"
+
+            # 3. Emit StageProgressEvent for transcription start
+            await self.event_bus.publish(DomainEvent(
+                event_type="StageProgressEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": workspace_id,
+                    "stage": "transcription",
+                    "progress": 60,
+                    "message": "Transcribing speech using Faster-Whisper ASR engine..."
+                }
+            ))
             
-            # 2. Execute STT capability via AI Service Bus
+            # 4. Execute STT capability via AI Service Bus
             stt_capability = self.ai_service_bus.get_stt_capability()
             response = await stt_capability.transcribe(
                 SpeechToTextRequest(audio_file_path=audio_path, word_timestamps=True)
             )
 
-            # 3. Emit TranscriptCompletedEvent
+            # 5. Emit TranscriptCompletedEvent
             await self.event_bus.publish(DomainEvent(
                 event_type="TranscriptCompletedEvent",
                 aggregate_id=media_id,
@@ -55,8 +84,9 @@ class TranscriptWorker:
                 }
             ))
         except Exception as e:
+            err_msg = str(e).strip() or repr(e)
             await self.event_bus.publish(DomainEvent(
                 event_type="ProcessingFailedEvent",
                 aggregate_id=media_id,
-                payload={"media_id": media_id, "error": str(e)}
+                payload={"media_id": media_id, "stage": current_stage, "error": err_msg}
             ))

@@ -58,11 +58,18 @@ ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTrans
 vector_store = None
 intelligence_manager = None
 
+from app.application.events.progress_store import progress_store
+from app.bootstrap.event_subscribers import register_media_subscribers
+from app.presentation.api.v1.media import media_repository
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Boot sequence: initialize SQLite schema & load models
     init_db()
     
+    # Register Domain Event subscribers to link EventBus with MediaRepository and ProgressStore
+    register_media_subscribers(event_bus, media_repository, progress_store)
+
     global vector_store, intelligence_manager
     vector_store = EmbeddedQdrantVectorStoreAdapter()
     

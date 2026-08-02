@@ -39,3 +39,7 @@ export async function uploadMedia(file: File, workspaceId = 'default'): Promise<
 export function createMediaProcessingStream(mediaId: string): EventSource {
   return new EventSource(`${API_BASE_URL}/api/v1/media/${mediaId}/stream`);
 }
+
+export function getMediaUrl(mediaId: string): string {
+  return `${API_BASE_URL}/api/v1/media/${mediaId}/file`;
+}

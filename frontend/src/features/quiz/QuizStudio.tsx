@@ -3,6 +3,7 @@
 import React from 'react';
 import { useQuiz } from './useQuiz';
 import { Button } from '@/components/ui/Button';
+import { useAppStore } from '@/store/useAppStore';
 
 export const QuizStudio: React.FC = () => {
   const {
@@ -13,7 +14,9 @@ export const QuizStudio: React.FC = () => {
     showExplanation,
     handleSelectOption,
     handleNext,
+    loading,
   } = useQuiz();
+  const { setActiveView } = useAppStore();
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-3xl mx-auto space-y-6 w-full">
@@ -24,7 +27,7 @@ export const QuizStudio: React.FC = () => {
             Adaptive Comprehension Quiz Studio
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
-            Question {currentIndex + 1} of {totalQuestions}
+            {totalQuestions > 0 ? `Question ${currentIndex + 1} of ${totalQuestions}` : 'No Quiz Loaded'}
           </p>
         </div>
         <span className="font-mono text-xs text-secondary bg-secondary/10 px-3 py-1 rounded border border-secondary/30">
@@ -32,65 +35,86 @@ export const QuizStudio: React.FC = () => {
         </span>
       </div>
 
-      {/* Question Card */}
-      <div className="p-6 bg-surface-container-low border border-outline-variant rounded space-y-6">
-        <h4 className="text-sm font-bold text-on-surface leading-relaxed">
-          {currentQuestion.question}
-        </h4>
-
-        {/* Options List */}
-        <div className="space-y-3">
-          {currentQuestion.options.map((opt) => {
-            const isSelected = selectedOptId === opt.id;
-            let borderStyle = 'border-outline-variant hover:border-secondary';
-            let bgStyle = 'bg-surface-container';
-
-            if (showExplanation && isSelected) {
-              if (opt.isCorrect) {
-                borderStyle = 'border-emerald-400';
-                bgStyle = 'bg-emerald-950/40 text-emerald-300';
-              } else {
-                borderStyle = 'border-rose-400';
-                bgStyle = 'bg-rose-950/40 text-rose-300';
-              }
-            } else if (showExplanation && opt.isCorrect) {
-              borderStyle = 'border-emerald-400/60';
-              bgStyle = 'bg-emerald-950/20';
-            }
-
-            return (
-              <div
-                key={opt.id}
-                onClick={() => handleSelectOption(opt)}
-                className={`p-3.5 border rounded text-xs cursor-pointer transition-all ${borderStyle} ${bgStyle}`}
-              >
-                {opt.text}
-              </div>
-            );
-          })}
+      {loading && (
+        <div className="p-12 text-center text-xs text-on-surface-variant font-mono">
+          Generating quiz questions...
         </div>
+      )}
 
-        {/* Explanation Block */}
-        {showExplanation && (
-          <div className="p-4 rounded bg-surface-container-highest border border-secondary/40 text-xs space-y-1">
-            <span className="font-bold text-secondary font-mono block mb-1">
-              Explanation Feedback:
-            </span>
-            <p className="text-on-surface-variant leading-relaxed">
-              {currentQuestion.explanation}
-            </p>
-          </div>
-        )}
+      {!loading && (!currentQuestion || totalQuestions === 0) && (
+        <div className="p-12 border border-dashed border-outline-variant rounded-lg bg-surface-container-low text-center space-y-3">
+          <span className="text-4xl block">🧩</span>
+          <h4 className="font-bold text-sm text-on-surface">No Comprehension Quiz Generated Yet</h4>
+          <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
+            Upload and process a lecture video to generate active recall quiz questions.
+          </p>
+          <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
+            Upload Lecture
+          </Button>
+        </div>
+      )}
 
-        {/* Action Controls */}
-        {showExplanation && currentIndex < totalQuestions - 1 && (
-          <div className="pt-2 flex justify-end">
-            <Button variant="primary" size="md" onClick={handleNext}>
-              Next Question →
-            </Button>
+      {/* Question Card */}
+      {!loading && currentQuestion && (
+        <div className="p-6 bg-surface-container-low border border-outline-variant rounded space-y-6">
+          <h4 className="text-sm font-bold text-on-surface leading-relaxed">
+            {currentQuestion.question}
+          </h4>
+
+          {/* Options List */}
+          <div className="space-y-3">
+            {currentQuestion.options.map((opt) => {
+              const isSelected = selectedOptId === opt.id;
+              let borderStyle = 'border-outline-variant hover:border-secondary';
+              let bgStyle = 'bg-surface-container';
+
+              if (showExplanation && isSelected) {
+                if (opt.isCorrect) {
+                  borderStyle = 'border-emerald-400';
+                  bgStyle = 'bg-emerald-950/40 text-emerald-300';
+                } else {
+                  borderStyle = 'border-rose-400';
+                  bgStyle = 'bg-rose-950/40 text-rose-300';
+                }
+              } else if (showExplanation && opt.isCorrect) {
+                borderStyle = 'border-emerald-400/60';
+                bgStyle = 'bg-emerald-950/20';
+              }
+
+              return (
+                <div
+                  key={opt.id}
+                  onClick={() => handleSelectOption(opt)}
+                  className={`p-3.5 border rounded text-xs cursor-pointer transition-all ${borderStyle} ${bgStyle}`}
+                >
+                  {opt.text}
+                </div>
+              );
+            })}
           </div>
-        )}
-      </div>
+
+          {/* Explanation Block */}
+          {showExplanation && (
+            <div className="p-4 rounded bg-surface-container-highest border border-secondary/40 text-xs space-y-1">
+              <span className="font-bold text-secondary font-mono block mb-1">
+                Explanation Feedback:
+              </span>
+              <p className="text-on-surface-variant leading-relaxed">
+                {currentQuestion.explanation}
+              </p>
+            </div>
+          )}
+
+          {/* Action Controls */}
+          {showExplanation && currentIndex < totalQuestions - 1 && (
+            <div className="pt-2 flex justify-end">
+              <Button variant="primary" size="md" onClick={handleNext}>
+                Next Question →
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

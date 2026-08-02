@@ -84,3 +84,40 @@ def test_media_upload_endpoint():
     res_data = response.json()
     assert "media_id" in res_data
     assert res_data["title"] == "Test Video Title"
+    media_id = res_data["media_id"]
+
+    # Test status endpoint
+    status_resp = client.get(f"/api/v1/media/{media_id}/status")
+    assert status_resp.status_code == 200
+    status_data = status_resp.json()
+    assert status_data["media_id"] == media_id
+
+    # Test transcript endpoint
+    tr_resp = client.get(f"/api/v1/media/{media_id}/transcript")
+    assert tr_resp.status_code == 200
+    tr_data = tr_resp.json()
+    assert tr_data["media_id"] == media_id
+
+def test_media_repository_and_progress_store():
+    from app.application.repositories.media_repository import InMemoryMediaRepository
+    from app.application.events.progress_store import ProgressStore
+    from app.domain.media.entities import MediaItem, ProcessingStatus, MediaType
+
+    repo = InMemoryMediaRepository()
+    store = ProgressStore()
+
+    item = MediaItem(id="m_test", workspace_id="ws1", title="Test", file_path="/tmp/test.mp4", status=ProcessingStatus.PENDING)
+    repo.upsert(item)
+    assert repo.get("m_test").title == "Test"
+
+    repo.update_status("m_test", ProcessingStatus.COMPLETED)
+    assert repo.get("m_test").status == ProcessingStatus.COMPLETED
+
+    segments = [{"start_time": 0.0, "end_time": 5.0, "text": "Hello world"}]
+    repo.save_transcript("m_test", segments)
+    assert repo.get_transcript("m_test") == segments
+
+    snap = store.record_stage_progress("m_test", "audio_extraction", 50, "Extracting audio...")
+    assert snap["overall_progress"] == 50
+    assert store.snapshot("m_test")["current_stage"] == "audio_extraction"
+

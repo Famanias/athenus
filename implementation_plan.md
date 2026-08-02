@@ -1,221 +1,252 @@
-# Implementation Plan: Fix Integration Issues & Full API Connection
+# Implementation Plan — Event-Driven Video Ingestion Pipeline & Real-Time SSE Synchronization
 
-This plan resolves the integration issues identified during manual testing to move the frontend from mock/demo data to full backend integration with our FastAPI server. It preserves Athenus's local-first, offline-capable philosophy.
-
----
-
-## Scope Classification
-
-The four work items are intentionally separated so each type of change can be reviewed, tested, and merged independently.
-
-| # | Work Item | Type |
-|---|-----------|------|
-| 1 | RAG Chat Citation field mapping | Bug Fix |
-| 2 | Workspace Library & Media Transcript | Integration |
-| 3 | Media Upload SSE Stream | Feature Completion |
-| 4 | Provider Settings Persistence | New Backend Capability |
-
-**Section layout:**
-- [Bug Fixes](#bug-fixes)
-- [Integrations](#integrations)
-- [New API Endpoints](#new-api-endpoints)
-- [Shared Infrastructure](#shared-infrastructure)
-- [Error & Offline Behavior](#error-and-offline-behavior)
-- [Verification Plan](#verification-plan)
+Make the video upload → audio extraction (FFmpeg) → speech-to-text (Faster-Whisper) → semantic chunking → vector indexing (Embedded Qdrant) pipeline fully operational and synchronized between backend background workers and the frontend, using an event-driven architecture where **workers emit domain events** and **REST + SSE both consume a single shared progress source**.
 
 ---
 
-## Bug Fixes
+## User Review Required
 
-### Bug 1: RAG Chat Citation Field Mapping
+> [!IMPORTANT]
+> **Architecture guardrail — this plan introduces:**
+> 1. A **repository abstraction** so no API or HTTP code ever touches raw `dict()` storage again.
+> 2. **Application-layer event handlers** — `media.py` stays HTTP-only and never owns domain behavior.
+> 3. A **shared Progress Store** that both `GET /status` (REST) and `GET /stream` (SSE) read from, so there is one source of truth.
+> 4. A richer, replayable event model with **progress, correlation ids, and timestamps**.
 
-#### [MODIFY] `frontend/src/features/chat/useChat.ts`
-The backend returns `CitationDTO` (`chunk_id`, `start_time: float`, `end_time: float`, `text: str`) but the frontend `Citation` model (`mediaId`, `mediaTitle`, `startTime: string`, `endTime: string`, `score`, `textSnippet`) does not align. The root cause is a DTO field + type mismatch:
+---
+
+## 2. Target Architecture
 
 ```text
-Backend CitationDTO                 Frontend Citation
-  start_time: float  ──► map ──►    startTime: "MM:SS"
-  end_time: float    ──► map ──►    endTime: "MM:SS"
-  text: str          ──► map ──►    textSnippet: str
+                  ┌──────────────┐   MediaUploadedEvent /
+Worker (transcript│     EventBus │   TranscriptCompleted / …events
+ & embedding) ────► (in-process) │
+                  └──────┬───────┘
+                         │ publishes
+                         ▼
+            ┌──────────────────────────┐
+            │  Event Handler (application)│   <- decoupled from HTTP
+            │  media_event_handlers.py  │
+            │    └─ Repository.update_status()      STORE
+            │    └─ ProgressStore.record(stage, %)
+            └──────────────┬───────────┘
+                           │
+              ┌────────────┴────────────┐
+              │      MediaRepository          │   Today: dict()
+              │  + Progress Store             │  Later: SQLite / Postgres
+              └────────────┬───────────────T─────▼
+                           │            REST reads repo
+                GET /status │            (always current snapshot)
+                GET /transcript
+                           │
+                           ▼
+                     Progress Store
+                     emits snapshot → SSE
+                           │
+                           ▼
+                       Frontend UI
 ```
 
-Changes:
-- Add a mapper (e.g. `mapBackendCitations()`) that converts `start_time`/`end_time` floats (seconds) to `"MM:SS"` strings, sets `textSnippet` from `text`, and defaults `mediaTitle` to `"Lecture Segment"`.
-- `score` and `mediaId` may be absent from the backend DTO — default `score` to `0` and `mediaId` to the active media id / empty string.
-- Route the fetch response through this mapper instead of assigning `data.citations` directly (line 105).
-
-#### [MODIFY] `frontend/src/features/chat/ChatMessageItem.tsx`
-- Update the citation badge to safely handle optional `mediaTitle`, `mediaId`, `startTime`, and `endTime` (render `⏱ 12:40 - 13:10` only when values exist; fall back gracefully otherwise).
-
-#### Tests
-- Add a unit test (small helper) verifying float→`MM:SS` conversion, e.g. `840.0 → "14:00"`, `12.6 → "00:12"`, and media title fallback.
+**Key invariant:** Workers never touch HTTP or storage directly. They publish domain events. Handlers translate events into (a) repository updates and (b) progress entries. Full synchrony).
 
 ---
 
-## Integrations
+## 3. New Abstraction: `MediaRepository`
 
-### Integration 2: Workspace Library & Media Transcript
-
-> **Design note — no default seeding.** If the workspace/library is empty, it stays empty. The frontend shows an empty state ("No workspaces yet. Upload your first lecture.") rather than the backend silently creating a default workspace. This keeps the backend truthful and avoids hidden side effects.
-
-#### [MODIFY] `frontend/src/features/library/useLibrary.ts`
-- Replace the hardcoded `GET /workspaces/ws_default` call with a real listing call via `libraryApi.getLibrary()` (see [Shared Infrastructure](#shared-infrastructure)).
-- Fetch workspaces + their media assets, then map the backend `MediaItem` shape onto the frontend `MediaAsset` interface.
-- If the workspace list is empty: render an empty-state placeholder instead of falling back to the 3 mock assets.
-- Only fall back to mock data when the backend is genuinely unreachable (see Offline behavior).
-
-#### [MODIFY] `frontend/src/features/video/useVideo.ts`
-- Replace `MOCK_TRANSCRIPT_SEGMENTS` with a call to `GET /api/v1/media/{media_id}/transcript` via `mediaApi.getTranscript(mediaId)`.
-- Map backend `segments` (each with a start time / timestamp and text) onto `TranscriptSegment`.
-- Guard the lookup: if the media has no transcript yet (e.g. still processing), show an explicit "Transcript not ready" state instead of empty content.
-
-#### [MODIFY] `frontend/src/store/useAppStore.ts`
-- The current default `activeWorkspaceId` is `'ws_ml_default'` while the backend serves `'default'` — resolve this mismatch deterministically (e.g. derive active workspace id from the fetched workspace list, or align the default with the backend workspace id).
-
-> Note: The current `WorkspaceService` keeps workspaces in an **in-memory dict** (seed value `default`), not SQLite. Integrations should be built against the real endpoints; persistence hardening is tracked separately (see [Follow-ups](#follow-ups)).
-
-#### Tests
-- Backend: workspace list + transcript endpoints covered by existing pytest route tests.
-- Frontend: typecheck + build (see Verification).
-
----
-
-## New API Endpoints
-
-### API 4: Provider Settings Persistence
-
-> **Design note:** Do **not** place a write endpoint under `/health`. Health endpoints are read-only diagnostics (`GET /health`, `/health/providers`). Configuration is not "health." Provider settings live under a dedicated settings resource.
-
-#### [NEW] `backend/app/presentation/api/v1/settings.py`
-Add a new router exposing provider configuration:
-
-- `GET /api/v1/settings/providers` — read current provider configuration (reuses `ProviderHealthResponse` shape: `default_llm`, `default_stt`, `default_embedding`, `gpu_acceleration`).
-- `PUT /api/v1/settings/providers` — update provider settings from a request body `{ default_llm, default_stt, gpu_acceleration }`, persist, and return the updated config. `PUT` (idempotent) better matches "save configuration" semantics than `POST`.
-- Validate provider values against the `ModelRegistry` so an unknown provider is rejected with `422` rather than silently accepted.
-
-Register the router in `backend/app/main.py`:
+### [NEW] `backend/app/application/repositories/media_repository.py`
+Define a single interface both the workers‑side handlers and the REST endpoints use. HTTP code must **never** reference `in_memory_media_db` / `in_memory_transcripts_db` again.
 
 ```python
-from app.presentation.api.v1.settings import router as settings_router
-app.include_router(settings_router, prefix=settings.API_V1_PREFIX, tags=["Settings"])
+class MediaRepository:
+    def upsert(self, item: MediaItem) -> None: ...
+    def get(self, media_id: str) -> Optional[MediaItem]: ...
+    def update_status(self, media_id: str, status: ProcessingStatus,
+                      error: Optional[str] = None) -> None: ...
+    def save_transcript(self, media_id: str, segments: List[dict]) -> None: ...
+    def get_transcript(self, media_id: str) -> List[dict]: ...
 ```
 
-> The existing `GET /health/providers` stays as a read-only diagnostic. Remove it only if unused.
+- **[NEW] `InMemoryMediaRepository`** — concrete impl backed by `dict()`. This is the *only* code that references dictionaries.
+- Later swap via config/DI to `SqliteMediaRepository`, `PostgresMediaRepository`, etc. — **no API code changes.**
 
-#### [MODIFY] `frontend/src/store/useAppStore.ts`
-- Add settings state: `llmProvider`, `sttProvider`, `gpuAcceleration`, plus actions `setProviderSettings()` and `setProviderAvailability()`.
-
-#### [MODIFY] `frontend/src/features/settings/SystemSettings.tsx`
-- On mount, hydrate the form from `GET /settings/providers`.
-- "Save Configuration" calls the API client `settingsApi.save()` (`PUT /settings/providers`), updates the Zustand store, and shows a success toast.
-- On failure show an error toast and keep the previous state.
-
-#### Tests
-- Backend: pytest covering `GET`/`PUT` round-trip and unknown-provider rejection.
-- Frontend: typecheck + build.
+**Migration in `media.py`:** replace the two module-level dicts with a single `media_repository: MediaRepository = InMemoryMediaRepository()` instance used by all handlers and endpoints.
 
 ---
 
-## Shared Infrastructure
+## 4. Remove Domain Logic From `media.py`
 
-### Centralized API Client (architectural improvement)
+`presentation/api/v1/media.py` becomes **HTTP-only**. It no longer:
+- subscribes to the `EventBus`,
+- mutates `in_memory_media_db`,
+- owns status transitions.
 
-Rather than every hook calling `fetch('http://localhost:8000/...')` directly (currently duplicated in `useChat`, `useLibrary`, `useIngestion`, `useGraph`, `useFlashcards`), introduce a thin services layer:
+### [NEW] `backend/app/application/events/media_event_handlers.py`
+A single module of async handlers that translate domain events into repository/progress updates. Registered at bootstrap (see §6), **not** inside the router.
 
+| Event | Handler effect |
+|-------|----------------|
+| `MediaUploadedEvent` | `repo.update_status(id, UPLOADED)` |
+| `ProcessingStartedEvent` | `repo.update_status(id, AUDIO_EXTRACTION)`; `progress.emit({stage,progress:0,...})` |
+| `StageProgressEvent` | `repo.update_status(id, <current stage>)`; `progress.emit({stage, progress, message})` |
+| `TranscriptCompletedEvent` | `repo.save_transcript(segments)`; `repo.update_status(id, EMBEDDING)`; emit progress |
+| `ChunksIndexedEvent` | `repo.update_status(id, COMPLETED, chunk_count)`; emit `completed` |
+| `ProcessingFailedEvent` | `repo.update_status(id, FAILED, error)`; emit `failed` |
+
+The path for a completed upload:
 ```text
-Feature hooks
-  useChat()      useLibrary()   useIngestion()   useVideo()
-      │               │              │               │
-      ▼               ▼              ▼               ▼
-  chatService    libraryService   mediaService     mediaService
-      └──────────────┬───────────────┴───────────────┘
-                     ▼
-              apiClient (base + fetch + error mapping)
+Worker → EventBus → Handler → Repository → SSE Publisher → Frontend
 ```
 
-- **[NEW] `frontend/src/services/apiClient.ts`** — single fetch wrapper. Exposes the base URL, JSON/error normalization (throw typed `ApiError`), and request logging.
-- **[NEW]** `chat.service.ts`, `library.service.ts`, `media.service.ts`, `settings.service.ts` — one service per domain grouping the related endpoints.
-- This centralizes retries, auth headers, logging, and test mocking.
+---
 
-#### Avoid hardcoded URLs
+## 5. Richer Event Model
 
-Replace every `http://localhost:8000` literal (present in 5 files) with a configured base URL:
+### 5.1 New events (currently missing)
 
-- **[NEW] `frontend/src/config/env.ts`** — `export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';`
-- The api client uses `API_BASE_URL`, so local, hybrid, and cloud deployments all work without code edits.
+- **[NEW] `ProcessingStartedEvent`** — emitted at the top of `transcript_worker.handle_media_uploaded` before any work. Explicitly sets `AUDIO_EXTRACTION`, removing the implicit `PENDING → TRANSCRIBING` inference.
+- **[NEW] `StageProgressEvent`** — carries granular **percentage** progress, so the UI shows live percentages instead of coarse stage flips.
 
+### 5.2 Standardized payloads
+
+Every domain event now carries correlation + progress context via the existing `DomainEvent` (which already has `aggregate_id` and `occurred_at`):
+
+```python
+DomainEvent(
+    event_type="StageProgressEvent",
+    aggregate_id=media_id,          # = media_id
+    payload={
+        "media_id": media_id,
+        "event_id": <ulid/uuid4>,   # [NEW] per-event correlation id
+        "timestamp": <iso8601>,      # source: DomainEvent.occurred_at
+        "stage": "transcription",
+        "progress": 42,
+        "message": "Processing speech..."
+    }
+)
+```
+
+- **Correlation ids:** add `event_id` (and re-use `occurred_at`) to every event so logs/debugging and SSE payloads are fully traceable.
+- **Stage progress:** include `progress` (0–100) and `message` alongside `stage` on `StageProgressEvent` and `ProcessingStartedEvent`.
+
+### 5.3 [NEW] `ProgressStore`
+
+Rather than SSE subscribing directly to the `EventBus`, introduce a small progress store used by **both** REST and SSE:
+
+### [NEW] `backend/app/application/events/progress_store.py`
+```python
+class ProgressStore:
+    def upsert(self: None, media_id: str, stage: str, progress: int,
+               message: str, status: str) -> None: ...
+    def snapshot(self, media_id: str) -> Optional[dict]: ...
+    def is_complete(self, media_id: str) -> bool: ...
+```
+
+- **REST `GET /status`** and **SSE** both read `progress_store.snapshot()`.
+- Reconnected/late SSE clients immediately receive the latest `snapshot` (replay).
+- Multiple front-end clients can observe the same job.
+- Future WebSockets / CLI progress / notifications reuse the same store.
+
+---
+
+## 6. Bootstrapping Subscribers (single place)
+
+### [NEW] `backend/app/bootstrap/event_subscribers.py`
+```python
+def register_media_subscribers(event_bus, repo, progress_store):
+    event_bus.subscribe("MediaUploadedEvent",   lambda e: on_uploaded(e, repo, progress_store))
+    event_bus.subscribe("ProcessingStartedEvent", lambda e: on_started(e, repo, progress_store))
+    event_bus.subscribe("StageProgressEvent",    lambda e: on_progress(e, repo, progress_store))
+    event_bus.subscribe("TranscriptCompletedEvent", lambda e: on_transcript(e, repo, progress_store))
+    event_bus.subscribe("ChunksIndexedEvent",    lambda e: on_indexed(e, repo, progress_store))
+    event_bus.subscribe("ProcessingFailedEvent", lambda e: on_failed(e, repo, progress_store))
+```
+Call this once in `backend/app/main.py` lifespan, alongside `init_db`. **No router imports this; no listeners live in HTTP.**
+
+---
+
+## 7. Backend Changes by File
+
+### [MODIFY] `backend/app/services/workers/transcript_worker.py`
+- Emit `ProcessingStartedEvent` (stage `audio_extraction`) before extraction.
+- Emit `StageProgressEvent` at distinct milestones (e.g. started extraction `25`, audio ready `50`, transcription start `60`).
+- On success, emit `TranscriptCompletedEvent` with `segments = [{"start_time","end_time","text"}]` **plus** `event_id` + `timestamp`.
+
+### [MODIFY] `backend/app/services/workers/embedding_worker.py`
+- Emit `StageProgressEvent` for `chunking` (`chunks: N`) and `embedding`.
+- On upsert, emit `ChunksIndexedEvent` with `chunk_count` + correlation fields.
+
+### [MODIFY] `backend/app/presentation/api/v1/media.py`
+- Remove module-level dicts → use `MediaRepository`.
+- Remove all `EventBus` subscription logic (moved to bootstrap handlers).
+- `POST /media/upload`: write file, `repo.upsert`, then emit `MediaUploadedEvent` (Background task stays).
+- `GET /media/{id}/status`: return `progress_store.snapshot()` (status + error + current progress), always 200 with `state` so late REST calls aren't stale.
+- `GET /media/{id}/transcript`: `repo.get_transcript()`.
+- `GET /media/{id}/stream` (SSE): on connect, **immediately yield the current `progress_store.snapshot()`**, then stream subsequent `StageProgressEvent` / `completed` / `failed` messages as they occur.
+
+### [MODIFY] `backend/app/domain/media/entities.py`
+Align `ProcessingStatus` with the user-visible pipeline stages:
 ```text
-useChat.ts            ──►  chatService.ask()
-useLibrary.ts         ──►  libraryService.getLibrary()
-useVideo.ts           ──►  mediaService.getTranscript()
-useIngestion.ts       ──►  mediaService.upload() + subscribeStream()
-useGraph.ts           ──►  graphService.getPrerequisites()
-useFlashcards.ts      ──►  learningService.getFlashcards()
-SystemSettings.tsx    ──►  settingsService.save()
+UPLOADED → AUDIO_EXTRACTION → TRANSCRIBING → CHUNKING → EMBEDDING → INDEXING → COMPLETED
+```
+- Add a `validate_transition(from, to)` helper laying out both `Retriable` and `Terminal` transitions, even if `retry/cancel/resume` aren't implemented now (define for the future):
+  - `UPLOADED → AUDIO_EXTRACTION → TRANSCRIBING → CHUNKING → EMBEDDING → INDEXING → COMPLETED`
+  - Any non-terminal → `FAILED`.
+  - Allow `FAILED → <stage>` (Retry/Resume) transition.
+
+---
+
+## 8. Frontend Changes
+
+### [MODIFY] `frontend/src/features/ingestion/useIngestion.ts`
+- Parse the richer SSE payload (`stage`, `progress`, `message`, `status`) rather than guessing by `status` string.
+- Update only the *matching stage*'s `progress` percentage, not a full finalize on any event.
+- Drive UI from an explicit state machine `{uploaded, audio_extraction, transcribing, chunking, embedding, indexing, completed, failed}` matching the backend.
+- Handle `onerror`: mark the current stage `failed` with the message (stop fabricating 100% success).
+
+### [MODIFY] `frontend/src/features/ingestion/UploadDropzone.tsx`
+- Render `progress` from SSE per stage (0–100 bar) and the last `message`.
+
+### Existing (no change needed)
+- `services/mediaService.ts` already provides `uploadMedia`, `getTranscript`, `createMediaProcessingStream`, all routed via `apiClient` + `API_BASE_URL` (no hardcoded `localhost`).
+
+---
+
+## 9. Verification Plan
+
+### 9.1 Automated tests (add below)
+```
+cd backend
+python -m pytest tests/test_ingestion_pipeline.py
+python -m pytest
 ```
 
-> This is a refactor; each hook's public interface stays the same so callers (`ChatWorkspace`, `LibraryGrid`, `VideoWorkspace`, etc.) are unaffected.
+**Additional required unit/integration coverage** (from review):
+1. **Worker unit tests** — assert each worker emits the correct domain events on success and on failure (mock `AIServiceBus`, `FFmpegAudioExtractor`, `vector_store`).
+2. **Event-handler tests** — fake `MediaRepository` + `ProgressStore`; assert `StageProgress`, `TranscriptCompleted`, `ChunksIndexed`, `ProcessingFailed` update repo + store.
+3. **SSE integration tests** — use `httpx`/`TestClient`; open the stream, publish events in order, assert payloads + ordering.
+4. **Reconnect tests** — open SSE after processing already started; assert the initial snapshot + subsequent updates are delivered.
+5. **Failure tests** — simulate FFmpeg, Whisper, embedding, and Qdrant failures; assert `FAILED` status + error propagation to REST and SSE.
+
+### 9.2 Frontend
+```bash
+cd frontend
+npx tsc --noEmit
+```
+
+### 9.3 Manual Verification
+1. Launch backend + `npx tauri dev` → Navigate to **Upload Asset** (`view-ingestion`).
+2. Drop a video/audio file into `UploadDropzone`.
+3. Observe live progress transitions: **FFmpeg Audio Extraction → Faster-Whisper → Semantic Chunker → BGE Embedding → Qdrant Upsert → Completed**, with animated 0–100% per stage.
+4. Navigate to **Synchronized Video Player** & **Library** → verify real extracted transcript segments and indexed asset.
+5. **Reconnect test:** open the ingestion page *after* a job has started, confirm the UI immediately shows mid-progress state (snapshot), not a blank/0% page.
+6. **Failure test:** upload a corrupt/non-media file → confirm stage fails, error message surfaces, no fake 100%.
 
 ---
 
-## Error and Offline Behavior
+## 10. Out of Scope / Future States (design acknowledged, not implemented now)
 
-Local-first Athenus means **graceful fallback is core UX**, not an exception. Standardize handling per hook:
-
-| Condition | Behavior |
-|-----------|----------|
-| Backend not running / fetch fails | Fall back to mock/offline data **only where a usable fallback exists** (chat demo answer, sample library). Surface a non-blocking "Backend unavailable" notice. No crashes. |
-| SSE disconnect / stream error | Mark the pipeline stage `failed` and allow retry. Do not silently show 100% completion. |
-| Upload fails | Set `isUploading=false`, mark upload stage `failed`, show error toast with reason. No fake success. |
-| Transcript doesn't exist yet | Show explicit "No transcript ready" empty state, not empty content. |
-| Provider save returns 500 / 422 | Show error toast, keep button enabled, do **not** mutate store. |
-
-Reusable pieces:
-- **[NEW] `frontend/src/services/api/client.ts`** distinguishes "network down" (`TypeError`/fail) from an API error response (has status), so hooks can render the right fallback.
-- **[NEW] `frontend/src/components/ui/BackendUnavailableNotice.tsx`** (or similar) — a dismissible banner that any hook-driven screen can render when the backend is unreachable.
-
-**Empty states** (not silent defaults): render "No workspaces yet — upload your first lecture" and "No transcript for this video yet." The user data stays authoritative.
-
----
-
-## Verification Plan
-
-### Automated Verification
-1. Backend pytest suite:
-   ```bash
-   cd backend
-   pytest
-   ```
-   - Includes new settings router tests + existing route tests.
-2. Frontend typecheck & build:
-   ```bash
-   cd frontend
-   npm run typecheck   # or: npx tsc --noEmit
-   npm run build       # or: npx next build
-   ```
-
-### Manual Verification (happy path)
-1. Launch backend (`python app/main.py`) and frontend desktop app (`npx tauri dev`).
-2. AI Research Assistant chat → confirm citations render as `⏱ 12:40 - 13:10`, never `⏱ - ()`.
-3. Upload a media file in Ingestion pipeline → confirm live SSE progress updates.
-4. AI Models & Providers tab → change provider settings → Save → success toast + backend persisted (verify via `GET /settings/providers`).
-5. Library → upload produces a real workspace/media entry; empty DB shows the empty state.
-
-### Manual Verification (offline / local-first)
-Critical scenario for a local-first app:
-1. **Stop the backend**.
-2. **Launch the frontend**.
-3. Verify:
-   - Shell loads and navigation works.
-   - Mock/fallback data appears where expected (chat demo, sample library).
-   - A "Backend unavailable" notice is shown.
-   - **No crashes, no unhandled errors**, even when opening the settings tab.
-   - Upload attempt fails gracefully (stage marked `failed`, not a fake 100%).
-
----
-
-## Follow-ups (out of scope for this pass)
-- True SQLite persistence for `WorkspaceService` and media status (currently in-memory) so data survives restarts.
-- SSE reconnection + exponential backoff in `mediaService.subscribeStream()`.
-- Auth header propagation for the Tauri IPC bearer token across the API client.
-- Provider availability UI wired to the real backend (`/health/providers`) instead of static select options.
+- `Retry`, `Cancel`, `Resume` actions — state machine defined in §7 so they can be added without rework.
+- Persistence behind `MediaRepository` (SQLite/Postgres/Supabase adapter).
+- WebSockets/CLI progress consumers reusing `ProgressStore`.
+- True event-store persistence (currently in-memory) for full replay across restarts.
+- Per-event durability (Outbox pattern) so event→repo updates can be retried transactionally.

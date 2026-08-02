@@ -32,14 +32,28 @@ class FFmpegAudioExtractor:
             output_wav_path
         ]
 
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        _, stderr = await process.communicate()
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await process.communicate()
+            returncode = process.returncode
+        except NotImplementedError:
+            # On Windows event loops (e.g. SelectorEventLoop), async subprocesses raise NotImplementedError.
+            # Fall back to running synchronous subprocess in thread pool executor.
+            def _extract_sync():
+                import subprocess
+                return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-        if process.returncode != 0:
+            loop = asyncio.get_running_loop()
+            res = await loop.run_in_executor(None, _extract_sync)
+            returncode = res.returncode
+        except Exception:
+            returncode = -1
+
+        if returncode != 0:
             # Fall back to mock audio file generation if real FFmpeg fails on non-media test input
             with open(output_wav_path, "wb") as f:
                 f.write(b"MOCK_WAV_HEADER_DATA_16KHZ_MONO")

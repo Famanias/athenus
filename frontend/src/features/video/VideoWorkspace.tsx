@@ -6,8 +6,28 @@ import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
 
 export const VideoWorkspace: React.FC = () => {
-  const { currentTime, segments, videoRef, seekTo } = useVideo();
-  const { setActiveView } = useAppStore();
+  const { currentTime, segments, mediaSrc, videoRef, seekTo, loading } = useVideo();
+  const { activeMediaId, setActiveView } = useAppStore();
+
+  if (!activeMediaId && segments.length === 0) {
+    return (
+      <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
+        <span className="text-5xl">🎥</span>
+        <h3 className="font-carvist text-xl font-bold text-on-surface">No Lecture Video Selected</h3>
+        <p className="text-xs text-on-surface-variant max-w-md leading-relaxed">
+          Select a lecture video from your library workspace or upload a new media asset to view its synchronized video player and interactive transcript.
+        </p>
+        <div className="flex gap-3 pt-2">
+          <Button variant="secondary" icon="grid_view" onClick={() => setActiveView('view-library')}>
+            Open Library
+          </Button>
+          <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
+            Upload Lecture Video
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex overflow-hidden w-full h-full">
@@ -16,18 +36,18 @@ export const VideoWorkspace: React.FC = () => {
         <div className="flex-1 bg-surface-container-lowest flex flex-col items-center justify-center p-8 text-center space-y-4 relative">
           <video
             ref={videoRef}
+            src={mediaSrc || undefined}
             controls
             className="w-full h-full object-contain rounded border border-outline-variant"
-            poster="https://lh3.googleusercontent.com/aida-public/AB6AXuCR7m0hlwOlm3ndopej37zycr0eQRjmRalljkWoJwvnL2AyO7AIpmqh_WaaGSkqt7Kiyyb5IwsU2dtwhp9BWyYvELU1BppcZSiKERNydycgaERF0CouYzW01MGC-0qgitxFaSMIBCdih54EqmaoORPLGz-vRGu8dLs-QuzDKseAtKeuvSmXSUDrOUjJJ27Ryd5I_TvuxzMe91RHTda5ndYSIFKudteCyrY9ptCDf435YqBxJSCV-ctd"
           />
         </div>
         <div className="p-4 bg-surface-container-low border-t border-outline-variant flex justify-between items-center text-xs">
           <div>
             <h3 className="font-bold text-on-surface text-sm">
-              Lecture 14: Attention Mechanisms in Transformers
+              {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
             </h3>
             <span className="font-mono text-secondary text-xs">
-              Current Time: {currentTime} / 42:15
+              Current Time: {currentTime}
             </span>
           </div>
           <div className="flex gap-2">
@@ -54,7 +74,20 @@ export const VideoWorkspace: React.FC = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar text-xs leading-relaxed">
-          {segments.map((seg) => (
+          {loading && (
+            <div className="p-8 text-center text-xs text-on-surface-variant font-mono">
+              Loading transcript...
+            </div>
+          )}
+
+          {!loading && segments.length === 0 && (
+            <div className="p-8 border border-dashed border-outline-variant rounded bg-surface-container-low text-center space-y-2">
+              <span className="text-2xl block">📄</span>
+              <p className="text-xs text-on-surface-variant">No transcript segments available for this media asset.</p>
+            </div>
+          )}
+
+          {!loading && segments.map((seg) => (
             <div
               key={seg.id}
               onClick={() => seekTo(seg.timestamp)}

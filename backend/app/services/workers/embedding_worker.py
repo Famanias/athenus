@@ -28,45 +28,86 @@ class EmbeddingWorker:
         workspace_id = event.payload.get("workspace_id", "default")
         raw_segments = event.payload.get("segments", [])
 
-        # 1. Convert raw segments into DTOs
-        segment_dtos = [
-            TranscriptSegmentDTO(start_time=s["start_time"], end_time=s["end_time"], text=s["text"])
-            for s in raw_segments
-        ]
+        try:
+            current_stage = "chunking"
+            # 1. Emit StageProgressEvent for chunking
+            await self.event_bus.publish(DomainEvent(
+                event_type="StageProgressEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": workspace_id,
+                    "stage": "chunking",
+                    "progress": 75,
+                    "message": "Generating semantic transcript chunks (~250 words)..."
+                }
+            ))
 
-        # 2. Perform semantic chunking
-        chunks = self.chunker.chunk_transcript(segment_dtos, media_id=media_id, workspace_id=workspace_id)
-        if not chunks:
-            return
+            # 2. Convert raw segments into DTOs
+            segment_dtos = [
+                TranscriptSegmentDTO(start_time=s["start_time"], end_time=s["end_time"], text=s["text"])
+                for s in raw_segments
+            ]
 
-        # 3. Generate embeddings via AI Service Bus
-        embedding_capability = self.ai_service_bus.get_embedding_capability()
-        chunk_texts = [c.text for c in chunks]
-        embeddings = await embedding_capability.embed_texts(chunk_texts)
+            # 3. Perform semantic chunking
+            chunks = self.chunker.chunk_transcript(segment_dtos, media_id=media_id, workspace_id=workspace_id)
+            if not chunks:
+                await self.event_bus.publish(DomainEvent(
+                    event_type="ChunksIndexedEvent",
+                    aggregate_id=media_id,
+                    payload={"media_id": media_id, "workspace_id": workspace_id, "chunk_count": 0}
+                ))
+                return
 
-        # 4. Upsert vectors into Embedded Qdrant
-        point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, c.id)) for c in chunks]
-        payloads = [
-            {
-                "chunk_id": c.id,
-                "media_id": c.media_id,
-                "workspace_id": c.workspace_id,
-                "text": c.text,
-                "start_time": c.start_time,
-                "end_time": c.end_time,
-                "chunk_index": c.chunk_index
-            }
-            for c in chunks
-        ]
-        await self.vector_store.upsert(ids=point_ids, vectors=embeddings, payloads=payloads)
+            current_stage = "vector_indexing"
+            # 4. Emit StageProgressEvent for vector embedding & indexing
+            await self.event_bus.publish(DomainEvent(
+                event_type="StageProgressEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": workspace_id,
+                    "stage": "vector_indexing",
+                    "progress": 90,
+                    "message": f"Embedding {len(chunks)} chunks with SentenceTransformers and upserting into Embedded Qdrant..."
+                }
+            ))
 
-        # 5. Emit ChunksIndexedEvent
-        await self.event_bus.publish(DomainEvent(
-            event_type="ChunksIndexedEvent",
-            aggregate_id=media_id,
-            payload={
-                "media_id": media_id,
-                "workspace_id": workspace_id,
-                "chunk_count": len(chunks)
-            }
-        ))
+            # 5. Generate embeddings via AI Service Bus
+            embedding_capability = self.ai_service_bus.get_embedding_capability()
+            chunk_texts = [c.text for c in chunks]
+            embeddings = await embedding_capability.embed_texts(chunk_texts)
+
+            # 6. Upsert vectors into Embedded Qdrant
+            point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, c.id)) for c in chunks]
+            payloads = [
+                {
+                    "chunk_id": c.id,
+                    "media_id": c.media_id,
+                    "workspace_id": c.workspace_id,
+                    "text": c.text,
+                    "start_time": c.start_time,
+                    "end_time": c.end_time,
+                    "chunk_index": c.chunk_index
+                }
+                for c in chunks
+            ]
+            await self.vector_store.upsert(ids=point_ids, vectors=embeddings, payloads=payloads)
+
+            # 7. Emit ChunksIndexedEvent
+            await self.event_bus.publish(DomainEvent(
+                event_type="ChunksIndexedEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": workspace_id,
+                    "chunk_count": len(chunks)
+                }
+            ))
+        except Exception as e:
+            err_msg = str(e).strip() or repr(e)
+            await self.event_bus.publish(DomainEvent(
+                event_type="ProcessingFailedEvent",
+                aggregate_id=media_id,
+                payload={"media_id": media_id, "stage": current_stage, "error": err_msg}
+            ))

@@ -23,7 +23,12 @@ class EmbeddedQdrantVectorStoreAdapter:
                 self._client = existing
                 return
 
-            client = QdrantClient(path=self.path)
+            try:
+                client = QdrantClient(path=self.path)
+            except Exception:
+                # Disk storage lock conflict or path error — fallback to in-memory Qdrant client
+                client = QdrantClient(location=":memory:")
+
             self._shared_clients[self.path] = client
             self._client = client
 

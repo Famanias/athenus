@@ -5,7 +5,7 @@ import { useGraph } from './useGraph';
 import { Button } from '@/components/ui/Button';
 
 export const KnowledgeGraphCanvas: React.FC = () => {
-  const { nodes, selectedNode, setSelectedNode } = useGraph();
+  const { nodes, selectedNode, setSelectedNode, loading } = useGraph();
 
   return (
     <div className="flex-1 flex overflow-hidden w-full h-full">
@@ -35,38 +35,56 @@ export const KnowledgeGraphCanvas: React.FC = () => {
             <div className="absolute w-[480px] h-[480px] border border-secondary/15 rounded-full animate-[spin_40s_linear_infinite_reverse]" />
           </div>
 
+          {loading && (
+            <div className="relative z-10 p-8 text-center text-xs text-on-surface-variant font-mono">
+              Analyzing concept relationships...
+            </div>
+          )}
+
+          {!loading && nodes.length === 0 && (
+            <div className="relative z-10 p-8 text-center space-y-3 max-w-sm">
+              <span className="text-4xl block">🕸</span>
+              <h4 className="font-bold text-sm text-on-surface">No Concept Nodes Mapped</h4>
+              <p className="text-xs text-on-surface-variant">
+                Upload and process video lectures to automatically extract concepts and construct your workspace knowledge graph.
+              </p>
+            </div>
+          )}
+
           {/* Node Grid Elements */}
-          <div className="relative z-10 grid grid-cols-2 gap-8 max-w-2xl w-full">
-            {nodes.map((node) => {
-              const isSelected = selectedNode?.id === node.id;
-              return (
-                <div
-                  key={node.id}
-                  onClick={() => setSelectedNode(node)}
-                  className={`p-4 rounded-lg border transition-all cursor-pointer space-y-2 ${
-                    isSelected
-                      ? 'bg-surface-container-high border-secondary ring-2 ring-secondary/40 shadow-lg scale-105'
-                      : 'bg-surface-container border-outline-variant hover:border-secondary/60'
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-mono text-[10px] text-secondary font-semibold uppercase">
-                      {node.type}
-                    </span>
-                    <span className="text-[10px] font-mono text-on-surface-variant/60">
-                      🎥 {node.videoCount} Videos
-                    </span>
+          {!loading && nodes.length > 0 && (
+            <div className="relative z-10 grid grid-cols-2 gap-8 max-w-2xl w-full">
+              {nodes.map((node) => {
+                const isSelected = selectedNode?.id === node.id;
+                return (
+                  <div
+                    key={node.id}
+                    onClick={() => setSelectedNode(node)}
+                    className={`p-4 rounded-lg border transition-all cursor-pointer space-y-2 ${
+                      isSelected
+                        ? 'bg-surface-container-high border-secondary ring-2 ring-secondary/40 shadow-lg scale-105'
+                        : 'bg-surface-container border-outline-variant hover:border-secondary/60'
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="font-mono text-[10px] text-secondary font-semibold uppercase">
+                        {node.type}
+                      </span>
+                      <span className="text-[10px] font-mono text-on-surface-variant/60">
+                        🎥 {node.videoCount} Videos
+                      </span>
+                    </div>
+                    <h4 className="font-bold text-xs text-on-surface">
+                      {node.label}
+                    </h4>
+                    <p className="text-[11px] text-on-surface-variant/70 line-clamp-2">
+                      {node.description}
+                    </p>
                   </div>
-                  <h4 className="font-bold text-xs text-on-surface">
-                    {node.label}
-                  </h4>
-                  <p className="text-[11px] text-on-surface-variant/70 line-clamp-2">
-                    {node.description}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

@@ -2,9 +2,12 @@
 
 import React, { useState } from 'react';
 import { useFlashcards } from './useFlashcards';
+import { Button } from '@/components/ui/Button';
+import { useAppStore } from '@/store/useAppStore';
 
 export const FlashcardGrid: React.FC = () => {
-  const { cards } = useFlashcards();
+  const { cards, loading } = useFlashcards();
+  const { setActiveView } = useAppStore();
   const [flippedMap, setFlippedMap] = useState<Record<string, boolean>>({});
 
   const toggleFlip = (id: string) => {
@@ -28,48 +31,69 @@ export const FlashcardGrid: React.FC = () => {
         </span>
       </div>
 
-      {/* Card Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {cards.map((card) => {
-          const isFlipped = !!flippedMap[card.id];
-          return (
-            <div
-              key={card.id}
-              onClick={() => toggleFlip(card.id)}
-              className={`flashcard-box ${isFlipped ? 'flipped' : ''}`}
-            >
-              <div className="flashcard-inner">
-                {/* Question Front */}
-                <div className="flashcard-front">
-                  <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
-                    {card.category}
-                  </span>
-                  <p className="text-xs font-semibold text-center my-auto text-on-surface leading-relaxed">
-                    {card.question}
-                  </p>
-                  <span className="text-[10px] text-on-surface-variant/50 font-mono text-center">
-                    Click to flip 🔄
-                  </span>
-                </div>
+      {loading && (
+        <div className="p-12 text-center text-xs text-on-surface-variant font-mono">
+          Loading flashcard deck...
+        </div>
+      )}
 
-                {/* Answer Back */}
-                <div className="flashcard-back">
-                  <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
-                    ANSWER & RECALL
-                  </span>
-                  <p className="text-xs font-mono font-semibold text-center my-auto leading-relaxed">
-                    {card.answer}
-                  </p>
-                  <div className="text-[10px] font-mono text-secondary text-center flex justify-between pt-2 border-t border-secondary/30">
-                    <span>Ease: {card.easeFactor}</span>
-                    <span>Due: {card.dueDate}</span>
+      {!loading && cards.length === 0 && (
+        <div className="p-12 border border-dashed border-outline-variant rounded-lg bg-surface-container-low text-center space-y-3">
+          <span className="text-4xl block">🎴</span>
+          <h4 className="font-bold text-sm text-on-surface">No Flashcards in Active Deck</h4>
+          <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
+            Upload and process a lecture video to generate active recall flashcards with Anki SM-2 spaced repetition schedules.
+          </p>
+          <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
+            Upload Lecture
+          </Button>
+        </div>
+      )}
+
+      {/* Card Grid */}
+      {!loading && cards.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {cards.map((card) => {
+            const isFlipped = !!flippedMap[card.id];
+            return (
+              <div
+                key={card.id}
+                onClick={() => toggleFlip(card.id)}
+                className={`flashcard-box ${isFlipped ? 'flipped' : ''}`}
+              >
+                <div className="flashcard-inner">
+                  {/* Question Front */}
+                  <div className="flashcard-front">
+                    <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
+                      {card.category}
+                    </span>
+                    <p className="text-xs font-semibold text-center my-auto text-on-surface leading-relaxed">
+                      {card.question}
+                    </p>
+                    <span className="text-[10px] text-on-surface-variant/50 font-mono text-center">
+                      Click to flip 🔄
+                    </span>
+                  </div>
+
+                  {/* Answer Back */}
+                  <div className="flashcard-back">
+                    <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
+                      ANSWER & RECALL
+                    </span>
+                    <p className="text-xs font-mono font-semibold text-center my-auto leading-relaxed">
+                      {card.answer}
+                    </p>
+                    <div className="text-[10px] font-mono text-secondary text-center flex justify-between pt-2 border-t border-secondary/30">
+                      <span>Ease: {card.easeFactor}</span>
+                      <span>Due: {card.dueDate}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

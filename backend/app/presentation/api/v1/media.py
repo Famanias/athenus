@@ -1,19 +1,22 @@
 import asyncio
+import json
 import os
 import uuid
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+
+from app.application.events.progress_store import progress_store
+from app.application.repositories.media_repository import InMemoryMediaRepository, MediaRepository
 from app.core.config import settings
-from app.domain.media.entities import MediaItem, ProcessingStatus, MediaType
-from app.infrastructure.events.event_bus import event_bus, DomainEvent
+from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
+from app.infrastructure.events.event_bus import DomainEvent, event_bus
 
 router = APIRouter()
 
-# In-memory store for status tracking during development
-in_memory_media_db: Dict[str, MediaItem] = {}
-in_memory_transcripts_db: Dict[str, List[Dict[str, Any]]] = {}
+# Global repository instance
+media_repository: MediaRepository = InMemoryMediaRepository()
 
 class MediaUploadResponse(BaseModel):
     media_id: str
@@ -24,6 +27,8 @@ class MediaUploadResponse(BaseModel):
 class MediaStatusResponse(BaseModel):
     media_id: str
     status: str
+    overall_progress: int = 0
+    message: str = ""
     error_message: Optional[str] = None
 
 class TranscriptResponse(BaseModel):
@@ -55,13 +60,11 @@ async def upload_media(
         file_path=file_location,
         media_type=MediaType.VIDEO,
         file_size_bytes=len(content),
-        status=ProcessingStatus.PENDING
+        status=ProcessingStatus.UPLOADED
     )
-    in_memory_media_db[media_id] = media_item
+    media_repository.upsert(media_item)
 
-    # Emit MediaUploadedEvent asynchronously
     async def trigger_event():
-        media_item.status = ProcessingStatus.TRANSCRIBING
         await event_bus.publish(DomainEvent(
             event_type="MediaUploadedEvent",
             aggregate_id=media_id,
@@ -83,18 +86,22 @@ async def upload_media(
 
 @router.get("/media/{media_id}/status", response_model=MediaStatusResponse)
 def get_media_status(media_id: str):
-    item = in_memory_media_db.get(media_id)
+    item = media_repository.get(media_id)
     if not item:
         raise HTTPException(status_code=404, detail="Media item not found")
+    
+    snap = progress_store.snapshot(media_id) or {}
     return MediaStatusResponse(
         media_id=item.id,
         status=item.status.value,
-        error_message=item.error_message
+        overall_progress=snap.get("overall_progress", 100 if item.status == ProcessingStatus.COMPLETED else 0),
+        message=snap.get("message", f"Status: {item.status.value}"),
+        error_message=item.error_message or snap.get("error")
     )
 
 @router.get("/media/{media_id}/transcript", response_model=TranscriptResponse)
 def get_transcript(media_id: str):
-    segments = in_memory_transcripts_db.get(media_id, [])
+    segments = media_repository.get_transcript(media_id)
     full_text = " ".join([s.get("text", "") for s in segments])
     return TranscriptResponse(
         media_id=media_id,
@@ -102,14 +109,46 @@ def get_transcript(media_id: str):
         segments=segments
     )
 
+@router.get("/media/{media_id}/file")
+def get_media_file(media_id: str):
+    """Serve the uploaded media file for playback in the video workspace."""
+    item = media_repository.get(media_id)
+    if not item or not item.file_path:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if not os.path.exists(item.file_path):
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+    return FileResponse(item.file_path, filename=os.path.basename(item.file_path))
+
 @router.get("/media/{media_id}/stream")
 async def stream_media_processing_events(media_id: str):
-    """Server-Sent Events (SSE) endpoint for live media processing updates."""
+    """Server-Sent Events (SSE) endpoint emitting real-time stage progress updates."""
     async def event_generator():
-        yield f"data: {{'media_id': '{media_id}', 'status': 'processing'}}\n\n"
-        await asyncio.sleep(1)
-        item = in_memory_media_db.get(media_id)
-        status_val = item.status.value if item else "completed"
-        yield f"data: {{'media_id': '{media_id}', 'status': '{status_val}'}}\n\n"
+        queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+
+        # Replay latest snapshot immediately if present
+        initial_snap = progress_store.snapshot(media_id)
+        if initial_snap:
+            yield f"data: {json.dumps(initial_snap)}\n\n"
+            if initial_snap.get("status") in ("completed", "failed"):
+                return
+
+        def listener(m_id: str, snapshot: Dict[str, Any]):
+            if m_id == media_id:
+                queue.put_nowait(snapshot)
+
+        unsubscribe = progress_store.subscribe(listener)
+
+        try:
+            while True:
+                try:
+                    snap = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(snap)}\n\n"
+                    if snap.get("status") in ("completed", "failed"):
+                        break
+                except asyncio.TimeoutError:
+                    # Heartbeat ping to keep connection alive
+                    yield ": ping\n\n"
+        finally:
+            unsubscribe()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

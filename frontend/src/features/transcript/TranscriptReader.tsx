@@ -3,9 +3,11 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
+import { useVideo } from '@/features/video/useVideo';
 
 export const TranscriptReader: React.FC = () => {
-  const { setCurrentTime, setActiveView } = useAppStore();
+  const { setCurrentTime, setActiveView, activeMediaId } = useAppStore();
+  const { segments, loading } = useVideo();
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
 
   const handleTimestampClick = (timeStr: string) => {
@@ -22,7 +24,7 @@ export const TranscriptReader: React.FC = () => {
             Full Document Transcript Reader
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
-            Lecture 14 • Advanced AI Foundations • 1,420 Words
+            {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Document Transcript'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -42,57 +44,40 @@ export const TranscriptReader: React.FC = () => {
       </div>
 
       {/* Paragraph Document Body */}
-      <div className="p-8 bg-surface-container-low border border-outline-variant rounded space-y-6 text-xs leading-relaxed text-on-surface-variant">
-        <div className="space-y-2">
-          <span
-            onClick={() => handleTimestampClick('00:15')}
-            className="text-secondary font-mono font-semibold cursor-pointer hover:underline"
-          >
-            ⏱ 00:15
-          </span>
-          <p>
-            In today&apos;s session, we are diving deep into{' '}
-            <span className="gold-highlight">Transformers</span> and why their attention mechanism redefined how we think about{' '}
-            <span className="gold-highlight">Contextual Embeddings</span>. The primary innovation was not just parallelization, but dynamic query-key matrix dot products.
-          </p>
+      {loading && (
+        <div className="p-12 text-center text-xs text-on-surface-variant font-mono">
+          Loading transcript segments...
         </div>
+      )}
 
-        <div className="space-y-2">
-          <span
-            onClick={() => handleTimestampClick('05:15')}
-            className="text-secondary font-mono font-semibold cursor-pointer hover:underline"
-          >
-            ⏱ 05:15
-          </span>
-          <p>
-            Consider the <span className="gold-highlight">Attention Is All You Need</span> paper. Before this, we relied heavily on Recurrent Neural Networks which suffered from vanishing gradient degradation in long sequences. Self-attention allows every token to attend to every other token.
+      {!loading && segments.length === 0 && (
+        <div className="p-12 border border-dashed border-outline-variant rounded-lg bg-surface-container-low text-center space-y-3">
+          <span className="text-4xl block">📄</span>
+          <h4 className="font-bold text-sm text-on-surface">No Document Transcript Found</h4>
+          <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
+            Upload a video or audio file to transcribe and view full lecture transcripts.
           </p>
+          <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
+            Upload Lecture
+          </Button>
         </div>
+      )}
 
-        <div className="space-y-2">
-          <span
-            onClick={() => handleTimestampClick('12:40')}
-            className="text-secondary font-mono font-semibold cursor-pointer hover:underline"
-          >
-            ⏱ 12:40
-          </span>
-          <p>
-            By using <span className="gold-highlight">sqrt(d_k)</span> as a scaling factor, we prevent the dot products from growing excessively large for high dimensions. This keeps the <span className="gold-highlight">Softmax gradients</span> stable during backpropagation.
-          </p>
+      {!loading && segments.length > 0 && (
+        <div className="p-8 bg-surface-container-low border border-outline-variant rounded space-y-6 text-xs leading-relaxed text-on-surface-variant">
+          {segments.map((seg) => (
+            <div key={seg.id} className="space-y-2">
+              <span
+                onClick={() => handleTimestampClick(seg.timestamp)}
+                className="text-secondary font-mono font-semibold cursor-pointer hover:underline"
+              >
+                ⏱ {seg.timestamp}
+              </span>
+              <p className="text-on-surface-variant">{seg.text}</p>
+            </div>
+          ))}
         </div>
-
-        <div className="space-y-2">
-          <span
-            onClick={() => handleTimestampClick('18:20')}
-            className="text-secondary font-mono font-semibold cursor-pointer hover:underline"
-          >
-            ⏱ 18:20
-          </span>
-          <p>
-            Positional encodings inject positional ordering into token embeddings via sinusoidal functions of varying frequencies, preserving sequential relationships without recurrent loops.
-          </p>
-        </div>
-      </div>
+      )}
     </div>
   );
 };
