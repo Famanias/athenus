@@ -12,8 +12,9 @@ export const Sidebar: React.FC = () => {
       {/* Brand Header */}
       <div className="p-4 flex items-center justify-between border-b border-outline-variant/50">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-secondary rounded flex items-center justify-center text-on-secondary font-bold font-carvist">
-            🦉
+          <div className="w-8 h-8 rounded flex items-center justify-center overflow-hidden shrink-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.png" alt="Athenus" className="w-full h-full object-contain" />
           </div>
           <div>
             <h1 className="font-bold text-lg font-carvist text-on-surface tracking-tight leading-none">

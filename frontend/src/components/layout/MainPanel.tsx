@@ -6,7 +6,7 @@ interface MainPanelProps {
 
 export const MainPanel: React.FC<MainPanelProps> = ({ children }) => {
   return (
-    <div className="flex-1 flex overflow-hidden relative bg-background">
+    <div className="flex-1 min-h-0 flex overflow-auto relative bg-background">
       {children}
     </div>
   );

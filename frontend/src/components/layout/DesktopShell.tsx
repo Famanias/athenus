@@ -28,7 +28,7 @@ export const DesktopShell: React.FC = () => {
       <Sidebar />
 
       {/* Workspace Area */}
-      <main className="ml-sidebar-width flex-1 flex flex-col h-screen relative bg-background">
+      <main className="ml-sidebar-width flex-1 min-w-0 flex flex-col h-full bg-background">
         {/* Top App Bar */}
         <TopToolbar />
 
@@ -52,7 +52,7 @@ export const DesktopShell: React.FC = () => {
                 Feature Under Construction
               </h3>
               <p className="text-xs text-on-surface-variant max-w-md">
-                This Athena capability is currently under active construction. Stay tuned for future release updates!
+                This Athenus capability is currently under active construction. Stay tuned for future release updates!
               </p>
             </div>
           )}

@@ -2,10 +2,10 @@ import React from 'react';
 import { useAppStore } from '@/store/useAppStore';
 
 export const TopToolbar: React.FC = () => {
-  const { setCmdPaletteOpen, setActiveView } = useAppStore();
+  const { setCmdPaletteOpen } = useAppStore();
 
   return (
-    <header className="flex justify-between items-center w-full px-6 h-14 z-50 bg-background border-b border-outline-variant shrink-0">
+    <header className="shrink-0 flex justify-between items-center w-full px-6 h-14 z-50 bg-background border-b border-outline-variant">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 bg-surface-container-high px-3 py-1 rounded border border-outline-variant cursor-pointer">
           <span className="material-symbols-outlined text-secondary text-sm">psychology</span>
@@ -41,24 +41,7 @@ export const TopToolbar: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          className="material-symbols-outlined p-1.5 rounded-full hover:bg-surface-variant text-on-surface-variant text-sm"
-          title="Notifications"
-        >
-          notifications
-        </button>
-        <button
-          className="material-symbols-outlined p-1.5 rounded-full hover:bg-surface-variant text-on-surface-variant text-sm"
-          title="Settings"
-          onClick={() => setActiveView('view-settings')}
-        >
-          settings
-        </button>
-        <div className="w-7 h-7 rounded-full bg-secondary-container border border-secondary flex items-center justify-center text-on-secondary-container font-bold text-xs">
-          JD
-        </div>
-      </div>
+
     </header>
   );
 };

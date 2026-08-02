@@ -58,14 +58,14 @@ export const ChatWorkspace: React.FC = () => {
             onKeyDown={handleKeyDown}
             disabled={isGenerating}
             className="flex-1 bg-surface-container border border-outline-variant rounded px-4 py-2.5 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:border-secondary focus:outline-none disabled:opacity-50"
-            placeholder="Ask Athena a question or request a concept breakdown..."
+            placeholder="Ask Athenus a question or request a concept breakdown..."
           />
           <Button
             variant="primary"
             onClick={() => sendMessage()}
             disabled={isGenerating || !inputQuery.trim()}
           >
-            {isGenerating ? 'Thinking...' : 'Ask Athena'}
+            {isGenerating ? 'Thinking...' : 'Ask Athenus'}
           </Button>
         </div>
       </div>
