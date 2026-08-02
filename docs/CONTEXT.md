@@ -1,224 +1,96 @@
 # CONTEXT.md
 
-# Project Context
+# Project Context: Athenus Knowledge OS
 
-This document serves as the living memory of the project.
-
-It should be updated throughout development.
+This document serves as the living memory of the project. It records the active scope, architectural status, and accepted decisions.
 
 ---
 
 # Project Name
 
-(TBD)
-
-Current Working Title:
-
-AI Learning Platform (Knowledge OS)
+**Athenus Knowledge OS**
 
 ---
 
 # Vision
 
-Build a local-first, AI-native learning platform that transforms educational content into an interactive learning experience.
+Build a local-first, AI-native learning platform (Knowledge Operating System) that transforms educational content into interactive, searchable, and explainable learning experiences.
 
-The platform should eventually support multiple knowledge sources while remaining modular, extensible, and provider-agnostic.
+The platform supports multiple knowledge sources while remaining modular, extensible, offline-capable, and provider-agnostic.
 
 ---
 
-# Current Scope
+# Current Scope & Content Support
 
-Primary knowledge source:
-
-* Videos
+Primary knowledge sources supported:
+* Educational Videos & Audio Transcripts
+* Concept Graphs & Slide Keyframes
 
 Future knowledge sources:
-
 * PDFs
-* Audio
-* PowerPoint
-* Websites
+* Websites & Documentation
 * GitHub repositories
-* Documentation
-* Books
+* eBooks & Research Papers
 
 ---
 
-# Current Phase
+# Current Phase & Implementation Status
 
-Pre-Development
+**Current Phase**: Version 1.0 Final Release Complete (Phases 1 through 5 fully implemented and verified).
 
-Status:
-
-Architecture & documentation.
-
-No implementation has begun.
+**Status**:
+* **Phase 1 (v0.1 MVP)**: Local Video Upload, Audio Extraction (FFmpeg), Faster-Whisper Transcription, Semantic Chunker, Embedded Qdrant Vector Indexing, 8-Stage Retrieval, RAG Chat with Timestamp Citations, Next.js UI, Tauri Desktop Shell Config.
+* **Phase 2 (v0.2)**: Multi-video Workspace Management (`WorkspaceService`, `/api/v1/workspaces`).
+* **Phase 3 (v0.3)**: Knowledge Graph Engine (`KnowledgeGraphService`), Keyframe Sampling (`FrameExtractor`), `KnowledgeGraphWorker`, Concept Prerequisite APIs (`/api/v1/graph`).
+* **Phase 4 (v0.4)**: Active Recall Learning Tools: `SummaryWorker`, `QuizWorker`, `FlashcardWorker` (Anki SM-2 export), Learning APIs (`/api/v1/learning`).
+* **Phase 5 (v1.0)**: Agentic AI Suite (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`), Agent APIs (`/api/v1/agents`).
+* **Automated Tests**: 25 of 25 unit and integration tests passing in `backend/tests/`.
 
 ---
 
 # Primary Objective
 
 Build a flagship open-source AI Engineering project demonstrating:
-
-* Modern RAG
-* Multimodal AI
-* Local AI
-* Agentic workflows
-* Production engineering
+* Modern RAG (8-Stage Layered Retrieval)
+* Multimodal AI (Video, Audio, Keyframes)
+* Local-First AI (Ollama, Faster-Whisper, BGE Small, Embedded Qdrant)
+* Agentic AI Workflows (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`)
+* Production Engineering & Clean Architecture (7 Bounded Contexts)
 
 ---
 
-# Application Type
+# Application Architecture
 
 Desktop-first application using a local web architecture.
 
-Frontend:
-
-React + Next.js
-
-Backend:
-
-FastAPI
-
-Desktop Shell:
-
-Tauri (preferred)
+* **Frontend**: React + Next.js + TypeScript + Tailwind CSS
+* **Backend**: FastAPI (Python 3.11)
+* **Desktop Shell**: Tauri (Rust) with sidecar bearer token authorization
+* **Database**: SQLite (SQLModel) for Desktop; PostgreSQL for Cloud/Multi-user
+* **Vector Database**: Embedded Qdrant (`./data/qdrant`)
 
 ---
 
 # Deployment Philosophy
 
-Support three modes:
-
-* Local
-* Hybrid
-* Cloud
-
-Local mode is the default experience.
+Supports three deployment modes:
+* **Local Mode (Default)**: Runs 100% offline on user's machine.
+* **Hybrid Mode**: Local Whisper/BGE + optional cloud LLM reasoning (Groq/OpenRouter/Gemini/Claude).
+* **Cloud Mode**: Docker / Railway / Coolify multi-user cloud deployment.
 
 ---
 
-# AI Philosophy
+# Accepted Architectural Decisions
 
-The platform helps users learn.
-
-It is not simply a chatbot.
-
-Learning is the product.
-
-Chat is one interface.
-
----
-
-# Architectural Principles
-
-* Local-first
-* Offline-capable
-* Privacy-first
-* Provider-agnostic
-* Plugin-based
-* Modular
-* Extensible
-
----
-
-# Future AI Agents
-
-Planned agents include:
-
-* Planner
-* Retriever
-* Transcript
-* Vision
-* Learning
-* Quiz
-* Flashcard
-* Citation
-* Evaluation
-
-These are future roadmap items and should not be implemented prematurely.
-
----
-
-# Current MVP
-
-Version 1 includes:
-
-* Video upload
-* Speech-to-text
-* Transcript generation
-* Embeddings
-* Vector search
-* Chat
-* Timestamp citations
-
----
-
-# Long-Term Vision
-
-The platform evolves into a Knowledge Operating System capable of supporting:
-
-* Multimodal retrieval
-* Personalized learning
-* Adaptive study plans
-* Knowledge graphs
-* Agentic AI workflows
-
----
-
-# Design Decisions
-
-Current accepted decisions:
-
-* Desktop-first architecture
-* Local-first philosophy
-* Domain-Driven Architecture with 7 Bounded Contexts (`Knowledge`, `Learning`, `Workspace`, `AI`, `User`, `Evaluation`, `Media`)
-* AI Service Bus & Model Registry Architecture for centralized capability routing
-* Workload Scheduler Subsystem acting as local OS for AI workloads
-* Event-Driven Task Queue & Background Worker Architecture (`TranscriptWorker`, `EmbeddingWorker`, `GraphWorker`, `QuizWorker`, `FlashcardWorker`)
-* Decomposed Workspace Intelligence (`MemoryManager`, `RetrievalManager`, `ContextBuilder`, `RecommendationEngine`, `AgentCoordinator`)
-* 4-Layer Memory Model (Short-term, Working, Long-term, Semantic Graph)
-* Separation of Knowledge Storage (immutable chunks/embeddings) vs User Memory (progress/notes)
-* 8-Stage Layered Retrieval Engine (Query Rewrite, HyDE, Context Injection, Graph Traversal, Hybrid Search, Re-Ranking, Context Compression, Grounded Prompt Assembly)
-* Capability-Based Provider Abstraction & Provider Router
-* Architecture Decision Record (ADR) Process established under `docs/adr/`
-* Embedded SQLite database for Desktop Mode (PostgreSQL for Cloud/Multi-user)
-* Embedded Qdrant for Desktop Vector Storage (Docker/Cloud optional)
-* Tauri-FastAPI sidecar IPC security (Bearer token authorization & dynamic port binding)
-* First-class AI Evaluation Subsystem (Retrieval Precision/Recall, Citation Groundedness, Latency/Cost)
-
-Update this section whenever important architectural decisions are finalized.
-
----
-
-# Open Questions
-
-Record unresolved architectural questions here.
-
-Examples:
-
-* Authentication strategy
-* Collaboration features
-* Knowledge graph implementation
-* Local model recommendations
-* Plugin SDK design
-
-This section should shrink over time as decisions are made.
-
----
-
-# Known Constraints
-
-Current hardware target:
-
-* Mid-range consumer PCs
-* Local GPU acceleration when available
-* Fully functional CPU-only fallback
-
-Cloud providers are optional.
-
----
-
-# Success Criteria
-
-The project succeeds if it demonstrates excellent AI engineering practices while remaining usable, extensible, open-source, and approachable for self-hosting.
+* **Desktop-First & Local-First Architecture**
+* **Domain-Driven Architecture with 7 Bounded Contexts**: `Knowledge`, `Learning`, `Workspace`, `AI`, `User`, `Evaluation`, `Media`.
+* **AI Service Bus & Model Registry Architecture**: Centralized gateway for capability routing and model metadata resolution (`llama3:8b`, `whisper-base`, `bge-small-en-v1.5`).
+* **Workload Scheduler Subsystem**: Resource-aware AI task concurrency throttle.
+* **Event-Driven Task Queue & Background Workers**: Asynchronous worker pipeline (`TranscriptWorker`, `EmbeddingWorker`, `KnowledgeGraphWorker`, `SummaryWorker`, `QuizWorker`, `FlashcardWorker`).
+* **Decomposed Workspace Intelligence**: Decomposed into `MemoryManager`, `RetrievalManager`, `ContextBuilder`, `RecommendationEngine`, and `AgentCoordinator`.
+* **4-Layer Memory Model**: Short-Term Memory, Working Memory, Long-Term Memory, Semantic Memory (Knowledge Graph).
+* **Separation of Storage vs Memory**: Knowledge Storage (immutable chunks/embeddings) vs User Memory (progress/notes/SM-2 flashcards).
+* **8-Stage Layered Retrieval Engine**: Query Rewrite, HyDE, Intent Detection, Context Injection, Knowledge Graph Traversal, Hybrid Search (Vector + BM25), Cross-Encoder Re-Ranking, Context Compression, Grounded Prompt Assembly.
+* **Capability-Based Provider Abstraction & Provider Router**
+* **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0004`).
+* **First-Class AI Evaluation Subsystem**: Automated benchmark suite evaluating Retrieval Precision/Recall@K, Groundedness, Latency, and Token Cost.

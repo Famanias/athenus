@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     DEEPGRAM_API_KEY: Optional[str] = None
 
     class Config:
-        env_file = ".env"
+        env_file = (".env", "../.env")
         case_sensitive = True
 
 settings = Settings()

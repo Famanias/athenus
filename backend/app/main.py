@@ -4,12 +4,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.infrastructure.db.session import init_db
 from app.presentation.api.v1.health import router as health_router
+from app.presentation.api.v1.media import router as media_router
+from app.presentation.api.v1.chat import router as chat_router
+from app.presentation.api.v1.workspaces import router as workspaces_router
+from app.presentation.api.v1.knowledge_graph import router as graph_router, graph_service
+from app.presentation.api.v1.learning import router as learning_router
+from app.presentation.api.v1.agents import router as agents_router
+import app.presentation.api.v1.chat as chat_module
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.ai.provider_router import ProviderRouter
 from app.domain.ai.service_bus import AIServiceBus
+from app.infrastructure.events.event_bus import event_bus
 from app.infrastructure.adapters.ollama_adapter import OllamaTextGenAdapter
 from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
 from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
+from app.services.workers.transcript_worker import TranscriptWorker
+from app.services.workers.embedding_worker import EmbeddingWorker
+from app.services.workers.knowledge_graph_worker import KnowledgeGraphWorker
+from app.services.workers.summary_worker import SummaryWorker
+from app.services.workers.quiz_worker import QuizWorker
+from app.services.workers.flashcard_worker import FlashcardWorker
+from app.application.services.workspace_intelligence import WorkspaceIntelligenceManager
 
 # System AI Service Bus singleton
 registry = ModelRegistry()
@@ -20,6 +35,16 @@ ai_service_bus = AIServiceBus(registry, router_policy)
 ai_service_bus.register_text_adapter("ollama", OllamaTextGenAdapter())
 ai_service_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
 ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
+
+# Register Background Workers & Workspace Intelligence
+transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
+embedding_worker = EmbeddingWorker(event_bus, ai_service_bus)
+graph_worker = KnowledgeGraphWorker(event_bus, graph_service)
+summary_worker = SummaryWorker(event_bus, ai_service_bus)
+quiz_worker = QuizWorker(event_bus)
+flashcard_worker = FlashcardWorker(event_bus)
+intelligence_manager = WorkspaceIntelligenceManager(ai_service_bus)
+chat_module.intelligence_manager = intelligence_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -46,6 +71,12 @@ app.add_middleware(
 
 # Register Routers
 app.include_router(health_router, prefix=settings.API_V1_PREFIX, tags=["Health"])
+app.include_router(media_router, prefix=settings.API_V1_PREFIX, tags=["Media"])
+app.include_router(chat_router, prefix=settings.API_V1_PREFIX, tags=["Chat"])
+app.include_router(workspaces_router, prefix=settings.API_V1_PREFIX, tags=["Workspaces"])
+app.include_router(graph_router, prefix=settings.API_V1_PREFIX, tags=["Knowledge Graph"])
+app.include_router(learning_router, prefix=settings.API_V1_PREFIX, tags=["Learning Tools"])
+app.include_router(agents_router, prefix=settings.API_V1_PREFIX, tags=["Agentic AI"])
 
 if __name__ == "__main__":
     import uvicorn
