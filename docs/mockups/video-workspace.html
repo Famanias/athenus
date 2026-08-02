@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Athenus Knowledge OS - Workspace</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Geist:wght@400;500;600;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-fixed": "#dde2f2",
+                    "primary-container": "#1a1f2c",
+                    "secondary-fixed-dim": "#e9c349",
+                    "surface-bright": "#2c3a4c",
+                    "on-error-container": "#ffdad6",
+                    "on-surface-variant": "#c6c6cc",
+                    "on-tertiary": "#2b313c",
+                    "on-surface": "#d4e4fa",
+                    "on-secondary": "#3c2f00",
+                    "outline-variant": "#45464c",
+                    "on-primary": "#2b303e",
+                    "surface-container-lowest": "#010f1f",
+                    "inverse-surface": "#d4e4fa",
+                    "on-tertiary-fixed": "#161c27",
+                    "on-secondary-fixed-variant": "#574500",
+                    "surface-container-highest": "#273647",
+                    "surface-dim": "#051424",
+                    "tertiary": "#c1c6d6",
+                    "on-primary-fixed": "#161b28",
+                    "surface": "#051424",
+                    "on-secondary-fixed": "#241a00",
+                    "secondary-container": "#af8d11",
+                    "tertiary-container": "#191f2a",
+                    "on-primary-fixed-variant": "#424655",
+                    "surface-container": "#122131",
+                    "inverse-primary": "#595e6d",
+                    "inverse-on-surface": "#233143",
+                    "on-secondary-container": "#342800",
+                    "primary-fixed-dim": "#c2c6d8",
+                    "on-primary-container": "#828697",
+                    "surface-container-high": "#1c2b3c",
+                    "tertiary-fixed-dim": "#c1c6d6",
+                    "primary-fixed": "#dee2f4",
+                    "on-tertiary-fixed-variant": "#414753",
+                    "primary": "#c2c6d8",
+                    "surface-tint": "#c2c6d8",
+                    "surface-container-low": "#0d1c2d",
+                    "secondary": "#e9c349",
+                    "secondary-fixed": "#ffe088",
+                    "on-error": "#690005",
+                    "on-background": "#d4e4fa",
+                    "on-tertiary-container": "#818795",
+                    "surface-variant": "#273647",
+                    "error-container": "#93000a",
+                    "background": "#051424",
+                    "outline": "#909096",
+                    "error": "#ffb4ab"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "panel-right": "320px",
+                    "container-max": "1600px",
+                    "margin-lg": "24px",
+                    "gutter-md": "16px",
+                    "base": "4px",
+                    "sidebar-width": "260px"
+            },
+            "fontFamily": {
+                    "body-md": ["Geist"],
+                    "label-md": ["JetBrains Mono"],
+                    "label-sm": ["JetBrains Mono"],
+                    "headline-lg": ["Geist"],
+                    "body-lg": ["Geist"],
+                    "headline-md": ["Geist"],
+                    "headline-lg-mobile": ["Geist"]
+            },
+            "fontSize": {
+                    "body-md": ["15px", {"lineHeight": "1.5", "fontWeight": "400"}],
+                    "label-md": ["13px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                    "label-sm": ["11px", {"lineHeight": "1", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "500"}],
+                    "headline-lg-mobile": ["26px", {"lineHeight": "1.2", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #051424;
+            color: #d4e4fa;
+            overflow: hidden;
+            font-family: 'Geist', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #0d1c2d; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #45464c; border-radius: 2px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #e9c349; }
+        
+        /* Interactive Highlight Effect */
+        .gold-highlight {
+            color: #e9c349;
+            font-weight: 500;
+            background: linear-gradient(0deg, rgba(233, 195, 73, 0.15) 0%, rgba(233, 195, 73, 0) 100%);
+            border-bottom: 1px solid rgba(233, 195, 73, 0.3);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="flex h-screen w-full">
+<!-- SideNavBar (Predicted Anchor) -->
+<aside class="fixed left-0 top-0 h-screen flex flex-col z-40 bg-surface-container-low border-r border-outline-variant w-sidebar-width transition-all duration-200 ease-in-out">
+<div class="p-gutter-md flex items-center gap-3">
+<div class="w-8 h-8 bg-secondary rounded flex items-center justify-center text-on-secondary font-bold">A</div>
+<span class="font-headline-md text-on-surface font-bold tracking-tight">Athenus</span>
+</div>
+<nav class="flex-1 mt-4 overflow-y-auto scrollbar-hide">
+<div class="px-gutter-md py-2 text-label-sm text-on-surface-variant opacity-50 uppercase tracking-widest">MAIN NAVIGATION</div>
+<ul class="flex flex-col">
+<li class="group">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-4 hover:text-on-surface hover:bg-surface-container transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md">Home / Dashboard</span>
+</a>
+</li>
+<li class="group">
+<a class="text-secondary border-l-2 border-secondary bg-surface-container-high px-4 py-3 flex items-center gap-4 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">smart_display</span>
+<span class="font-label-md text-label-md">Video Workspace</span>
+</a>
+</li>
+<li class="group">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-4 hover:text-on-surface hover:bg-surface-container transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">description</span>
+<span class="font-label-md text-label-md">Transcript Reader</span>
+</a>
+</li>
+<li class="group">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-4 hover:text-on-surface hover:bg-surface-container transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">forum</span>
+<span class="font-label-md text-label-md">AI Research Chat</span>
+</a>
+</li>
+</ul>
+<div class="px-gutter-md py-6 text-label-sm text-on-surface-variant opacity-50 uppercase tracking-widest">SYSTEM &amp; PLATFORM</div>
+<ul class="flex flex-col">
+<li class="group">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-4 hover:text-on-surface hover:bg-surface-container transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">database</span>
+<span class="font-label-md text-label-md">Ingestion Pipeline</span>
+</a>
+</li>
+<li class="group">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-4 hover:text-on-surface hover:bg-surface-container transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">robot_2</span>
+<span class="font-label-md text-label-md">AI Providers &amp; Models</span>
+</a>
+</li>
+<li class="group">
+<a class="text-on-surface-variant px-4 py-3 flex items-center gap-4 hover:text-on-surface hover:bg-surface-container transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">System Settings</span>
+</a>
+</li>
+</ul>
+</nav>
+<div class="p-gutter-md">
+<button class="w-full bg-surface-container-highest border border-outline-variant py-3 px-4 rounded-lg flex items-center justify-center gap-2 text-on-surface hover:bg-outline-variant transition-colors group">
+<span class="material-symbols-outlined text-secondary">upload_file</span>
+<span class="font-label-md text-label-md">Upload Media</span>
+</button>
+</div>
+</aside>
+<!-- Main Workspace Container -->
+<main class="ml-sidebar-width flex-1 flex flex-col h-screen relative bg-background">
+<!-- TopAppBar (Predicted Anchor) -->
+<header class="flex justify-between items-center w-full px-gutter-md h-16 z-50 bg-background border-b border-outline-variant">
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2 bg-surface-container-high px-4 py-1.5 rounded-full border border-outline-variant">
+<span class="material-symbols-outlined text-secondary text-[18px]">psychology</span>
+<span class="font-label-md text-label-md text-on-surface">Machine Learning &amp; Deep Learning</span>
+<span class="material-symbols-outlined text-on-surface-variant text-[16px]">expand_more</span>
+</div>
+</div>
+<div class="flex-1 max-w-xl px-12">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-lg pl-10 pr-4 py-2 text-body-md focus:border-secondary focus:ring-0 transition-all" placeholder="Search transcripts, concepts, notes..." type="text"/>
+<div class="absolute right-3 top-1/2 -translate-y-1/2 flex gap-1 opacity-50">
+<span class="bg-surface-container-high px-1.5 py-0.5 rounded border border-outline-variant text-[10px] font-label-sm">CTRL</span>
+<span class="bg-surface-container-high px-1.5 py-0.5 rounded border border-outline-variant text-[10px] font-label-sm">K</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined p-2 rounded-full hover:bg-surface-variant text-on-surface-variant transition-colors">notifications</button>
+<button class="material-symbols-outlined p-2 rounded-full hover:bg-surface-variant text-on-surface-variant transition-colors">settings</button>
+<div class="w-8 h-8 rounded-full bg-secondary-container border border-secondary flex items-center justify-center">
+<span class="text-on-secondary-container font-bold text-[12px]">JD</span>
+</div>
+</div>
+</header>
+<!-- Dynamic Content Canvas -->
+<div class="flex flex-1 overflow-hidden">
+<!-- Workspace Core: Video + Transcript (60/40 Split) -->
+<section class="flex-[3] flex flex-col border-r border-outline-variant">
+<!-- Workspace Tabs -->
+<div class="flex border-b border-outline-variant px-4 bg-surface-container-lowest">
+<button class="px-6 py-3 border-b-2 border-secondary text-secondary font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">play_circle</span>
+<span class="font-label-md text-label-md">Video Player</span>
+</button>
+<button class="px-6 py-3 border-b-2 border-transparent text-on-surface-variant hover:text-on-surface flex items-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-[18px]">description</span>
+<span class="font-label-md text-label-md">Transcript</span>
+</button>
+<button class="px-6 py-3 border-b-2 border-transparent text-on-surface-variant hover:text-on-surface flex items-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+<span class="font-label-md text-label-md">Knowledge Graph</span>
+</button>
+</div>
+<!-- Learning Tool Layout -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Video Area (60%) -->
+<div class="w-[60%] bg-black flex flex-col border-r border-outline-variant">
+<div class="flex-1 relative group flex items-center justify-center">
+<!-- Video Placeholder with detailed prompt -->
+<img class="w-full h-full object-cover opacity-80" data-alt="A cinematic still of a high-end educational software interface. In the center, a large video window displays a professional lecturer discussing neural networks, with complex mathematical equations glowing faintly in the background. The aesthetic is sophisticated dark minimalism, using deep navy blues and slate grays, with subtle gold accents highlighting key data points. Soft, diffused lighting creates an intellectual, professional laboratory atmosphere." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCR7m0hlwOlm3ndopej37zycr0eQRjmRalljkWoJwvnL2AyO7AIpmqh_WaaGSkqt7Kiyyb5IwsU2dtwhp9BWyYvELU1BppcZSiKERNydycgaERF0CouYzW01MGC-0qgitxFaSMIBCdih54EqmaoORPLGz-vRGu8dLs-QuzDKseAtKeuvSmXSUDrOUjJJ27Ryd5I_TvuxzMe91RHTda5ndYSIFKudteCyrY9ptCDf435YqBxJSCV-ctd"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex flex-col justify-end p-8 opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="flex items-center gap-4 text-white">
+<span class="material-symbols-outlined cursor-pointer hover:text-secondary">play_arrow</span>
+<div class="flex-1 h-1 bg-white/20 rounded-full relative">
+<div class="absolute inset-y-0 left-0 w-1/3 bg-secondary rounded-full"></div>
+</div>
+<span class="font-label-sm text-label-sm">12:45 / 45:00</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-secondary">settings</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-secondary">fullscreen</span>
+</div>
+</div>
+</div>
+<div class="p-6 bg-surface-container-low border-t border-outline-variant">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-2">Lecture 14: Attention Mechanisms in Transformers</h2>
+<p class="text-body-md text-on-surface-variant opacity-80">Understanding the Scaled Dot-Product Attention and its role in sequential data processing.</p>
+</div>
+</div>
+<!-- Transcript Area (40%) -->
+<div class="w-[40%] flex flex-col bg-surface">
+<div class="p-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
+<span class="font-label-md text-label-md text-on-surface-variant">SYNCHRONIZED TRANSCRIPT</span>
+<div class="flex gap-2">
+<button class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-secondary">translate</button>
+<button class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-secondary">download</button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-8 font-body-md text-body-md leading-relaxed text-on-surface-variant">
+<!-- Transcript Block -->
+<div class="flex gap-4">
+<span class="text-label-sm text-outline font-medium w-12 shrink-0 pt-1">05:15</span>
+<p>
+<span class="text-on-surface font-semibold block mb-1">Dr. Aris Thorne</span>
+                                    The <span class="gold-highlight" onclick="highlightCitation(0)">self-attention mechanism</span> allows the model to weigh the importance of different words in a sentence relative to each other. When we compute the dot-product, we are essentially looking for semantic similarities in the vector space.
+                                </p>
+</div>
+<div class="flex gap-4 bg-surface-container-high/30 -mx-6 px-6 py-4 border-y border-outline-variant/30">
+<span class="text-secondary font-medium w-12 shrink-0 pt-1 text-label-sm">12:40</span>
+<p>
+<span class="text-secondary font-semibold block mb-1">Dr. Aris Thorne</span>
+                                    By using <span class="gold-highlight" onclick="highlightCitation(1)">sqrt{d_k}</span> as a scaling factor, we prevent the gradients from becoming too small during the backpropagation through the Softmax function. This is critical for training stability in large-scale models.
+                                </p>
+</div>
+<div class="flex gap-4">
+<span class="text-label-sm text-outline font-medium w-12 shrink-0 pt-1">13:15</span>
+<p>
+                                    Let's look at the implementation in PyTorch. Notice how the <span class="text-on-surface">masking</span> is applied before the softmax to ensure that future tokens are not leaked into the current calculation. This is what makes it "Causal" attention.
+                                </p>
+</div>
+<div class="flex gap-4 opacity-60">
+<span class="text-label-sm text-outline font-medium w-12 shrink-0 pt-1">15:02</span>
+<p>
+                                    In multi-head attention, we perform this process in parallel. This allows the model to attend to information from different representation subspaces simultaneously.
+                                </p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Intelligence Panel -->
+<aside class="w-[320px] bg-surface-container-low flex h-full">
+<!-- Vertical Tab Bar -->
+<nav class="w-16 border-r border-outline-variant flex flex-col items-center py-6 gap-6">
+<button class="w-10 h-10 rounded-lg flex items-center justify-center bg-secondary text-on-secondary shadow-lg shadow-secondary/20" title="Retrieval &amp; Citations">
+<span class="material-symbols-outlined">auto_awesome</span>
+</button>
+<button class="w-10 h-10 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors" title="AI Chat">
+<span class="material-symbols-outlined">forum</span>
+</button>
+<button class="w-10 h-10 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors" title="Notes">
+<span class="material-symbols-outlined">edit_note</span>
+</button>
+<button class="w-10 h-10 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors" title="Flashcards">
+<span class="material-symbols-outlined">layers</span>
+</button>
+<div class="mt-auto">
+<button class="w-10 h-10 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined">info</span>
+</button>
+</div>
+</nav>
+<!-- Panel Content -->
+<div class="flex-1 flex flex-col overflow-hidden">
+<div class="p-6 border-b border-outline-variant">
+<div class="flex justify-between items-center mb-1">
+<h3 class="font-headline-md text-[18px] text-on-surface">Intelligence</h3>
+<span class="bg-surface-container-high text-on-primary px-2 py-0.5 rounded text-[10px] font-label-sm border border-outline-variant uppercase">Active Scene</span>
+</div>
+<p class="text-label-sm text-on-surface-variant opacity-70">Contextual Citations &amp; AI Analysis</p>
+</div>
+<div class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-4">
+<!-- Citation Card 1 -->
+<div class="p-4 bg-surface-container rounded-lg border border-outline-variant hover:border-secondary transition-all cursor-pointer group" id="citation-0">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[18px]">history</span>
+<span class="font-label-md text-label-md text-secondary">05:15 - 06:40</span>
+</div>
+<span class="font-label-sm text-label-sm bg-secondary/10 text-secondary px-2 py-1 rounded">Score: 0.94</span>
+</div>
+<p class="text-label-md text-on-surface-variant leading-relaxed">
+                                Self-attention computes dot-product attention scores across Query, Key, and Value representations.
+                            </p>
+</div>
+<!-- Citation Card 2 -->
+<div class="p-4 bg-surface-container rounded-lg border border-outline-variant hover:border-secondary transition-all cursor-pointer" id="citation-1">
+<div class="flex justify-between items-start mb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[18px]">history</span>
+<span class="font-label-md text-label-md text-secondary">12:40 - 13:10</span>
+</div>
+<span class="font-label-sm text-label-sm bg-secondary/10 text-secondary px-2 py-1 rounded">Score: 0.89</span>
+</div>
+<p class="text-label-md text-on-surface-variant leading-relaxed">
+                                Scaling by $\sqrt{d_k}$ prevents vanishing gradient degradation in Softmax layers.
+                            </p>
+</div>
+<!-- Agent Activity Stream -->
+<div class="mt-8 pt-6 border-t border-outline-variant">
+<div class="flex items-center gap-2 mb-4 opacity-50">
+<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+<span class="font-label-sm text-label-sm uppercase tracking-widest">Agent Activity Stream</span>
+</div>
+<div class="font-label-sm text-[11px] text-on-surface-variant space-y-2 opacity-80">
+<p><span class="text-outline">[14:20:01]</span> <span class="text-primary">PlannerAgent:</span> Intent detected</p>
+<p><span class="text-outline">[14:20:02]</span> <span class="text-primary">RetrieverAgent:</span> 3 hits in Qdrant</p>
+<p><span class="text-outline">[14:20:02]</span> <span class="text-primary">ValidatorAgent:</span> Grounded 98%</p>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+<!-- Footer (Predicted Anchor) -->
+<footer class="fixed bottom-0 left-0 w-full flex justify-between items-center px-4 py-1 z-50 bg-surface-container-lowest border-t border-outline-variant">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-green-500 text-[14px]">circle</span>
+<span class="font-label-sm text-label-sm text-on-tertiary-fixed-variant">Athenus Local Engine: Active</span>
+</div>
+</div>
+<div class="flex gap-4">
+<span class="font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface cursor-pointer">Vector Storage: 142 Chunks</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface cursor-pointer">SQLite Metadata: Connected</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface cursor-pointer">Latency: 14ms</span>
+</div>
+</footer>
+</main>
+<script>
+        function highlightCitation(id) {
+            const el = document.getElementById('citation-' + id);
+            if (el) {
+                el.classList.add('ring-2', 'ring-secondary', 'bg-surface-container-high');
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                setTimeout(() => {
+                    el.classList.remove('ring-2', 'ring-secondary', 'bg-surface-container-high');
+                }, 2000);
+            }
+        }
+
+        // Simulating Micro-interaction
+        document.querySelectorAll('.gold-highlight').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                item.style.filter = 'brightness(1.2)';
+            });
+            item.addEventListener('mouseleave', () => {
+                item.style.filter = 'brightness(1)';
+            });
+        });
+    </script>
+</body></html>

@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Athenus Knowledge OS | Home Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Geist:wght@400;500;600;700&amp;display=swap"
+        rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet">
+    <!-- Tailwind Config Verbatim -->
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-primary": "#595e6d",
+                        "on-surface": "#d4e4fa",
+                        "on-primary": "#2b303e",
+                        "surface-dim": "#051424",
+                        "surface-tint": "#c2c6d8",
+                        "on-tertiary": "#2b313c",
+                        "on-secondary-fixed": "#241a00",
+                        "surface-container-low": "#0d1c2d",
+                        "inverse-on-surface": "#233143",
+                        "surface-container-highest": "#273647",
+                        "tertiary-fixed": "#dde2f2",
+                        "primary-container": "#1a1f2c",
+                        "error": "#ffb4ab",
+                        "secondary-fixed": "#ffe088",
+                        "on-tertiary-fixed-variant": "#414753",
+                        "surface-container-lowest": "#010f1f",
+                        "tertiary": "#c1c6d6",
+                        "tertiary-fixed-dim": "#c1c6d6",
+                        "on-secondary": "#3c2f00",
+                        "secondary-fixed-dim": "#e9c349",
+                        "primary-fixed": "#dee2f4",
+                        "primary-fixed-dim": "#c2c6d8",
+                        "surface": "#051424",
+                        "on-error": "#690005",
+                        "surface-bright": "#2c3a4c",
+                        "secondary": "#e9c349",
+                        "on-tertiary-fixed": "#161c27",
+                        "tertiary-container": "#191f2a",
+                        "on-primary-container": "#828697",
+                        "on-secondary-fixed-variant": "#574500",
+                        "outline-variant": "#45464c",
+                        "surface-variant": "#273647",
+                        "surface-container-high": "#1c2b3c",
+                        "inverse-surface": "#d4e4fa",
+                        "primary": "#c2c6d8",
+                        "on-error-container": "#ffdad6",
+                        "background": "#051424",
+                        "on-secondary-container": "#342800",
+                        "surface-container": "#122131",
+                        "secondary-container": "#af8d11",
+                        "on-tertiary-container": "#818795",
+                        "on-surface-variant": "#c6c6cc",
+                        "outline": "#909096",
+                        "on-primary-fixed": "#161b28",
+                        "on-primary-fixed-variant": "#424655",
+                        "on-background": "#d4e4fa",
+                        "error-container": "#93000a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "margin-lg": "24px",
+                        "container-max": "1600px",
+                        "panel-right": "320px",
+                        "sidebar-width": "260px",
+                        "gutter-md": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Geist"],
+                        "label-sm": ["JetBrains Mono"],
+                        "body-md": ["Geist"],
+                        "headline-lg-mobile": ["Geist"],
+                        "headline-lg": ["Geist"],
+                        "label-md": ["JetBrains Mono"],
+                        "body-lg": ["Geist"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "500" }],
+                        "label-sm": ["11px", { "lineHeight": "1", "fontWeight": "400" }],
+                        "body-md": ["15px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "headline-lg-mobile": ["26px", { "lineHeight": "1.2", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-md": ["13px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }]
+                    }
+                },
+            },
+        }
+    </script>
+    <style>
+        body {
+            background-color: #051424;
+            color: #d4e4fa;
+            font-family: 'Geist', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #0d1c2d;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #2e3440;
+            border-radius: 2px;
+        }
+
+        .card-glow:hover {
+            border-color: #e9c349;
+            box-shadow: 0 0 15px rgba(233, 195, 73, 0.05);
+        }
+
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+        }
+    </style>
+</head>
+
+<body class="bg-background text-on-background">
+    <!-- SIDE NAV BAR (Shared Component Anchor) -->
+    <aside
+        class="fixed left-0 top-0 h-screen flex flex-col z-40 bg-surface-container-low border-r border-outline-variant w-sidebar-width transition-all duration-200 ease-in-out">
+        <div class="p-gutter-md">
+            <h1 class="font-headline-md text-headline-md font-bold text-on-surface">Athenus</h1>
+            <p class="font-label-sm text-label-sm text-on-surface-variant mt-1 tracking-widest">SYSTEM &amp; PLATFORM
+            </p>
+        </div>
+        <nav class="flex-1 overflow-y-auto custom-scrollbar py-4">
+            <div class="px-4 mb-2">
+                <span class="font-label-sm text-label-sm text-on-surface-variant opacity-50">MAIN NAVIGATION</span>
+            </div>
+            <!-- Active: Home / Dashboard -->
+            <a class="flex items-center gap-3 text-secondary border-l-2 border-secondary bg-surface-container-high px-4 py-3 transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">home</span>
+                <span class="font-label-md text-label-md">Home / Dashboard</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">smart_display</span>
+                <span class="font-label-md text-label-md">Video Workspace</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">description</span>
+                <span class="font-label-md text-label-md">Transcript Reader</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">forum</span>
+                <span class="font-label-md text-label-md">AI Research Chat</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">auto_awesome</span>
+                <span class="font-label-md text-label-md">AI Smart Notes</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">layers</span>
+                <span class="font-label-md text-label-md">Flashcard Deck</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">quiz</span>
+                <span class="font-label-md text-label-md">Interactive Quiz</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">hub</span>
+                <span class="font-label-md text-label-md">Knowledge Graph</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">timeline</span>
+                <span class="font-label-md text-label-md">Learning Timeline</span>
+            </a>
+            <div class="px-4 mt-6 mb-2">
+                <span class="font-label-sm text-label-sm text-on-surface-variant opacity-50">INFRASTRUCTURE</span>
+            </div>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">database</span>
+                <span class="font-label-md text-label-md">Ingestion Pipeline</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">robot_2</span>
+                <span class="font-label-md text-label-md">AI Providers &amp; Models</span>
+            </a>
+            <a class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200"
+                href="#">
+                <span class="material-symbols-outlined">settings</span>
+                <span class="font-label-md text-label-md">System Settings</span>
+            </a>
+        </nav>
+        <div class="p-4 border-t border-outline-variant">
+            <button
+                class="w-full bg-surface-container-high border border-outline-variant text-on-surface py-2 px-4 font-label-md text-label-md flex items-center justify-center gap-2 hover:bg-surface-variant transition-colors active:scale-95 duration-100">
+                <span class="material-symbols-outlined text-sm">upload_file</span>
+                Upload Media
+            </button>
+        </div>
+    </aside>
+    <!-- MAIN CONTENT AREA -->
+    <main class="ml-sidebar-width min-h-screen pb-12 flex flex-col relative">
+        <!-- TOP APP BAR (Shared Component Anchor) -->
+        <header
+            class="sticky top-0 z-50 flex justify-between items-center w-full px-gutter-md h-16 bg-background/80 backdrop-blur-md border-b border-outline-variant">
+            <div class="flex items-center gap-6">
+                <div
+                    class="flex items-center gap-3 bg-surface-container px-3 py-1.5 border border-outline-variant rounded">
+                    <span class="material-symbols-outlined text-on-surface-variant text-base">search</span>
+                    <input
+                        class="bg-transparent border-none focus:ring-0 text-body-md font-body-md w-64 placeholder:text-on-surface-variant/50"
+                        placeholder="Global Search Workspace..." type="text">
+                    <span
+                        class="font-label-sm text-label-sm text-on-surface-variant/40 bg-surface-container-highest px-1.5 py-0.5">CMD+K</span>
+                </div>
+                <div class="hidden md:flex gap-4">
+                    <a class="text-secondary font-bold font-label-md text-label-md hover:bg-surface-variant transition-colors px-2 py-1"
+                        href="#">Machine Learning &amp; Deep Learning</a>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex gap-2">
+                    <button
+                        class="w-10 h-10 flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors active:scale-95">
+                        <span class="material-symbols-outlined">notifications</span>
+                    </button>
+                    <button
+                        class="w-10 h-10 flex items-center justify-center text-on-surface-variant hover:bg-surface-variant transition-colors active:scale-95">
+                        <span class="material-symbols-outlined">settings</span>
+                    </button>
+                </div>
+                <div
+                    class="h-8 w-8 bg-surface-container-highest border border-secondary/50 rounded-full flex items-center justify-center text-secondary font-bold text-xs">
+                    JD
+                </div>
+            </div>
+        </header>
+        <!-- DASHBOARD GRID CANVAS -->
+        <div class="flex-1 p-gutter-md max-w-container-max mx-auto w-full">
+            <!-- HEADER SECTION -->
+            <div class="mb-8">
+                <h2 class="font-headline-lg text-headline-lg text-on-surface">Welcome back, Architect</h2>
+                <p class="font-body-md text-body-md text-on-surface-variant max-w-2xl mt-2">The local knowledge engine
+                    is synchronized. 142 vectors added since your last session. Resuming active learning threads...</p>
+            </div>
+            <!-- BENTO LAYOUT -->
+            <div class="bento-grid">
+                <!-- PROGRESS & TIMELINE (Span 8) -->
+                <section
+                    class="col-span-12 lg:col-span-8 bg-surface-container-low border border-outline-variant p-6 relative overflow-hidden">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-label-md text-label-md tracking-widest text-on-surface uppercase opacity-70">
+                            Learning Velocity</h3>
+                        <div class="flex gap-4">
+                            <span class="flex items-center gap-2 font-label-sm text-label-sm text-secondary">
+                                <span class="w-2 h-2 rounded-full bg-secondary"></span>
+                                Active Session: 2h 45m
+                            </span>
+                        </div>
+                    </div>
+                    <!-- Progress Visualization -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between text-label-sm font-label-sm uppercase opacity-60">
+                                <span>Mastery Score</span>
+                                <span class="text-secondary">78%</span>
+                            </div>
+                            <div class="h-1 w-full bg-surface-container-highest">
+                                <div class="h-full bg-secondary" style="width: 78%"></div>
+                            </div>
+                            <p class="text-[10px] text-on-surface-variant mt-1">+4.2% from yesterday</p>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between text-label-sm font-label-sm uppercase opacity-60">
+                                <span>Memory Retention</span>
+                                <span class="text-secondary">92%</span>
+                            </div>
+                            <div class="h-1 w-full bg-surface-container-highest">
+                                <div class="h-full bg-secondary" style="width: 92%"></div>
+                            </div>
+                            <p class="text-[10px] text-on-surface-variant mt-1">Anki Deck optimization active</p>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex justify-between text-label-sm font-label-sm uppercase opacity-60">
+                                <span>Knowledge Graph Density</span>
+                                <span class="text-secondary">64%</span>
+                            </div>
+                            <div class="h-1 w-full bg-surface-container-highest">
+                                <div class="h-full bg-secondary" style="width: 64%"></div>
+                            </div>
+                            <p class="text-[10px] text-on-surface-variant mt-1">821 Connections mapped</p>
+                        </div>
+                    </div>
+                    <!-- Subtle Timeline Visualization -->
+                    <div class="mt-8 pt-8 border-t border-outline-variant/30 h-32 flex items-end justify-between gap-1">
+                        <!-- Activity Bars -->
+                        <div class="w-full h-8 bg-surface-container-highest/20 relative group">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/20 hover:bg-secondary/40 transition-all duration-300 h-[20%]">
+                            </div>
+                        </div>
+                        <div class="w-full h-12 bg-surface-container-highest/20 relative">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/20 hover:bg-secondary/40 transition-all duration-300 h-[45%]">
+                            </div>
+                        </div>
+                        <div class="w-full h-16 bg-surface-container-highest/20 relative">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/20 hover:bg-secondary/40 transition-all duration-300 h-[70%]">
+                            </div>
+                        </div>
+                        <div class="w-full h-14 bg-surface-container-highest/20 relative">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/20 hover:bg-secondary/40 transition-all duration-300 h-[60%]">
+                            </div>
+                        </div>
+                        <div class="w-full h-20 bg-surface-container-highest/20 relative">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/40 hover:bg-secondary/60 transition-all duration-300 h-[85%] border-t border-secondary">
+                            </div>
+                            <span
+                                class="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-label-sm text-secondary whitespace-nowrap">Peak
+                                Focus</span>
+                        </div>
+                        <div class="w-full h-12 bg-surface-container-highest/20 relative">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/20 hover:bg-secondary/40 transition-all duration-300 h-[40%]">
+                            </div>
+                        </div>
+                        <div class="w-full h-10 bg-surface-container-highest/20 relative">
+                            <div
+                                class="absolute bottom-0 w-full bg-secondary/20 hover:bg-secondary/40 transition-all duration-300 h-[30%]">
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <!-- DAILY INSIGHTS (Span 4) -->
+                <section
+                    class="col-span-12 lg:col-span-4 bg-surface-container border border-outline-variant p-6 flex flex-col">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-label-md text-label-md tracking-widest text-secondary uppercase">AI Daily
+                            Insights</h3>
+                        <span class="material-symbols-outlined text-secondary text-sm">auto_awesome</span>
+                    </div>
+                    <div class="space-y-4 flex-1">
+                        <div class="p-3 bg-surface-container-lowest border-l border-secondary/50">
+                            <span
+                                class="font-label-sm text-label-sm text-on-surface-variant opacity-50 block mb-1">RECURRING
+                                PATTERN</span>
+                            <p class="font-body-md text-body-md text-on-surface italic">"The link between Transformer
+                                attention heads and biological neural pathways is becoming a central theme in your
+                                Machine Learning workspace."</p>
+                        </div>
+                        <div class="p-3 bg-surface-container-lowest border-l border-outline-variant">
+                            <span
+                                class="font-label-sm text-label-sm text-on-surface-variant opacity-50 block mb-1">SUGGESTED
+                                REVIEW</span>
+                            <p class="font-body-md text-body-md text-on-surface">You haven't revisited <span
+                                    class="text-secondary underline underline-offset-4 decoration-secondary/30">Gradient
+                                    Descent fundamentals</span> in 12 days. Retention risk is high.</p>
+                        </div>
+                        <div class="p-3 bg-surface-container-lowest border-l border-outline-variant">
+                            <span class="font-label-sm text-label-sm text-on-surface-variant opacity-50 block mb-1">NEW
+                                CONNECTION</span>
+                            <p class="font-body-md text-body-md text-on-surface">Found potential crossover between
+                                'Entropy in Physics' and 'Information Theory' transcripts.</p>
+                        </div>
+                    </div>
+                    <button
+                        class="mt-6 w-full py-2 border border-secondary text-secondary font-label-md text-label-md hover:bg-secondary hover:text-on-secondary transition-all active:scale-95 duration-100">
+                        GENERATE DEEP REPORT
+                    </button>
+                </section>
+                <!-- RECENT WORKSPACES (Span 12) -->
+                <section class="col-span-12">
+                    <div class="flex items-end justify-between mb-4">
+                        <h3 class="font-label-md text-label-md tracking-widest text-on-surface uppercase opacity-70">
+                            Active Workspaces</h3>
+                        <a class="text-on-surface-variant hover:text-secondary text-label-sm font-label-sm transition-colors"
+                            href="#">VIEW ALL ARCHIVES</a>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <!-- Workspace Card 1 -->
+                        <div
+                            class="group bg-surface-container-low border border-outline-variant p-4 transition-all duration-300 card-glow cursor-pointer relative overflow-hidden">
+                            <div
+                                class="absolute top-0 left-0 w-1 h-full bg-secondary scale-y-0 group-hover:scale-y-100 transition-transform origin-top">
+                            </div>
+                            <div class="flex justify-between items-start mb-3">
+                                <span
+                                    class="material-symbols-outlined text-on-surface-variant group-hover:text-secondary transition-colors">neurology</span>
+                                <span class="font-label-sm text-label-sm text-on-surface-variant opacity-40">24m
+                                    ago</span>
+                            </div>
+                            <h4 class="font-headline-md text-body-lg font-bold text-on-surface mb-1">Machine Learning
+                            </h4>
+                            <p class="font-body-md text-body-md text-on-surface-variant line-clamp-2 mb-4">Advanced
+                                Architectures, Transformers, and Reinforcement Learning paradigms.</p>
+                            <div class="flex items-center gap-3">
+                                <div class="flex -space-x-2">
+                                    <div
+                                        class="w-6 h-6 rounded-full border border-surface bg-secondary-container text-[10px] flex items-center justify-center">
+                                        AI</div>
+                                    <div
+                                        class="w-6 h-6 rounded-full border border-surface bg-surface-container-highest text-[10px] flex items-center justify-center">
+                                        12</div>
+                                </div>
+                                <span class="text-[10px] font-label-sm text-on-surface-variant uppercase">86%
+                                    Mastery</span>
+                            </div>
+                        </div>
+                        <!-- Workspace Card 2 -->
+                        <div
+                            class="group bg-surface-container-low border border-outline-variant p-4 transition-all duration-300 card-glow cursor-pointer relative overflow-hidden">
+                            <div
+                                class="absolute top-0 left-0 w-1 h-full bg-secondary scale-y-0 group-hover:scale-y-100 transition-transform origin-top">
+                            </div>
+                            <div class="flex justify-between items-start mb-3">
+                                <span
+                                    class="material-symbols-outlined text-on-surface-variant group-hover:text-secondary transition-colors">science</span>
+                                <span class="font-label-sm text-label-sm text-on-surface-variant opacity-40">2h
+                                    ago</span>
+                            </div>
+                            <h4 class="font-headline-md text-body-lg font-bold text-on-surface mb-1">Quantum Physics
+                            </h4>
+                            <p class="font-body-md text-body-md text-on-surface-variant line-clamp-2 mb-4">Superposition
+                                principle, entanglement, and wave-particle duality explorations.</p>
+                            <div class="flex items-center gap-3">
+                                <div class="flex -space-x-2">
+                                    <div
+                                        class="w-6 h-6 rounded-full border border-surface bg-tertiary-container text-[10px] flex items-center justify-center">
+                                        QB</div>
+                                    <div
+                                        class="w-6 h-6 rounded-full border border-surface bg-surface-container-highest text-[10px] flex items-center justify-center">
+                                        8</div>
+                                </div>
+                                <span class="text-[10px] font-label-sm text-on-surface-variant uppercase">42%
+                                    Mastery</span>
+                            </div>
+                        </div>
+                        <!-- Workspace Card 3 -->
+                        <div
+                            class="group bg-surface-container-low border border-outline-variant p-4 transition-all duration-300 card-glow cursor-pointer relative overflow-hidden">
+                            <div
+                                class="absolute top-0 left-0 w-1 h-full bg-secondary scale-y-0 group-hover:scale-y-100 transition-transform origin-top">
+                            </div>
+                            <div class="flex justify-between items-start mb-3">
+                                <span
+                                    class="material-symbols-outlined text-on-surface-variant group-hover:text-secondary transition-colors">language</span>
+                                <span
+                                    class="font-label-sm text-label-sm text-on-surface-variant opacity-40">Yesterday</span>
+                            </div>
+                            <h4 class="font-headline-md text-body-lg font-bold text-on-surface mb-1">German B2</h4>
+                            <p class="font-body-md text-body-md text-on-surface-variant line-clamp-2 mb-4">Complex
+                                grammar structures, passive voice, and technical vocabulary.</p>
+                            <div class="flex items-center gap-3">
+                                <div class="flex -space-x-2">
+                                    <div
+                                        class="w-6 h-6 rounded-full border border-surface bg-on-tertiary-fixed-variant text-[10px] flex items-center justify-center">
+                                        DE</div>
+                                    <div
+                                        class="w-6 h-6 rounded-full border border-surface bg-surface-container-highest text-[10px] flex items-center justify-center">
+                                        4</div>
+                                </div>
+                                <span class="text-[10px] font-label-sm text-on-surface-variant uppercase">71%
+                                    Mastery</span>
+                            </div>
+                        </div>
+                        <!-- Workspace Card 4 (Empty/Add New) -->
+                        <div
+                            class="group bg-surface-container-low border border-dashed border-outline-variant p-4 flex flex-col items-center justify-center transition-all duration-300 hover:bg-surface-container hover:border-secondary cursor-pointer">
+                            <span
+                                class="material-symbols-outlined text-3xl text-on-surface-variant group-hover:text-secondary mb-2 transition-colors">add_circle</span>
+                            <span
+                                class="font-label-md text-label-md text-on-surface-variant group-hover:text-on-surface transition-colors">Initialize
+                                Workspace</span>
+                        </div>
+                    </div>
+                </section>
+                <!-- KNOWLEDGE GRAPH PREVIEW (Span 12) -->
+                <section
+                    class="col-span-12 h-64 bg-surface-container-low border border-outline-variant relative overflow-hidden group">
+                    <div class="absolute inset-0 opacity-20 pointer-events-none">
+                        <!-- Simulated knowledge graph with animation -->
+                        <div
+                            class="absolute top-1/2 left-1/2 w-full h-full -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
+                            <div
+                                class="w-96 h-96 border border-secondary/20 rounded-full animate-[spin_20s_linear_infinite]">
+                            </div>
+                            <div
+                                class="absolute w-[500px] h-[500px] border border-secondary/10 rounded-full animate-[spin_35s_linear_infinite_reverse]">
+                            </div>
+                            <div class="absolute w-2 h-2 bg-secondary rounded-full blur-[2px] top-1/4 left-1/3"></div>
+                            <div
+                                class="absolute w-1.5 h-1.5 bg-on-surface rounded-full blur-[1px] bottom-1/3 right-1/4">
+                            </div>
+                            <div class="absolute w-2.5 h-2.5 bg-secondary rounded-full blur-[2px] top-1/2 right-1/2">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="relative z-10 p-6 flex flex-col h-full justify-between pointer-events-none">
+                        <div>
+                            <h3
+                                class="font-label-md text-label-md tracking-widest text-on-surface uppercase opacity-70">
+                                Interactive Knowledge Graph</h3>
+                            <p class="font-body-md text-body-md text-on-surface-variant mt-1">Global visualization of
+                                semantic relationships across all study materials.</p>
+                        </div>
+                        <div class="flex gap-4 pointer-events-auto">
+                            <button
+                                class="px-4 py-2 bg-secondary text-on-secondary font-label-md text-label-md hover:brightness-110 active:scale-95 transition-all">
+                                OPEN EXPLORER
+                            </button>
+                            <button
+                                class="px-4 py-2 border border-outline-variant text-on-surface font-label-md text-label-md hover:bg-surface-variant transition-all">
+                                UPDATE MAPPINGS
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+        <!-- FOOTER (Shared Component Anchor) -->
+        <footer
+            class="fixed bottom-0 left-0 w-full flex justify-between items-center px-4 py-1 z-50 bg-surface-container-lowest border-t border-outline-variant text-on-tertiary-fixed-variant">
+            <div class="flex items-center gap-4">
+                <span class="font-label-sm text-label-sm font-bold text-secondary">Athenus Local Engine: Active</span>
+                <span class="h-3 w-px bg-outline-variant"></span>
+                <div class="flex gap-4 text-[10px] font-label-sm">
+                    <span class="hover:text-on-surface cursor-default">Vector Storage: 142 Chunks</span>
+                    <span class="hover:text-on-surface cursor-default">SQLite Metadata: Connected</span>
+                    <span class="hover:text-on-surface cursor-default">Latency: 14ms</span>
+                </div>
+            </div>
+            <div class="flex gap-4 text-[10px] font-label-sm uppercase tracking-tighter">
+                <span class="text-on-surface-variant/40">SYSTEM VERSION: 2.4.1-ALPHA</span>
+            </div>
+        </footer>
+    </main>
+    <script>
+        // Micro-interactions for dashboard elements
+        document.addEventListener('DOMContentLoaded', () => {
+            const cards = document.querySelectorAll('.card-glow');
+            cards.forEach(card => {
+                card.addEventListener('mouseenter', () => {
+                    // Slight elevation effect logic can be added here if needed
+                });
+            });
+
+            // Keyboard shortcut simulation
+            window.addEventListener('keydown', (e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                    e.preventDefault();
+                    document.querySelector('input').focus();
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

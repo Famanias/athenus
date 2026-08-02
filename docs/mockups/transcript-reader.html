@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Transcript Reader | Athenus Knowledge OS</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Geist:wght@400;500;600&amp;display=swap"
+        rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet">
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #010f1f;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #2E3440;
+            border-radius: 2px;
+        }
+
+        .transcript-line:hover .timestamp {
+            opacity: 1;
+        }
+
+        .concept-highlight {
+            border-bottom: 1px solid #e9c349;
+            color: #e9c349;
+            cursor: help;
+        }
+
+        .active-sentence {
+            background-color: rgba(233, 195, 73, 0.05);
+            border-left: 2px solid #e9c349;
+        }
+    </style>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-primary": "#595e6d",
+                        "on-surface": "#d4e4fa",
+                        "on-primary": "#2b303e",
+                        "surface-dim": "#051424",
+                        "surface-tint": "#c2c6d8",
+                        "on-tertiary": "#2b313c",
+                        "on-secondary-fixed": "#241a00",
+                        "surface-container-low": "#0d1c2d",
+                        "inverse-on-surface": "#233143",
+                        "surface-container-highest": "#273647",
+                        "tertiary-fixed": "#dde2f2",
+                        "primary-container": "#1a1f2c",
+                        "error": "#ffb4ab",
+                        "secondary-fixed": "#ffe088",
+                        "on-tertiary-fixed-variant": "#414753",
+                        "surface-container-lowest": "#010f1f",
+                        "tertiary": "#c1c6d6",
+                        "tertiary-fixed-dim": "#c1c6d6",
+                        "on-secondary": "#3c2f00",
+                        "secondary-fixed-dim": "#e9c349",
+                        "primary-fixed": "#dee2f4",
+                        "primary-fixed-dim": "#c2c6d8",
+                        "surface": "#051424",
+                        "on-error": "#690005",
+                        "surface-bright": "#2c3a4c",
+                        "secondary": "#e9c349",
+                        "on-tertiary-fixed": "#161c27",
+                        "tertiary-container": "#191f2a",
+                        "on-primary-container": "#828697",
+                        "on-secondary-fixed-variant": "#574500",
+                        "outline-variant": "#45464c",
+                        "surface-variant": "#273647",
+                        "surface-container-high": "#1c2b3c",
+                        "inverse-surface": "#d4e4fa",
+                        "primary": "#c2c6d8",
+                        "on-error-container": "#ffdad6",
+                        "background": "#051424",
+                        "on-secondary-container": "#342800",
+                        "surface-container": "#122131",
+                        "secondary-container": "#af8d11",
+                        "on-tertiary-container": "#818795",
+                        "on-surface-variant": "#c6c6cc",
+                        "outline": "#909096",
+                        "on-primary-fixed": "#161b28",
+                        "on-primary-fixed-variant": "#424655",
+                        "on-background": "#d4e4fa",
+                        "error-container": "#93000a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "base": "4px",
+                        "margin-lg": "24px",
+                        "container-max": "1600px",
+                        "panel-right": "320px",
+                        "sidebar-width": "260px",
+                        "gutter-md": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Geist"],
+                        "label-sm": ["JetBrains Mono"],
+                        "body-md": ["Geist"],
+                        "headline-lg": ["Geist"],
+                        "label-md": ["JetBrains Mono"],
+                        "body-lg": ["Geist"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "500" }],
+                        "label-sm": ["11px", { "lineHeight": "1", "fontWeight": "400" }],
+                        "body-md": ["15px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-md": ["13px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+
+<body
+    class="bg-background text-on-background font-body-md selection:bg-secondary/30 selection:text-secondary h-screen overflow-hidden">
+    <!-- Top Navigation Bar (Shared Component) -->
+    <header
+        class="fixed top-0 z-50 flex justify-between items-center w-full px-gutter-md h-16 bg-background border-b border-outline-variant">
+        <div class="flex items-center gap-8">
+            <span class="text-headline-md font-headline-md font-bold text-on-surface">Athenus Knowledge OS</span>
+            <nav class="hidden md:flex gap-6">
+                <a class="text-secondary font-bold font-label-md text-label-md" href="#">Machine Learning &amp; Deep
+                    Learning</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="relative flex items-center">
+                <span class="material-symbols-outlined absolute left-3 text-on-surface-variant">search</span>
+                <input
+                    class="bg-surface-container-lowest border border-outline-variant text-label-md font-label-md px-10 py-2 w-64 focus:outline-none focus:border-secondary transition-colors"
+                    placeholder="Search Ingestion..." type="text">
+            </div>
+            <button
+                class="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 font-label-md text-label-md hover:bg-primary/90 transition-all scale-100 active:scale-95 duration-100">
+                <span class="material-symbols-outlined">upload_file</span>
+                Upload Media
+            </button>
+            <div class="flex items-center gap-2">
+                <button
+                    class="p-2 text-on-surface-variant hover:bg-surface-variant rounded-full transition-colors material-symbols-outlined">notifications</button>
+                <button
+                    class="p-2 text-on-surface-variant hover:bg-surface-variant rounded-full transition-colors material-symbols-outlined">settings</button>
+            </div>
+        </div>
+    </header>
+    <!-- Sidebar Navigation (Shared Component) -->
+    <aside
+        class="fixed left-0 top-0 h-screen w-sidebar-width flex flex-col z-40 bg-surface-container-low border-r border-outline-variant pt-20">
+        <div class="px-4 mb-8">
+            <p class="text-[10px] font-label-md text-on-surface-variant tracking-[0.2em] mb-4">MAIN NAVIGATION</p>
+            <div class="space-y-1">
+                <!-- Mapping SideNav Items -->
+                <button
+                    class="flex items-center gap-3 w-full text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200">
+                    <span class="material-symbols-outlined">home</span>
+                    <span class="font-label-md">Home / Dashboard</span>
+                </button>
+                <button
+                    class="flex items-center gap-3 w-full text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200">
+                    <span class="material-symbols-outlined">smart_display</span>
+                    <span class="font-label-md">Video Workspace</span>
+                </button>
+                <button
+                    class="flex items-center gap-3 w-full text-secondary border-l-2 border-secondary bg-surface-container-high px-4 py-3 transition-all duration-200">
+                    <span class="material-symbols-outlined">description</span>
+                    <span class="font-label-md font-bold">Transcript Reader</span>
+                </button>
+                <button
+                    class="flex items-center gap-3 w-full text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200">
+                    <span class="material-symbols-outlined">forum</span>
+                    <span class="font-label-md">AI Research Chat</span>
+                </button>
+                <button
+                    class="flex items-center gap-3 w-full text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200">
+                    <span class="material-symbols-outlined">auto_awesome</span>
+                    <span class="font-label-md">AI Smart Notes</span>
+                </button>
+                <button
+                    class="flex items-center gap-3 w-full text-on-surface-variant px-4 py-3 hover:text-on-surface hover:bg-surface-container transition-all duration-200">
+                    <span class="material-symbols-outlined">hub</span>
+                    <span class="font-label-md">Knowledge Graph</span>
+                </button>
+            </div>
+        </div>
+        <div class="mt-auto p-4 bg-surface-container-lowest border-t border-outline-variant">
+            <div class="flex items-center gap-2 text-label-sm font-label-sm text-on-tertiary-fixed-variant">
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                Local Engine: Active
+            </div>
+        </div>
+    </aside>
+    <!-- Main Workspace -->
+    <main class="ml-sidebar-width mt-16 flex h-[calc(100vh-64px)] w-full max-w-[calc(100vw-260px)]">
+        <!-- Left Analysis Column -->
+        <div class="flex-1 flex flex-col border-r border-outline-variant bg-background">
+            <!-- Transcript Toolbar -->
+            <div
+                class="h-12 border-b border-outline-variant flex items-center justify-between px-gutter-md bg-surface-container-lowest">
+                <div class="flex items-center gap-6">
+                    <div class="flex items-center gap-2">
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input checked="" class="sr-only peer" type="checkbox" value="">
+                            <div
+                                class="w-8 h-4 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-secondary">
+                            </div>
+                        </label>
+                        <span class="text-label-md font-label-md text-on-surface-variant">Auto-scroll</span>
+                    </div>
+                    <div class="h-4 w-[1px] bg-outline-variant"></div>
+                    <div class="flex items-center gap-4 text-on-surface-variant">
+                        <button class="flex items-center gap-1 hover:text-on-surface transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">find_in_page</span>
+                            <span class="text-label-md font-label-md">Search</span>
+                        </button>
+                        <button class="flex items-center gap-1 hover:text-on-surface transition-colors">
+                            <span class="material-symbols-outlined text-[18px]">spellcheck</span>
+                            <span class="text-label-md font-label-md">Analyze Entities</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 text-on-surface-variant font-label-sm text-label-sm">
+                    <span class="material-symbols-outlined text-[16px]">history</span>
+                    LAST EDITED: 2 MINS AGO
+                </div>
+            </div>
+            <!-- Content Canvas -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-12 max-w-4xl mx-auto w-full">
+                <div class="mb-12">
+                    <h1 class="font-headline-lg text-headline-lg text-on-surface mb-4">Neural Architectures for
+                        Knowledge Synthesis</h1>
+                    <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest">Lecture
+                        Series: Advanced AI Foundations • 42:18</p>
+                </div>
+                <!-- Transcript Block -->
+                <article class="space-y-8 font-body-lg text-body-lg text-on-surface leading-relaxed">
+                    <div class="transcript-line group flex gap-8 active-sentence p-4 -ml-4 transition-all">
+                        <span
+                            class="timestamp opacity-0 font-label-sm text-label-sm text-secondary pt-2 w-12 shrink-0 cursor-pointer hover:underline">00:00</span>
+                        <p>In today's session, we're diving deep into <span
+                                class="concept-highlight">Transformers</span> and why their attention mechanism
+                            redefined how we think about <span class="concept-highlight">Contextual Embeddings</span>.
+                            The primary innovation wasn't just the architecture, but the way it parallelized sequence
+                            processing.</p>
+                    </div>
+                    <div class="transcript-line group flex gap-8 p-4 -ml-4 transition-all">
+                        <span
+                            class="timestamp opacity-0 font-label-sm text-label-sm text-secondary pt-2 w-12 shrink-0 cursor-pointer hover:underline">01:12</span>
+                        <p>Consider the <span class="concept-highlight">Attention Is All You Need</span> paper. Before
+                            this, we relied heavily on Recurrent Neural Networks which suffered from the vanishing
+                            gradient problem in long-term dependencies. By using self-attention, we allow the model to
+                            weigh the importance of every part of the input data relative to a specific token.</p>
+                    </div>
+                    <div class="transcript-line group flex gap-8 p-4 -ml-4 transition-all">
+                        <span
+                            class="timestamp opacity-0 font-label-sm text-label-sm text-secondary pt-2 w-12 shrink-0 cursor-pointer hover:underline">03:45</span>
+                        <p>When we talk about the <span class="concept-highlight">Query-Key-Value</span> (QKV)
+                            structure, we are essentially performing a soft lookup in a database. The Query represents
+                            what we're looking for, the Key is the index, and the Value is the information we extract.
+                            This mathematical triad allows for a high-dimensional mapping that previous linear models
+                            simply couldn't achieve.</p>
+                    </div>
+                    <div class="transcript-line group flex gap-8 p-4 -ml-4 transition-all">
+                        <span
+                            class="timestamp opacity-0 font-label-sm text-label-sm text-secondary pt-2 w-12 shrink-0 cursor-pointer hover:underline">05:22</span>
+                        <p>This brings us to <span class="concept-highlight">Positional Encodings</span>. Since
+                            Transformers don't process data in order, we need a way to tell the model where a word
+                            appears in a sentence. We use sine and cosine functions of different frequencies to inject
+                            this temporal information without adding excessive parameters.</p>
+                    </div>
+                    <div class="transcript-line group flex gap-8 p-4 -ml-4 transition-all">
+                        <span
+                            class="timestamp opacity-0 font-label-sm text-label-sm text-secondary pt-2 w-12 shrink-0 cursor-pointer hover:underline">08:14</span>
+                        <p>Now, let's look at the scaling laws. As we increase the number of <span
+                                class="concept-highlight">Attention Heads</span>, we observe an emergent capability to
+                            perform few-shot learning. The multi-head approach allows the model to attend to information
+                            at different representation subspaces simultaneously.</p>
+                    </div>
+                    <!-- Atmospheric Visual (Shader) -->
+                    <div
+                        class="relative h-48 my-12 rounded-lg overflow-hidden border border-outline-variant bg-surface-container-low group">
+
+                        <div
+                            class="absolute inset-0 flex flex-col items-center justify-center bg-background/20 backdrop-blur-[2px]">
+                            <span class="font-label-md text-label-md text-secondary mb-2">DYNAMIC KNOWLEDGE
+                                MAPPING</span>
+                            <p class="text-label-sm text-on-surface-variant">Visualizing Semantic Density of Current
+                                Segment</p>
+                        </div>
+                    </div>
+                    <div class="transcript-line group flex gap-8 p-4 -ml-4 transition-all">
+                        <span
+                            class="timestamp opacity-0 font-label-sm text-label-sm text-secondary pt-2 w-12 shrink-0 cursor-pointer hover:underline">10:05</span>
+                        <p>The transition from <span class="concept-highlight">BERT</span> to GPT-style decoders marked
+                            a shift from understanding to generation. While BERT is bi-directional, GPT uses masked
+                            self-attention to predict the next token, creating an autoregressive loop that powers modern
+                            LLMs.</p>
+                    </div>
+                </article>
+            </div>
+        </div>
+        <!-- Right Insights Panel -->
+        <aside class="w-panel-right flex flex-col bg-surface-container-lowest border-l border-outline-variant">
+            <div class="p-4 border-b border-outline-variant flex items-center justify-between">
+                <span class="font-label-md text-label-md text-on-surface font-bold tracking-tight">SEMANTIC LINKS</span>
+                <span class="material-symbols-outlined text-on-surface-variant text-[18px]">view_stream</span>
+            </div>
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+                <!-- Concept Card 1 -->
+                <div
+                    class="p-4 bg-surface-container-low border border-outline-variant group hover:border-secondary transition-colors cursor-pointer">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-secondary font-label-sm text-label-sm">CORE CONCEPT</span>
+                        <span class="material-symbols-outlined text-[14px] text-on-surface-variant">open_in_new</span>
+                    </div>
+                    <h3 class="font-headline-md text-body-md text-on-surface mb-2">Attention Mechanism</h3>
+                    <p class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">Cross-referenced in
+                        "Paper: Attention Is All You Need" and "Lecture 4: Sequence Modeling".</p>
+                    <div class="mt-4 flex gap-2">
+                        <span
+                            class="px-2 py-1 bg-surface-container-highest text-[10px] font-label-sm border border-outline-variant">RESEARCH</span>
+                        <span
+                            class="px-2 py-1 bg-surface-container-highest text-[10px] font-label-sm border border-outline-variant">MATHEMATICS</span>
+                    </div>
+                </div>
+                <!-- Concept Card 2 -->
+                <div
+                    class="p-4 bg-surface-container-low border border-outline-variant group hover:border-secondary transition-colors cursor-pointer">
+                    <div class="flex items-center justify-between mb-3">
+                        <span class="text-secondary font-label-sm text-label-sm">GRAPH RELATION</span>
+                        <span class="material-symbols-outlined text-[14px] text-on-surface-variant">hub</span>
+                    </div>
+                    <h3 class="font-headline-md text-body-md text-on-surface mb-2">QKV Matrices</h3>
+                    <p class="text-label-sm font-label-sm text-on-surface-variant leading-relaxed">Part of "Linear
+                        Algebra for AI" cluster. Connected to 12 other lecture notes.</p>
+                </div>
+                <!-- AI Insight Card -->
+                <div class="p-4 bg-surface-container-high border-2 border-secondary/20 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 p-2 opacity-20">
+                        <span class="material-symbols-outlined text-[48px]">auto_awesome</span>
+                    </div>
+                    <span class="text-secondary font-label-sm text-label-sm block mb-3">AI SYNTHESIS</span>
+                    <p class="text-body-md text-on-surface italic mb-4">"The speaker emphasizes the QKV structure to
+                        contrast it with classical database indexing, highlighting its probabilistic nature."</p>
+                    <button
+                        class="w-full py-2 bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary/90 transition-colors">Generate
+                        Summary</button>
+                </div>
+                <!-- Contextual Media -->
+                <div class="space-y-2">
+                    <span
+                        class="font-label-md text-label-md text-on-surface-variant uppercase tracking-widest text-[10px]">Referenced
+                        Images</span>
+                    <div
+                        class="aspect-video relative border border-outline-variant bg-surface-dim group cursor-zoom-in">
+                        <img class="object-cover w-full h-full opacity-60 group-hover:opacity-100 transition-opacity"
+                            data-alt="A highly detailed technical diagram of a Transformer architecture showing the multi-head attention blocks, feed-forward layers, and add &amp; norm components. The diagram uses a sophisticated professional palette of obsidian, deep navy, and gold accents. The lighting is focused and clinical, reflecting a high-end educational knowledge operating system aesthetic. Sharp lines and precise labels in JetBrains Mono font create a sense of systematic clarity."
+                            src="https://lh3.googleusercontent.com/aida-public/AB6AXuB24qU5dBknwJrav2hBzHx4PWF3VX6sW7GeCznWKErZFVShtdA2e9O3MJeTyGlqxJkxL7KW7trAFZiAiFETPBE0nS_VCQxWoIckEXdIFLmgGF_HLqDdz9x9ShqQYU3iK6079G0VG2TqiXBebGSBJBR9wKiadHul5XxYR6Tjt_YzFqTLCGDTZFVoUan5uo0iBri6FTQEm8hdAQ_GGARbxiQoP1k3eiutkwZFRpbRb1qKLm486DRvGA44">
+                        <div
+                            class="absolute bottom-2 left-2 bg-background/80 backdrop-blur p-2 border border-outline-variant">
+                            <span class="text-label-sm font-label-sm text-on-surface">Fig 1.1: Transformer Encoder
+                                Stack</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Footer for Metadata -->
+            <div class="p-4 bg-surface-container-lowest border-t border-outline-variant">
+                <div
+                    class="flex items-center justify-between text-label-sm font-label-sm text-on-tertiary-fixed-variant">
+                    <span>VECTOR INDEX: CONNECTED</span>
+                    <span class="material-symbols-outlined text-[16px]">database</span>
+                </div>
+            </div>
+        </aside>
+    </main>
+    <!-- Subtle Footer Bar (Shared Component) -->
+    <footer
+        class="fixed bottom-0 left-0 w-full flex justify-between items-center px-4 py-1 z-50 bg-surface-container-lowest border-t border-outline-variant">
+        <div class="flex items-center gap-4">
+            <span class="text-label-sm font-bold text-on-tertiary-fixed-variant uppercase">Athenus Local Engine:
+                Active</span>
+            <div class="h-3 w-[1px] bg-outline-variant"></div>
+            <div class="flex gap-4 text-label-sm text-on-tertiary-fixed-variant">
+                <span>Vector Storage: 142 Chunks</span>
+                <span>SQLite Metadata: Connected</span>
+            </div>
+        </div>
+        <div class="text-label-sm text-on-tertiary-fixed-variant">
+            Latency: 14ms
+        </div>
+    </footer>
+    <script>
+        // Micro-interactions for transcript reading
+        document.querySelectorAll('.transcript-line').forEach(line => {
+            line.addEventListener('click', () => {
+                document.querySelectorAll('.transcript-line').forEach(l => l.classList.remove('active-sentence'));
+                line.classList.add('active-sentence');
+
+                // Simulate player sync
+                const timestamp = line.querySelector('.timestamp').innerText;
+                console.log('Jumping to player timestamp:', timestamp);
+            });
+        });
+
+        // Toggle hover effect for concepts
+        document.querySelectorAll('.concept-highlight').forEach(concept => {
+            concept.addEventListener('mouseenter', () => {
+                // Potential AI tooltip logic
+            });
+        });
+    </script>
+</body>
+
+</html>

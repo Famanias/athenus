@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>Athenus Knowledge OS — Current Implemented Scope (Phase 1 / v0.1 MVP)</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&amp;family=Geist:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+  
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "background": "#051424",
+            "surface-dim": "#051424",
+            "surface-container-lowest": "#010f1f",
+            "surface-container-low": "#0d1c2d",
+            "surface-container": "#122131",
+            "surface-container-high": "#1c2b3c",
+            "surface-container-highest": "#273647",
+            "surface-variant": "#273647",
+            "secondary": "#e9c349",
+            "secondary-container": "#af8d11",
+            "on-secondary": "#3c2f00",
+            "on-surface": "#d4e4fa",
+            "on-surface-variant": "#c6c6cc",
+            "outline": "#909096",
+            "outline-variant": "#45464c",
+            "primary": "#c2c6d8",
+            "primary-container": "#1a1f2c"
+          },
+          spacing: {
+            "sidebar-width": "260px"
+          },
+          fontFamily: {
+            "body": ["Geist", "sans-serif"],
+            "mono": ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #051424;
+      color: #d4e4fa;
+      font-family: 'Geist', sans-serif;
+      overflow: hidden;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      vertical-align: middle;
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #0d1c2d; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #45464c; border-radius: 2px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #e9c349; }
+
+    /* Athena Gold Accent Highlights */
+    .gold-highlight {
+      color: #e9c349;
+      font-weight: 500;
+      background: linear-gradient(0deg, rgba(233, 195, 73, 0.15) 0%, rgba(233, 195, 73, 0) 100%);
+      border-bottom: 1px solid rgba(233, 195, 73, 0.3);
+      cursor: pointer;
+    }
+    .gold-highlight:hover {
+      filter: brightness(1.2);
+    }
+  </style>
+</head>
+<body class="flex h-screen w-full">
+
+  <!-- ==============================================================================
+       SIDEBAR: Phase 1 Current Implementation Scope & Athena Categories
+       ============================================================================== -->
+  <aside class="fixed left-0 top-0 h-screen flex flex-col z-40 bg-surface-container-low border-r border-outline-variant w-sidebar-width transition-all">
+    
+    <!-- Brand Header -->
+    <div class="p-4 flex items-center justify-between border-b border-outline-variant/50">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-secondary rounded flex items-center justify-center text-on-secondary font-bold">🦉</div>
+        <div>
+          <h1 class="font-bold text-lg text-on-surface tracking-tight leading-none">Athenus</h1>
+          <span class="text-[10px] font-mono text-secondary uppercase tracking-widest">Phase 1 / v0.1 Status</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Categorized Navigation List -->
+    <nav class="flex-1 overflow-y-auto custom-scrollbar py-3 space-y-4">
+      
+      <!-- CATEGORY 1: WISDOM (Νοῦς / Sophia) -->
+      <div>
+        <div class="px-4 py-1 flex items-center justify-between text-[11px] font-mono text-secondary font-semibold uppercase tracking-wider opacity-90">
+          <span>🦉 Wisdom (Νοῦς)</span>
+        </div>
+        <ul class="mt-1 space-y-0.5">
+          <li>
+            <button class="nav-btn active flex items-center gap-3 w-full px-4 py-2.5 text-xs text-secondary border-l-2 border-secondary bg-surface-container-high font-semibold transition-all" data-view="view-chat">
+              <span class="material-symbols-outlined text-[18px]">forum</span>
+              <span>8-Stage RAG Chat</span>
+              <span class="ml-auto text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded">Active</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-eval">
+              <span class="material-symbols-outlined text-[18px]">fact_check</span>
+              <span>RAG Evaluator</span>
+              <span class="ml-auto text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded">Active</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- CATEGORY 2: KNOWLEDGE (Episteme) -->
+      <div>
+        <div class="px-4 py-1 flex items-center justify-between text-[11px] font-mono text-secondary font-semibold uppercase tracking-wider opacity-90">
+          <span>📚 Knowledge (Episteme)</span>
+        </div>
+        <ul class="mt-1 space-y-0.5">
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-video">
+              <span class="material-symbols-outlined text-[18px]">smart_display</span>
+              <span>Video Workspace</span>
+              <span class="ml-auto text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded">Active</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-transcript">
+              <span class="material-symbols-outlined text-[18px]">description</span>
+              <span>Transcript Reader</span>
+              <span class="ml-auto text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded">Active</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant/50 hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-graph-soon">
+              <span class="material-symbols-outlined text-[18px]">hub</span>
+              <span>Knowledge Graph</span>
+              <span class="ml-auto text-[9px] font-mono bg-surface-container-highest text-on-surface-variant/60 border border-outline-variant px-1.5 py-0.5 rounded">v0.3</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- CATEGORY 3: STRATEGY (Metis) -->
+      <div>
+        <div class="px-4 py-1 flex items-center justify-between text-[11px] font-mono text-secondary font-semibold uppercase tracking-wider opacity-90">
+          <span>⚔️ Strategy (Metis)</span>
+        </div>
+        <ul class="mt-1 space-y-0.5">
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant/50 hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-flashcards-soon">
+              <span class="material-symbols-outlined text-[18px]">layers</span>
+              <span>Flashcard Deck</span>
+              <span class="ml-auto text-[9px] font-mono bg-surface-container-highest text-on-surface-variant/60 border border-outline-variant px-1.5 py-0.5 rounded">v0.4</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant/50 hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-quiz-soon">
+              <span class="material-symbols-outlined text-[18px]">quiz</span>
+              <span>Adaptive Quizzes</span>
+              <span class="ml-auto text-[9px] font-mono bg-surface-container-highest text-on-surface-variant/60 border border-outline-variant px-1.5 py-0.5 rounded">v0.4</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <!-- CATEGORY 4: INFRASTRUCTURE (Active in Phase 1) -->
+      <div>
+        <div class="px-4 py-1 text-[11px] font-mono text-on-surface-variant/50 uppercase tracking-wider">Infrastructure</div>
+        <ul class="mt-1 space-y-0.5">
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-ingestion">
+              <span class="material-symbols-outlined text-[18px]">database</span>
+              <span>Ingestion Pipeline</span>
+              <span class="ml-auto text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded">Active</span>
+            </button>
+          </li>
+          <li>
+            <button class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all" data-view="view-bus">
+              <span class="material-symbols-outlined text-[18px]">memory</span>
+              <span>AI Capability Bus</span>
+              <span class="ml-auto text-[9px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded">Active</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+
+    </nav>
+
+    <!-- Upload Button -->
+    <div class="p-3 border-t border-outline-variant">
+      <button class="w-full bg-surface-container-highest border border-outline-variant py-2.5 px-3 rounded flex items-center justify-center gap-2 text-on-surface hover:bg-outline-variant transition-colors text-xs font-semibold" onclick="switchView('view-ingestion')">
+        <span class="material-symbols-outlined text-secondary text-sm">upload_file</span>
+        <span>Upload Video Asset</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ==============================================================================
+       MAIN WORKSPACE CANVAS (Current Phase 1 Implementation)
+       ============================================================================== -->
+  <main class="ml-sidebar-width flex-1 flex flex-col h-screen relative bg-background">
+    
+    <!-- TOP APP BAR -->
+    <header class="flex justify-between items-center w-full px-6 h-14 z-50 bg-background border-b border-outline-variant shrink-0">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 bg-surface-container-high px-3 py-1 rounded border border-outline-variant cursor-pointer">
+          <span class="material-symbols-outlined text-secondary text-sm">psychology</span>
+          <span class="font-mono text-xs text-on-surface font-semibold">Active: Phase 1 (v0.1 MVP Scope)</span>
+        </div>
+      </div>
+
+      <!-- Search Trigger -->
+      <div class="flex-1 max-w-md mx-6">
+        <div class="relative cursor-pointer" onclick="openCmdPalette()">
+          <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+          <input type="text" class="w-full bg-surface-container-low border border-outline-variant rounded pl-9 pr-12 py-1.5 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none pointer-events-none" placeholder="Search transcript chunks in Embedded Qdrant..."/>
+          <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+            <span class="bg-surface-container-high px-1 py-0.5 rounded border border-outline-variant text-[9px] font-mono text-on-surface-variant">CTRL K</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div class="w-7 h-7 rounded-full bg-secondary-container border border-secondary flex items-center justify-center text-on-secondary-container font-bold text-xs">
+          v0.1
+        </div>
+      </div>
+    </header>
+
+    <!-- VIEWPORT PANELS -->
+    <div class="flex-1 flex overflow-hidden">
+      
+      <!-- =========================================================================
+           CURRENT VIEW 1: 8-STAGE RAG CHAT (ACTIVE IN PHASE 1)
+           ========================================================================= -->
+      <section class="view-panel flex-1 flex" id="view-chat">
+        <div class="flex-1 flex flex-col border-r border-outline-variant">
+          <div class="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center">
+            <div>
+              <h2 class="font-bold text-sm text-on-surface flex items-center gap-2">
+                <span>💬</span> 8-Stage Layered Retrieval RAG Chat
+              </h2>
+              <p class="text-xs text-on-surface-variant/70">Endpoint: POST /api/v1/chat/query (Dense Qdrant + Sparse BM25 + Cross-Encoder Reranking)</p>
+            </div>
+            <span class="bg-surface-container-high px-2 py-0.5 rounded border border-outline-variant text-[10px] font-mono text-secondary">Local LLM: llama3:8b</span>
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar" id="chat-thread">
+            <!-- Assistant Message -->
+            <div class="flex gap-4 max-w-3xl">
+              <div class="w-8 h-8 rounded bg-secondary text-on-secondary flex items-center justify-center font-bold text-sm shrink-0">🦉</div>
+              <div class="space-y-2">
+                <div class="bg-surface-container p-4 rounded border border-outline-variant text-xs leading-relaxed text-on-surface">
+                  Athenus RAG Engine online. The 8-stage retrieval pipeline is active over Embedded Qdrant vector index (<code class="text-secondary font-mono">bge-small-en-v1.5</code> 384-d vectors).
+                </div>
+              </div>
+            </div>
+
+            <!-- User Query -->
+            <div class="flex gap-4 max-w-3xl ml-auto flex-row-reverse">
+              <div class="w-8 h-8 rounded bg-surface-container-highest flex items-center justify-center font-bold text-xs text-on-surface shrink-0">DEV</div>
+              <div class="bg-surface-container-high p-4 rounded border border-outline-variant text-xs leading-relaxed text-on-surface">
+                Explain how self-attention dot product scaling operates in Transformers.
+              </div>
+            </div>
+
+            <!-- Grounded Response with Citations -->
+            <div class="flex gap-4 max-w-3xl">
+              <div class="w-8 h-8 rounded bg-secondary text-on-secondary flex items-center justify-center font-bold text-sm shrink-0">🦉</div>
+              <div class="space-y-3">
+                <div class="bg-surface-container p-4 rounded border border-outline-variant text-xs leading-relaxed text-on-surface space-y-2">
+                  <p>Self-attention calculates Query-Key dot products and scales them by $\sqrt{d_k}$ to stabilize gradients <strong class="gold-highlight">[12:40 - 13:10]</strong>.</p>
+                  
+                  <!-- Clickable Citation Badge -->
+                  <div class="pt-2 flex flex-wrap gap-2">
+                    <span class="text-[10px] text-on-surface-variant font-mono">Grounding Citation:</span>
+                    <button class="px-2.5 py-1 rounded bg-secondary/15 border border-secondary/50 text-secondary text-[11px] font-mono hover:bg-secondary/30 transition-all" onclick="switchView('view-video')">
+                      ⏱ 12:40 - 13:10 (Sample_Lecture.mp4)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input Bar -->
+          <div class="p-4 bg-surface-container-low border-t border-outline-variant flex gap-3">
+            <input type="text" class="flex-1 bg-surface-container border border-outline-variant rounded px-4 py-2.5 text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:border-secondary focus:outline-none" placeholder="POST /api/v1/chat/query..."/>
+            <button class="bg-secondary text-on-secondary px-5 py-2.5 rounded font-semibold text-xs hover:brightness-110 transition-all">Send Query</button>
+          </div>
+        </div>
+
+        <!-- Right Citation Evidence Panel -->
+        <aside class="w-80 bg-surface-container-lowest border-l border-outline-variant flex flex-col">
+          <div class="p-4 border-b border-outline-variant font-bold text-xs text-on-surface flex justify-between items-center">
+            <span>8-Stage Context Payload</span>
+            <span class="text-[10px] font-mono text-secondary bg-secondary/10 px-1.5 py-0.5 rounded">Reranked Top 3</span>
+          </div>
+          <div class="p-4 overflow-y-auto space-y-4 custom-scrollbar flex-1">
+            <div class="p-3 bg-surface-container-low rounded border border-outline-variant space-y-2">
+              <div class="flex justify-between items-center text-[10px] font-mono">
+                <span class="text-secondary">⏱ 12:40 - 13:10</span>
+                <span class="text-on-surface-variant/60">Score: 0.94</span>
+              </div>
+              <p class="text-xs text-on-surface-variant">"Scaling by sqrt(d_k) prevents vanishing gradient degradation in Softmax layers..."</p>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <!-- =========================================================================
+           CURRENT VIEW 2: VIDEO LEARNING WORKSPACE (ACTIVE IN PHASE 1)
+           ========================================================================= -->
+      <section class="view-panel hidden flex-1 flex overflow-hidden" id="view-video">
+        <div class="w-[60%] bg-black flex flex-col border-r border-outline-variant">
+          <div class="flex-1 bg-surface-container-lowest flex flex-col items-center justify-center p-8 text-center space-y-4">
+            <span class="text-6xl">▶️</span>
+            <h3 class="text-base font-bold text-on-surface">Sample_Lecture.mp4 (Synced Player)</h3>
+            <span class="font-mono text-secondary text-xs" id="current-video-time">12:40 / 42:15</span>
+          </div>
+          <div class="p-4 bg-surface-container-low border-t border-outline-variant flex justify-between items-center text-xs">
+            <span class="font-semibold text-on-surface">Active Segment: [12:40 - 13:10]</span>
+            <span class="font-mono text-secondary">GET /api/v1/media/med_sample/stream (SSE Active)</span>
+          </div>
+        </div>
+
+        <div class="w-[40%] flex flex-col bg-surface-container-lowest">
+          <div class="p-4 border-b border-outline-variant font-mono text-xs font-semibold text-secondary uppercase tracking-wider">
+            Timestamped Transcript Chunks (~250 Words)
+          </div>
+          <div class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar text-xs leading-relaxed text-on-surface-variant">
+            <div class="p-3 rounded bg-surface-container-high border-l-2 border-secondary text-on-surface">
+              <span class="text-secondary font-mono font-semibold block mb-1">⏱ 12:40 - 13:10</span>
+              <p>By scaling the dot product by <span class="gold-highlight">sqrt(d_k)</span>, we prevent exploding gradient magnitudes during Softmax evaluation.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================================================================
+           CURRENT VIEW 3: TRANSCRIPT READER (ACTIVE IN PHASE 1)
+           ========================================================================= -->
+      <section class="view-panel hidden flex-1 p-8 overflow-y-auto custom-scrollbar" id="view-transcript">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <h2 class="text-xl font-bold text-on-surface">Full Document Transcript Reader</h2>
+          <div class="p-6 bg-surface-container-low border border-outline-variant rounded space-y-4 text-xs leading-relaxed text-on-surface-variant">
+            <p><span class="text-secondary font-mono font-semibold">[12:40 - 13:10]</span> Scaling factor $\sqrt{d_k}$ ensures gradient stability across deep layer stacks.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================================================================
+           CURRENT VIEW 4: RAG EVALUATOR BENCHMARKS (ACTIVE IN PHASE 1 SLICE 5)
+           ========================================================================= -->
+      <section class="view-panel hidden flex-1 p-8 overflow-y-auto custom-scrollbar" id="view-eval">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <h2 class="text-xl font-bold text-on-surface">RAGEvaluator Subsystem Diagnostics</h2>
+          <div class="grid grid-cols-3 gap-6">
+            <div class="p-5 bg-surface-container-low border border-outline-variant rounded space-y-2">
+              <span class="font-mono text-xs text-secondary">PRECISION@5</span>
+              <h3 class="text-2xl font-bold text-emerald-400">100%</h3>
+              <p class="text-xs text-on-surface-variant">Ground truth chunk overlap.</p>
+            </div>
+            <div class="p-5 bg-surface-container-low border border-outline-variant rounded space-y-2">
+              <span class="font-mono text-xs text-secondary">RECALL@5</span>
+              <h3 class="text-2xl font-bold text-emerald-400">100%</h3>
+              <p class="text-xs text-on-surface-variant">Top-5 candidate retrieval.</p>
+            </div>
+            <div class="p-5 bg-surface-container-low border border-outline-variant rounded space-y-2">
+              <span class="font-mono text-xs text-secondary">CITATION GROUNDEDNESS</span>
+              <h3 class="text-2xl font-bold text-emerald-400">98%</h3>
+              <p class="text-xs text-on-surface-variant">Verified context phrase overlap.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================================================================
+           CURRENT VIEW 5: MEDIA INGESTION PIPELINE (ACTIVE IN PHASE 1 SLICE 2)
+           ========================================================================= -->
+      <section class="view-panel hidden flex-1 p-8 overflow-y-auto custom-scrollbar" id="view-ingestion">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <h2 class="text-xl font-bold text-on-surface">Media Ingestion & Worker Pipeline</h2>
+          <div class="p-6 bg-surface-container-low border border-outline-variant rounded space-y-4">
+            <h4 class="font-bold text-sm">POST /api/v1/media/upload Pipeline Status</h4>
+            <div class="space-y-3 text-xs">
+              <div class="flex justify-between">
+                <span>1. FFmpegAudioExtractor (16kHz Mono WAV)</span>
+                <span class="text-emerald-400 font-semibold">✓ Completed</span>
+              </div>
+              <div class="flex justify-between">
+                <span>2. TranscriptWorker (Faster-Whisper STT)</span>
+                <span class="text-emerald-400 font-semibold">✓ Completed</span>
+              </div>
+              <div class="flex justify-between">
+                <span>3. SemanticChunker (~250 Word Windows)</span>
+                <span class="text-emerald-400 font-semibold">✓ Completed</span>
+              </div>
+              <div class="flex justify-between">
+                <span>4. EmbeddingWorker (BGE Small + Embedded Qdrant)</span>
+                <span class="text-emerald-400 font-semibold">✓ Completed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================================================================
+           CURRENT VIEW 6: AI CAPABILITY BUS (ACTIVE IN PHASE 1 SLICE 1)
+           ========================================================================= -->
+      <section class="view-panel hidden flex-1 p-8 overflow-y-auto custom-scrollbar" id="view-bus">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <h2 class="text-xl font-bold text-on-surface">AI Service Bus & Registered Adapters</h2>
+          <div class="grid grid-cols-3 gap-6">
+            <div class="p-5 bg-surface-container-low border border-outline-variant rounded space-y-2">
+              <span class="font-mono text-xs text-secondary">TEXT GENERATION</span>
+              <h3 class="text-sm font-bold text-on-surface">OllamaTextGenAdapter</h3>
+              <p class="text-xs text-on-surface-variant font-mono">llama3:8b (Port 11434)</p>
+            </div>
+            <div class="p-5 bg-surface-container-low border border-outline-variant rounded space-y-2">
+              <span class="font-mono text-xs text-secondary">SPEECH-TO-TEXT</span>
+              <h3 class="text-sm font-bold text-on-surface">FasterWhisperSTTAdapter</h3>
+              <p class="text-xs text-on-surface-variant font-mono">whisper-base (CTranslate2)</p>
+            </div>
+            <div class="p-5 bg-surface-container-low border border-outline-variant rounded space-y-2">
+              <span class="font-mono text-xs text-secondary">VECTOR EMBEDDING</span>
+              <h3 class="text-sm font-bold text-on-surface">SentenceTransformersAdapter</h3>
+              <p class="text-xs text-on-surface-variant font-mono">bge-small-en-v1.5 (384-d)</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FUTURE PLACEHOLDER VIEWS -->
+      <section class="view-panel hidden flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4" id="view-graph-soon">
+        <span class="text-5xl">🌐</span>
+        <h3 class="text-base font-bold text-on-surface">Concept Knowledge Graph Engine</h3>
+        <p class="text-xs text-on-surface-variant">Scheduled for Phase 3 Release (v0.3 Roadmap milestone).</p>
+      </section>
+
+      <section class="view-panel hidden flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4" id="view-flashcards-soon">
+        <span class="text-5xl">🎴</span>
+        <h3 class="text-base font-bold text-on-surface">Active Recall Flashcards (Anki SM-2)</h3>
+        <p class="text-xs text-on-surface-variant">Scheduled for Phase 4 Release (v0.4 Roadmap milestone).</p>
+      </section>
+
+      <section class="view-panel hidden flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4" id="view-quiz-soon">
+        <span class="text-5xl">✍️</span>
+        <h3 class="text-base font-bold text-on-surface">Adaptive Quizzes</h3>
+        <p class="text-xs text-on-surface-variant">Scheduled for Phase 4 Release (v0.4 Roadmap milestone).</p>
+      </section>
+
+    </div>
+
+    <!-- BOTTOM STATUS BAR -->
+    <footer class="fixed bottom-0 left-0 w-full flex justify-between items-center px-4 py-1.5 z-50 bg-surface-container-lowest border-t border-outline-variant text-[11px] font-mono text-on-surface-variant">
+      <div class="flex items-center gap-3">
+        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span class="text-secondary font-semibold">Phase 1 (v0.1 MVP): 100% Implemented & 25/25 Tests Passing</span>
+      </div>
+      <div class="flex gap-4">
+        <span>Qdrant: Embedded (./data/qdrant)</span>
+        <span>SQLite: Connected (./data/athenus.db)</span>
+        <span>Latency: 14ms</span>
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- COMMAND PALETTE MODAL (CTRL+K) -->
+  <div id="cmd-palette-overlay" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-start justify-center pt-24" onclick="closeCmdPalette()">
+    <div class="w-[540px] bg-surface-container-low border border-outline-variant rounded-lg shadow-2xl overflow-hidden" onclick="event.stopPropagation()">
+      <div class="p-4 border-b border-outline-variant flex items-center gap-3">
+        <span class="material-symbols-outlined text-on-surface-variant">search</span>
+        <input type="text" id="cmd-palette-input" class="flex-1 bg-transparent text-xs text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none" placeholder="Search transcript chunks in Embedded Qdrant..."/>
+        <span class="text-[10px] font-mono text-on-surface-variant/50">ESC</span>
+      </div>
+      <div class="p-2 space-y-1 text-xs">
+        <div class="p-2.5 rounded hover:bg-surface-container-high cursor-pointer flex justify-between items-center" onclick="switchView('view-chat'); closeCmdPalette();">
+          <span>💬 8-Stage RAG Chat</span>
+          <span class="font-mono text-[10px] text-emerald-400">Active</span>
+        </div>
+        <div class="p-2.5 rounded hover:bg-surface-container-high cursor-pointer flex justify-between items-center" onclick="switchView('view-video'); closeCmdPalette();">
+          <span>📹 Video Learning Workspace</span>
+          <span class="font-mono text-[10px] text-emerald-400">Active</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INTERACTIVE CONTROLLER SCRIPT -->
+  <script>
+    function switchView(viewId) {
+      document.querySelectorAll('.view-panel').forEach(panel => {
+        if (panel.id === viewId) {
+          panel.classList.remove('hidden');
+          panel.classList.add('flex');
+        } else {
+          panel.classList.add('hidden');
+          panel.classList.remove('flex');
+        }
+      });
+
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        if (btn.getAttribute('data-view') === viewId) {
+          btn.classList.add('active', 'text-secondary', 'border-l-2', 'border-secondary', 'bg-surface-container-high', 'font-semibold');
+          btn.classList.remove('text-on-surface-variant');
+        } else {
+          btn.classList.remove('active', 'text-secondary', 'border-l-2', 'border-secondary', 'bg-surface-container-high', 'font-semibold');
+          btn.classList.add('text-on-surface-variant');
+        }
+      });
+    }
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const viewId = btn.getAttribute('data-view');
+        if (viewId) switchView(viewId);
+      });
+    });
+
+    function openCmdPalette() {
+      document.getElementById('cmd-palette-overlay').classList.remove('hidden');
+      document.getElementById('cmd-palette-input').focus();
+    }
+    function closeCmdPalette() {
+      document.getElementById('cmd-palette-overlay').classList.add('hidden');
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        const overlay = document.getElementById('cmd-palette-overlay');
+        if (overlay.classList.contains('hidden')) openCmdPalette();
+        else closeCmdPalette();
+      }
+      if (e.key === 'Escape') closeCmdPalette();
+    });
+  </script>
+</body>
+</html>
