@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getWorkspaces } from '@/services/libraryService';
 
 export interface MediaAsset {
   id: string;
@@ -45,23 +46,38 @@ const MOCK_MEDIA_ASSETS: MediaAsset[] = [
 ];
 
 export function useLibrary() {
-  const [assets, setAssets] = useState<MediaAsset[]>(MOCK_MEDIA_ASSETS);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [isOffline, setIsOffline] = useState<boolean>(false);
 
   useEffect(() => {
-    // Attempt backend fetch if online
     async function fetchAssets() {
       try {
         setLoading(true);
-        const res = await fetch('http://localhost:8000/api/v1/workspaces/ws_default');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.media_assets && data.media_assets.length > 0) {
-            setAssets(data.media_assets);
-          }
+        const workspaces = await getWorkspaces();
+        setIsOffline(false);
+
+        if (workspaces && workspaces.length > 0 && workspaces[0].media_item_ids.length > 0) {
+          // Map real workspace media items
+          const realAssets: MediaAsset[] = workspaces[0].media_item_ids.map((id, idx) => ({
+            id,
+            title: `Indexed Lecture ${idx + 1}`,
+            description: `Media Item ID ${id} stored in SQLite workspace collection.`,
+            duration: '42:15',
+            wordCount: 1420,
+            masteryScore: 90,
+            thumbnailEmoji: '🎥',
+            uploadedAt: 'Recently',
+          }));
+          setAssets(realAssets);
+        } else {
+          // Empty workspace (no default mock replacement per design note)
+          setAssets([]);
         }
       } catch (_err) {
-        // Silent fallback to mock data
+        // Backend offline fallback
+        setIsOffline(true);
+        setAssets(MOCK_MEDIA_ASSETS);
       } finally {
         setLoading(false);
       }
@@ -69,5 +85,5 @@ export function useLibrary() {
     fetchAssets();
   }, []);
 
-  return { assets, loading };
+  return { assets, loading, isOffline };
 }

@@ -7,6 +7,16 @@ from app.domain.workspace.workspace_service import WorkspaceService
 router = APIRouter()
 workspace_service = WorkspaceService()
 
+def ensure_default_workspace():
+    """Ensure at least one default workspace exists."""
+    workspaces = workspace_service.list_workspaces()
+    if not workspaces:
+        workspace_service.create_workspace(
+            name="Machine Learning & Deep Learning",
+            description="Default learning workspace for indexed lecture videos.",
+            icon="psychology"
+        )
+
 class CreateWorkspaceRequest(BaseModel):
     name: str
     description: Optional[str] = None
@@ -36,6 +46,7 @@ def create_workspace(request: CreateWorkspaceRequest):
 
 @router.get("/workspaces", response_model=List[WorkspaceResponse])
 def list_workspaces():
+    ensure_default_workspace()
     workspaces = workspace_service.list_workspaces()
     return [
         WorkspaceResponse(
@@ -50,9 +61,16 @@ def list_workspaces():
 
 @router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
 def get_workspace(workspace_id: str):
+    ensure_default_workspace()
     ws = workspace_service.get_workspace(workspace_id)
     if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        # If 'default' is requested, attempt lookup of default workspace
+        workspaces = workspace_service.list_workspaces()
+        if workspaces:
+            ws = workspaces[0]
+        else:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+
     return WorkspaceResponse(
         id=ws.id,
         name=ws.name,

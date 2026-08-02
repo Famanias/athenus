@@ -14,28 +14,29 @@ class OllamaTextGenAdapter(ITextGenerationCapability):
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResponse:
         url = f"{self.base_url}/api/generate"
-        payload = {
-            "model": self.default_model,
-            "prompt": request.prompt,
-            "system": request.system_prompt or "",
-            "stream": False,
-            "options": {
-                "temperature": request.temperature,
-                "num_predict": request.max_tokens,
+        for model_name in [self.default_model, "llama3", "llama3:8b"]:
+            payload = {
+                "model": model_name,
+                "prompt": request.prompt,
+                "system": request.system_prompt or "",
+                "stream": False,
+                "options": {
+                    "temperature": request.temperature,
+                    "num_predict": request.max_tokens or 512,
+                }
             }
-        }
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.post(url, json=payload)
-                if response.status_code == 200:
-                    data = response.json()
-                    return TextGenerationResponse(
-                        text=data.get("response", ""),
-                        prompt_tokens=data.get("prompt_eval_count", 0),
-                        completion_tokens=data.get("eval_count", 0),
-                    )
-        except Exception:
-            pass
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(url, json=payload)
+                    if response.status_code == 200:
+                        data = response.json()
+                        return TextGenerationResponse(
+                            text=data.get("response", ""),
+                            prompt_tokens=data.get("prompt_eval_count", 0),
+                            completion_tokens=data.get("eval_count", 0),
+                        )
+            except Exception:
+                continue
 
         # Fallback response when local Ollama service is offline or unreachable
         return TextGenerationResponse(

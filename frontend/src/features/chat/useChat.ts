@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
+import { sendChatQuery, mapBackendCitations } from '@/services/chatService';
 
 export interface Citation {
   mediaId: string;
@@ -62,12 +63,13 @@ const INITIAL_LOGS: AgentLog[] = [
 ];
 
 export function useChat() {
-  const { activeWorkspaceId } = useAppStore();
+  const { activeWorkspaceId, activeMediaId } = useAppStore();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [evidence, setEvidence] = useState<Citation[]>(INITIAL_MESSAGES[2].citations || []);
   const [agentLogs, setAgentLogs] = useState<AgentLog[]>(INITIAL_LOGS);
   const [inputQuery, setInputQuery] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isBackendUnavailable, setIsBackendUnavailable] = useState<boolean>(false);
 
   const sendMessage = async (queryText?: string) => {
     const query = queryText || inputQuery;
@@ -85,52 +87,47 @@ export function useChat() {
     setIsGenerating(true);
 
     try {
-      // Fetch backend RAG API endpoint
-      const res = await fetch('http://localhost:8000/api/v1/chat/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: activeWorkspaceId,
-          query: query,
-        }),
-      });
+      const data = await sendChatQuery(query, activeWorkspaceId || 'default', activeMediaId || undefined);
+      setIsBackendUnavailable(false);
 
-      if (res.ok) {
-        const data = await res.json();
-        const assistantMsg: ChatMessage = {
-          id: `asst_${Date.now()}`,
-          sender: 'assistant',
-          content: data.answer || data.response,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          citations: data.citations || [],
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
-        if (data.citations) setEvidence(data.citations);
-      } else {
-        throw new Error('API non-200');
+      const mappedCitations = mapBackendCitations(data.citations, activeMediaId || 'med_sample_01', 'Lecture Segment');
+
+      const assistantMsg: ChatMessage = {
+        id: `asst_${Date.now()}`,
+        sender: 'assistant',
+        content: data.answer,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        citations: mappedCitations,
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+      if (mappedCitations.length > 0) {
+        setEvidence(mappedCitations);
       }
-    } catch (_err) {
-      // Local fallback grounded answer
-      setTimeout(() => {
-        const fallbackMsg: ChatMessage = {
-          id: `asst_${Date.now()}`,
-          sender: 'assistant',
-          content: `Here is the grounded response for "${query}": The QKV self-attention mechanism processes tokens in parallel, scaling scores by sqrt(d_k) to maintain stable gradient magnitudes.`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          citations: [
-            {
-              mediaId: 'med_sample_01',
-              mediaTitle: 'Lecture 14',
-              startTime: '05:15',
-              endTime: '06:40',
-              score: 0.89,
-              textSnippet: 'Self-attention allows the model to compute dynamic context vectors...',
-            },
-          ],
-        };
-        setMessages((prev) => [...prev, fallbackMsg]);
-        setEvidence(fallbackMsg.citations || []);
-      }, 600);
+    } catch (_err: any) {
+      // Local-first fallback handling
+      setIsBackendUnavailable(true);
+      const fallbackCitations: Citation[] = [
+        {
+          mediaId: activeMediaId || 'med_sample_01',
+          mediaTitle: 'Lecture Segment',
+          startTime: '05:15',
+          endTime: '06:40',
+          score: 0.89,
+          textSnippet: 'Self-attention computes dynamic context vectors across input tokens.',
+        },
+      ];
+
+      const fallbackMsg: ChatMessage = {
+        id: `asst_${Date.now()}`,
+        sender: 'assistant',
+        content: `Local AI Response (Offline Mode): Processed query "${query}". The self-attention mechanism scales dot products to prevent vanishing gradients during backpropagation.`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        citations: fallbackCitations,
+      };
+
+      setMessages((prev) => [...prev, fallbackMsg]);
+      setEvidence(fallbackCitations);
     } finally {
       setIsGenerating(false);
     }
@@ -144,5 +141,6 @@ export function useChat() {
     setInputQuery,
     sendMessage,
     isGenerating,
+    isBackendUnavailable,
   };
 }

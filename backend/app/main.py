@@ -18,12 +18,14 @@ from app.presentation.api.v1.workspaces import router as workspaces_router
 from app.presentation.api.v1.knowledge_graph import router as graph_router, graph_service
 from app.presentation.api.v1.learning import router as learning_router
 from app.presentation.api.v1.agents import router as agents_router
+from app.presentation.api.v1.settings import router as settings_router
 import app.presentation.api.v1.chat as chat_module
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.ai.provider_router import ProviderRouter
 from app.domain.ai.service_bus import AIServiceBus
 from app.infrastructure.events.event_bus import event_bus
 from app.infrastructure.adapters.ollama_adapter import OllamaTextGenAdapter
+from app.infrastructure.adapters.cloud_llm_adapter import CloudTextGenAdapter
 from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
 from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
 from app.services.workers.transcript_worker import TranscriptWorker
@@ -41,8 +43,14 @@ registry = ModelRegistry()
 router_policy = ProviderRouter(registry)
 ai_service_bus = AIServiceBus(registry, router_policy)
 
+# Instantiated Cloud Adapters
+openrouter_adapter = CloudTextGenAdapter("OpenRouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3-8b-instruct:free")
+groq_adapter = CloudTextGenAdapter("Groq", "https://api.groq.com/openai/v1", "llama3-8b-8192")
+
 # Register Adapters
 ai_service_bus.register_text_adapter("ollama", OllamaTextGenAdapter())
+ai_service_bus.register_text_adapter("openrouter", openrouter_adapter)
+ai_service_bus.register_text_adapter("groq", groq_adapter)
 ai_service_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
 ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
 
@@ -98,6 +106,7 @@ app.include_router(workspaces_router, prefix=settings.API_V1_PREFIX, tags=["Work
 app.include_router(graph_router, prefix=settings.API_V1_PREFIX, tags=["Knowledge Graph"])
 app.include_router(learning_router, prefix=settings.API_V1_PREFIX, tags=["Learning Tools"])
 app.include_router(agents_router, prefix=settings.API_V1_PREFIX, tags=["Agentic AI"])
+app.include_router(settings_router, prefix=settings.API_V1_PREFIX, tags=["Settings"])
 
 if __name__ == "__main__":
     import uvicorn

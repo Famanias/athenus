@@ -12,9 +12,11 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
   const { setCurrentTime, setActiveView } = useAppStore();
   const isUser = message.sender === 'user';
 
-  const handleCitationClick = (startTime: string) => {
-    setCurrentTime(startTime);
-    setActiveView('view-video');
+  const handleCitationClick = (startTime?: string) => {
+    if (startTime) {
+      setCurrentTime(startTime);
+      setActiveView('view-video');
+    }
   };
 
   return (
@@ -50,15 +52,21 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
             <span className="text-[10px] text-on-surface-variant font-mono">
               Grounded Citations:
             </span>
-            {message.citations.map((cit, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleCitationClick(cit.startTime)}
-                className="px-2 py-0.5 rounded bg-secondary/15 border border-secondary/40 text-secondary text-[11px] font-mono hover:bg-secondary/30 transition-all cursor-pointer"
-              >
-                ⏱ {cit.startTime} - {cit.endTime} ({cit.mediaTitle})
-              </button>
-            ))}
+            {message.citations.map((cit, idx) => {
+              const startStr = cit.startTime || '00:00';
+              const endStr = cit.endTime ? ` - ${cit.endTime}` : '';
+              const titleStr = cit.mediaTitle ? ` (${cit.mediaTitle})` : '';
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleCitationClick(cit.startTime)}
+                  className="px-2.5 py-1 rounded bg-secondary/15 border border-secondary/40 text-secondary text-[11px] font-mono hover:bg-secondary/30 transition-all cursor-pointer"
+                >
+                  ⏱ {startStr}{endStr}{titleStr}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

@@ -82,3 +82,21 @@ class ModelRegistry:
             is_installed=True,
             display_name="BAAI BGE Small (Local Embeddings)"
         ))
+        self.register(ModelMetadata(
+            model_id="openrouter",
+            provider=ModelProviderType.OPENROUTER,
+            capabilities=[ModelCapabilityType.TEXT_GENERATION],
+            context_window=131072,
+            is_local=False,
+            is_installed=True,
+            display_name="OpenRouter Cloud API"
+        ))
+        self.register(ModelMetadata(
+            model_id="groq",
+            provider=ModelProviderType.GROQ,
+            capabilities=[ModelCapabilityType.TEXT_GENERATION],
+            context_window=8192,
+            is_local=False,
+            is_installed=True,
+            display_name="Groq Cloud LPU API"
+        ))

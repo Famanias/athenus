@@ -22,10 +22,15 @@ class AIServiceBus:
         self._embedding_adapters[provider_id] = adapter
 
     def get_text_capability(self, model_id: Optional[str] = None) -> ITextGenerationCapability:
-        selected_model = self.router.select_model(ModelCapabilityType.TEXT_GENERATION, preferred_model_id=model_id)
-        adapter = self._text_adapters.get(selected_model.provider.value)
+        from app.presentation.api.v1.settings import current_settings
+        active_provider = current_settings.get("default_llm", "ollama").lower()
+
+        adapter = self._text_adapters.get(active_provider)
         if not adapter:
-            raise RuntimeError(f"No adapter registered for provider: {selected_model.provider}")
+            # Fallback to local ollama adapter or default
+            adapter = self._text_adapters.get("ollama")
+        if not adapter:
+            raise RuntimeError(f"No adapter registered for provider: {active_provider}")
         return adapter
 
     def get_stt_capability(self, model_id: Optional[str] = None) -> ISpeechToTextCapability:

@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '@/store/useAppStore';
+import { getTranscript, BackendTranscriptSegmentDTO } from '@/services/mediaService';
+import { formatSecondsToTimestamp } from '@/services/chatService';
 
 export interface TranscriptSegment {
   id: string;
@@ -44,13 +46,46 @@ const MOCK_TRANSCRIPT_SEGMENTS: TranscriptSegment[] = [
 ];
 
 export function useVideo() {
-  const { currentTime, setCurrentTime } = useAppStore();
-  const [segments] = useState<TranscriptSegment[]>(MOCK_TRANSCRIPT_SEGMENTS);
+  const { activeMediaId, currentTime, setCurrentTime } = useAppStore();
+  const [segments, setSegments] = useState<TranscriptSegment[]>(MOCK_TRANSCRIPT_SEGMENTS);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [hasTranscript, setHasTranscript] = useState<boolean>(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!activeMediaId) return;
+
+    async function fetchTranscript() {
+      try {
+        setLoading(true);
+        const data = await getTranscript(activeMediaId!);
+        if (data.segments && data.segments.length > 0) {
+          const mapped: TranscriptSegment[] = data.segments.map((seg: BackendTranscriptSegmentDTO, idx: number) => ({
+            id: `seg_${idx}`,
+            timestamp: formatSecondsToTimestamp(seg.start_time),
+            speaker: seg.speaker || 'Lecturer',
+            text: seg.text,
+          }));
+          setSegments(mapped);
+          setHasTranscript(true);
+        } else {
+          setSegments(MOCK_TRANSCRIPT_SEGMENTS);
+          setHasTranscript(true);
+        }
+      } catch (_err) {
+        // Fallback
+        setSegments(MOCK_TRANSCRIPT_SEGMENTS);
+        setHasTranscript(true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchTranscript();
+  }, [activeMediaId]);
 
   const seekTo = (timestampStr: string) => {
     setCurrentTime(timestampStr);
-    // Parse MM:SS to seconds
     const parts = timestampStr.split(':');
     if (parts.length === 2 && videoRef.current) {
       const seconds = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
@@ -58,5 +93,5 @@ export function useVideo() {
     }
   };
 
-  return { currentTime, segments, videoRef, seekTo };
+  return { currentTime, segments, videoRef, seekTo, loading, hasTranscript };
 }

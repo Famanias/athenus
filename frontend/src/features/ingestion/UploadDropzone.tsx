@@ -5,7 +5,7 @@ import { useIngestion } from './useIngestion';
 import { Button } from '@/components/ui/Button';
 
 export const UploadDropzone: React.FC = () => {
-  const { stages, isUploading, selectedFile, handleFileUpload, setActiveView } =
+  const { stages, isUploading, selectedFile, errorMessage, handleFileUpload, setActiveView } =
     useIngestion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -17,6 +17,13 @@ export const UploadDropzone: React.FC = () => {
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-4xl mx-auto space-y-6 w-full">
+      {/* Error Notice */}
+      {errorMessage && (
+        <div className="p-3 bg-rose-950/60 border border-rose-500/40 rounded text-rose-300 text-xs flex justify-between items-center">
+          <span>⚠️ {errorMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="pb-4 border-b border-outline-variant">
         <h2 className="font-carvist text-2xl font-bold text-on-surface">
@@ -75,6 +82,9 @@ export const UploadDropzone: React.FC = () => {
               )}
               {stg.status === 'processing' && (
                 <span className="text-secondary font-mono font-semibold">⚙ In Progress ({stg.progress}%)</span>
+              )}
+              {stg.status === 'failed' && (
+                <span className="text-rose-400 font-mono font-semibold">✕ Failed</span>
               )}
               {stg.status === 'pending' && (
                 <span className="text-on-surface-variant/50 font-mono">⏳ Pending</span>

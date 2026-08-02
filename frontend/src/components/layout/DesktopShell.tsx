@@ -44,15 +44,15 @@ export const DesktopShell: React.FC = () => {
           {activeView === 'view-ingestion' && <UploadDropzone />}
           {activeView === 'view-settings' && <SystemSettings />}
 
-          {/* Default fallback */}
+          {/* Default fallback for unimplemented views */}
           {!['view-dashboard', 'view-video', 'view-transcript', 'view-chat', 'view-flashcards', 'view-quiz', 'view-graph', 'view-ingestion', 'view-settings'].includes(activeView) && (
-            <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-3">
-              <span className="text-5xl">⚡</span>
-              <h3 className="font-carvist text-lg font-bold text-on-surface">
-                Athena View Canvas: {activeView}
+            <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-low border border-dashed border-outline-variant m-8 rounded-lg">
+              <span className="text-5xl">🚧</span>
+              <h3 className="font-carvist text-xl font-bold text-on-surface">
+                Feature Under Construction
               </h3>
               <p className="text-xs text-on-surface-variant max-w-md">
-                Active view selected. All Phase A through F desktop shell components are live.
+                This Athena capability is currently under active construction. Stay tuned for future release updates!
               </p>
             </div>
           )}
