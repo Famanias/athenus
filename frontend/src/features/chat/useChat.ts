@@ -1,52 +1,36 @@
-import { useState } from 'react';
+// useChat — coordinates async chat logic on top of the Zustand chat slice.
+//
+// State lives in the store (survives view unmount/remount).
+// This hook owns only the async sendMessage workflow — no local useState.
+
 import { useAppStore } from '@/store/useAppStore';
 import { sendChatQuery, mapBackendCitations } from '@/services/chatService';
+import type { ChatMessage, Citation, AgentLog } from './types';
 
-export interface Citation {
-  mediaId: string;
-  mediaTitle: string;
-  startTime: string;
-  endTime: string;
-  score: number;
-  textSnippet: string;
-}
-
-export interface ChatMessage {
-  id: string;
-  sender: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  citations?: Citation[];
-}
-
-export interface AgentLog {
-  timestamp: string;
-  agent: string;
-  message: string;
-}
-
-const INITIAL_MESSAGES: ChatMessage[] = [
-  {
-    id: 'msg_0',
-    sender: 'assistant',
-    content: 'Welcome to Athenus AI Learning Assistant! Upload your lecture videos or ask any question about your workspace content to get started.',
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  },
-];
-
-const INITIAL_LOGS: AgentLog[] = [];
+// Re-export types so consumers don't need to import from two places.
+export type { ChatMessage, Citation, AgentLog };
 
 export function useChat() {
-  const { activeWorkspaceId, activeMediaId } = useAppStore();
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-  const [evidence, setEvidence] = useState<Citation[]>([]);
-  const [agentLogs, setAgentLogs] = useState<AgentLog[]>(INITIAL_LOGS);
-  const [inputQuery, setInputQuery] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isBackendUnavailable, setIsBackendUnavailable] = useState<boolean>(false);
+  // Granular selectors — each subscriber only re-renders when its own slice changes.
+  const messages        = useAppStore((s) => s.chat.messages);
+  const evidence        = useAppStore((s) => s.chat.evidence);
+  const agentLogs       = useAppStore((s) => s.chat.agentLogs);
+  const inputQuery      = useAppStore((s) => s.chat.input);
+  const isGenerating    = useAppStore((s) => s.chat.isGenerating);
+  const isBackendUnavailable = useAppStore((s) => s.chat.backendUnavailable);
+
+  const addMessage           = useAppStore((s) => s.addMessage);
+  const addEvidence          = useAppStore((s) => s.addEvidence);
+  const updateInput          = useAppStore((s) => s.updateInput);
+  const setGenerating        = useAppStore((s) => s.setGenerating);
+  const setBackendUnavailable = useAppStore((s) => s.setBackendUnavailable);
+  const clearConversation    = useAppStore((s) => s.clearConversation);
+
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
+  const activeMediaId     = useAppStore((s) => s.activeMediaId);
 
   const sendMessage = async (queryText?: string) => {
-    const query = queryText || inputQuery;
+    const query = queryText ?? inputQuery;
     if (!query.trim() || isGenerating) return;
 
     const userMsg: ChatMessage = {
@@ -56,15 +40,15 @@ export function useChat() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
-    setInputQuery('');
-    setIsGenerating(true);
+    addMessage(userMsg);
+    updateInput('');
+    setGenerating(true);
 
     try {
-      const data = await sendChatQuery(query, activeWorkspaceId || 'default', activeMediaId || undefined);
-      setIsBackendUnavailable(false);
+      const data = await sendChatQuery(query, activeWorkspaceId, activeMediaId ?? undefined);
+      setBackendUnavailable(false);
 
-      const mappedCitations = mapBackendCitations(data.citations, activeMediaId || '', 'Lecture Segment');
+      const mappedCitations = mapBackendCitations(data.citations, activeMediaId ?? '', 'Lecture Segment');
 
       const assistantMsg: ChatMessage = {
         id: `asst_${Date.now()}`,
@@ -74,12 +58,12 @@ export function useChat() {
         citations: mappedCitations,
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      addMessage(assistantMsg);
       if (mappedCitations.length > 0) {
-        setEvidence(mappedCitations);
+        addEvidence(mappedCitations);
       }
-    } catch (_err: any) {
-      setIsBackendUnavailable(true);
+    } catch {
+      setBackendUnavailable(true);
 
       const errorMsg: ChatMessage = {
         id: `asst_${Date.now()}`,
@@ -88,9 +72,9 @@ export function useChat() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-      setMessages((prev) => [...prev, errorMsg]);
+      addMessage(errorMsg);
     } finally {
-      setIsGenerating(false);
+      setGenerating(false);
     }
   };
 
@@ -99,9 +83,10 @@ export function useChat() {
     evidence,
     agentLogs,
     inputQuery,
-    setInputQuery,
+    setInputQuery: updateInput,   // preserve the surface API ChatWorkspace.tsx expects
     sendMessage,
     isGenerating,
     isBackendUnavailable,
+    clearConversation,
   };
 }

@@ -26,7 +26,7 @@ export function formatSecondsToTimestamp(seconds: number): string {
 
 export function mapBackendCitations(
   citations: BackendCitationDTO[],
-  defaultMediaId = 'med_sample_01',
+  defaultMediaId = '',
   defaultMediaTitle = 'Lecture Segment'
 ): Citation[] {
   if (!Array.isArray(citations)) return [];

@@ -1,6 +1,12 @@
 import { create } from 'zustand';
+import { createChatSlice, type ChatSlice } from './chatSlice';
 
-export interface AppState {
+// ---------------------------------------------------------------------------
+// UI Slice — view routing, workspace selection, and global overlay state.
+// Future slices (video, ingestion, …) compose alongside this one.
+// ---------------------------------------------------------------------------
+
+interface UISlice {
   activeView: string;
   activeWorkspaceId: string;
   activeMediaId: string | null;
@@ -8,12 +14,11 @@ export interface AppState {
   isCmdPaletteOpen: boolean;
   searchQuery: string;
 
-  // Settings State
+  // Settings
   llmProvider: string;
   sttProvider: string;
   gpuAcceleration: boolean;
 
-  // Actions
   setActiveView: (viewId: string) => void;
   setActiveWorkspaceId: (id: string) => void;
   setActiveMediaId: (id: string | null) => void;
@@ -23,11 +28,14 @@ export interface AppState {
   setProviderSettings: (llm: string, stt: string, gpu: boolean) => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export type AppState = UISlice & ChatSlice;
+
+export const useAppStore = create<AppState>()((...args) => ({
+  // --- UI slice ---
   activeView: 'view-chat',
   activeWorkspaceId: 'default',
-  activeMediaId: 'med_sample_01',
-  currentTime: '12:40',
+  activeMediaId: null,
+  currentTime: '00:00',
   isCmdPaletteOpen: false,
   searchQuery: '',
 
@@ -35,12 +43,15 @@ export const useAppStore = create<AppState>((set) => ({
   sttProvider: 'faster-whisper',
   gpuAcceleration: true,
 
-  setActiveView: (viewId) => set({ activeView: viewId }),
-  setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
-  setActiveMediaId: (id) => set({ activeMediaId: id }),
-  setCurrentTime: (time) => set({ currentTime: time }),
-  setCmdPaletteOpen: (isOpen) => set({ isCmdPaletteOpen: isOpen }),
-  setSearchQuery: (query) => set({ searchQuery: query }),
+  setActiveView: (viewId) => args[0]({ activeView: viewId }),
+  setActiveWorkspaceId: (id) => args[0]({ activeWorkspaceId: id }),
+  setActiveMediaId: (id) => args[0]({ activeMediaId: id }),
+  setCurrentTime: (time) => args[0]({ currentTime: time }),
+  setCmdPaletteOpen: (isOpen) => args[0]({ isCmdPaletteOpen: isOpen }),
+  setSearchQuery: (query) => args[0]({ searchQuery: query }),
   setProviderSettings: (llm, stt, gpu) =>
-    set({ llmProvider: llm, sttProvider: stt, gpuAcceleration: gpu }),
+    args[0]({ llmProvider: llm, sttProvider: stt, gpuAcceleration: gpu }),
+
+  // --- Chat slice ---
+  ...createChatSlice(...args),
 }));

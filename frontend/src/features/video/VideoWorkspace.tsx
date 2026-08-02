@@ -12,17 +12,13 @@ export const VideoWorkspace: React.FC = () => {
   if (!activeMediaId && segments.length === 0) {
     return (
       <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
-        <span className="text-5xl">🎥</span>
-        <h3 className="font-carvist text-xl font-bold text-on-surface">No Lecture Video Selected</h3>
+        <h3 className="font-carvist text-xl font-bold text-on-surface">No videos uploaded</h3>
         <p className="text-xs text-on-surface-variant max-w-md leading-relaxed">
-          Select a lecture video from your library workspace or upload a new media asset to view its synchronized video player and interactive transcript.
+          No videos uploaded, please upload one.
         </p>
         <div className="flex gap-3 pt-2">
-          <Button variant="secondary" icon="grid_view" onClick={() => setActiveView('view-library')}>
-            Open Library
-          </Button>
           <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
-            Upload Lecture Video
+            Upload Video
           </Button>
         </div>
       </div>
@@ -91,11 +87,10 @@ export const VideoWorkspace: React.FC = () => {
             <div
               key={seg.id}
               onClick={() => seekTo(seg.timestamp)}
-              className={`p-3 rounded transition-all cursor-pointer ${
-                currentTime === seg.timestamp || seg.isHighlighted
-                  ? 'bg-surface-container-high border-l-2 border-secondary text-on-surface shadow-md'
-                  : 'hover:bg-surface-container text-on-surface-variant'
-              }`}
+              className={`p-3 rounded transition-all cursor-pointer ${currentTime === seg.timestamp || seg.isHighlighted
+                ? 'bg-surface-container-high border-l-2 border-secondary text-on-surface shadow-md'
+                : 'hover:bg-surface-container text-on-surface-variant'
+                }`}
             >
               <div className="flex justify-between items-center mb-1">
                 <span className="text-secondary font-mono font-semibold">
