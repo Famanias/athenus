@@ -8,11 +8,13 @@ import { MainPanel } from '@/components/layout/MainPanel';
 import { CommandPalette } from '@/components/navigation/CommandPalette';
 import { useAppStore } from '@/store/useAppStore';
 
-// Feature Components (Phases B & C)
+// Feature Components (Phases B, C, & D)
 import { LibraryGrid } from '@/features/library/LibraryGrid';
 import { VideoWorkspace } from '@/features/video/VideoWorkspace';
 import { TranscriptReader } from '@/features/transcript/TranscriptReader';
 import { ChatWorkspace } from '@/features/chat/ChatWorkspace';
+import { FlashcardGrid } from '@/features/flashcards/FlashcardGrid';
+import { QuizStudio } from '@/features/quiz/QuizStudio';
 
 export const DesktopShell: React.FC = () => {
   const { activeView } = useAppStore();
@@ -33,16 +35,18 @@ export const DesktopShell: React.FC = () => {
           {activeView === 'view-video' && <VideoWorkspace />}
           {activeView === 'view-transcript' && <TranscriptReader />}
           {activeView === 'view-chat' && <ChatWorkspace />}
+          {activeView === 'view-flashcards' && <FlashcardGrid />}
+          {activeView === 'view-quiz' && <QuizStudio />}
 
           {/* Fallback canvas for future phases */}
-          {!['view-dashboard', 'view-video', 'view-transcript', 'view-chat'].includes(activeView) && (
+          {!['view-dashboard', 'view-video', 'view-transcript', 'view-chat', 'view-flashcards', 'view-quiz'].includes(activeView) && (
             <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-3">
               <span className="text-5xl">⚡</span>
               <h3 className="font-carvist text-lg font-bold text-on-surface">
                 Athena View Canvas: {activeView}
               </h3>
               <p className="text-xs text-on-surface-variant max-w-md">
-                Phase C complete. Feature modules will populate this panel in Phases D through F.
+                Phase D complete. Feature modules will populate this panel in Phases E and F.
               </p>
             </div>
           )}
