@@ -8,13 +8,14 @@ import { MainPanel } from '@/components/layout/MainPanel';
 import { CommandPalette } from '@/components/navigation/CommandPalette';
 import { useAppStore } from '@/store/useAppStore';
 
-// Feature Components (Phases B, C, & D)
+// Feature Components (Phases B, C, D, & E)
 import { LibraryGrid } from '@/features/library/LibraryGrid';
 import { VideoWorkspace } from '@/features/video/VideoWorkspace';
 import { TranscriptReader } from '@/features/transcript/TranscriptReader';
 import { ChatWorkspace } from '@/features/chat/ChatWorkspace';
 import { FlashcardGrid } from '@/features/flashcards/FlashcardGrid';
 import { QuizStudio } from '@/features/quiz/QuizStudio';
+import { KnowledgeGraphCanvas } from '@/features/graph/KnowledgeGraphCanvas';
 
 export const DesktopShell: React.FC = () => {
   const { activeView } = useAppStore();
@@ -37,16 +38,17 @@ export const DesktopShell: React.FC = () => {
           {activeView === 'view-chat' && <ChatWorkspace />}
           {activeView === 'view-flashcards' && <FlashcardGrid />}
           {activeView === 'view-quiz' && <QuizStudio />}
+          {activeView === 'view-graph' && <KnowledgeGraphCanvas />}
 
-          {/* Fallback canvas for future phases */}
-          {!['view-dashboard', 'view-video', 'view-transcript', 'view-chat', 'view-flashcards', 'view-quiz'].includes(activeView) && (
+          {/* Fallback canvas for Phase F */}
+          {!['view-dashboard', 'view-video', 'view-transcript', 'view-chat', 'view-flashcards', 'view-quiz', 'view-graph'].includes(activeView) && (
             <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-3">
               <span className="text-5xl">⚡</span>
               <h3 className="font-carvist text-lg font-bold text-on-surface">
                 Athena View Canvas: {activeView}
               </h3>
               <p className="text-xs text-on-surface-variant max-w-md">
-                Phase D complete. Feature modules will populate this panel in Phases E and F.
+                Phase E complete. System and Ingestion features will populate this panel in Phase F.
               </p>
             </div>
           )}
