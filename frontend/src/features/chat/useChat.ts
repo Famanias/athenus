@@ -1,49 +1,24 @@
-import { useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { sendChatQuery, mapBackendCitations } from '@/services/chatService';
+import { ChatMessage, Citation, AgentLog } from './types';
 
-export interface Citation {
-  mediaId: string;
-  mediaTitle: string;
-  startTime: string;
-  endTime: string;
-  score: number;
-  textSnippet: string;
-}
-
-export interface ChatMessage {
-  id: string;
-  sender: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-  citations?: Citation[];
-}
-
-export interface AgentLog {
-  timestamp: string;
-  agent: string;
-  message: string;
-}
-
-const INITIAL_MESSAGES: ChatMessage[] = [
-  {
-    id: 'msg_0',
-    sender: 'assistant',
-    content: 'Welcome to Athenus AI Learning Assistant! Upload your lecture videos or ask any question about your workspace content to get started.',
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  },
-];
-
-const INITIAL_LOGS: AgentLog[] = [];
+export type { ChatMessage, Citation, AgentLog } from './types';
 
 export function useChat() {
-  const { activeWorkspaceId, activeMediaId } = useAppStore();
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
-  const [evidence, setEvidence] = useState<Citation[]>([]);
-  const [agentLogs, setAgentLogs] = useState<AgentLog[]>(INITIAL_LOGS);
-  const [inputQuery, setInputQuery] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isBackendUnavailable, setIsBackendUnavailable] = useState<boolean>(false);
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
+  const activeMediaId = useAppStore((s) => s.activeMediaId);
+  const messages = useAppStore((s) => s.chat.messages);
+  const citations = useAppStore((s) => s.chat.citations);
+  const agentLogs = useAppStore((s) => s.chat.logs);
+  const inputQuery = useAppStore((s) => s.chat.input);
+  const isGenerating = useAppStore((s) => s.chat.isGenerating);
+  const isBackendUnavailable = useAppStore((s) => s.chat.backendUnavailable);
+
+  const addMessage = useAppStore((s) => s.addMessage);
+  const replaceCitations = useAppStore((s) => s.replaceCitations);
+  const updateInput = useAppStore((s) => s.updateInput);
+  const setGenerating = useAppStore((s) => s.setGenerating);
+  const setBackendUnavailable = useAppStore((s) => s.setBackendUnavailable);
 
   const sendMessage = async (queryText?: string) => {
     const query = queryText || inputQuery;
@@ -56,13 +31,13 @@ export function useChat() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
-    setInputQuery('');
-    setIsGenerating(true);
+    addMessage(userMsg);
+    updateInput('');
+    setGenerating(true);
 
     try {
       const data = await sendChatQuery(query, activeWorkspaceId || 'default', activeMediaId || undefined);
-      setIsBackendUnavailable(false);
+      setBackendUnavailable(false);
 
       const mappedCitations = mapBackendCitations(data.citations, activeMediaId || '', 'Lecture Segment');
 
@@ -74,12 +49,12 @@ export function useChat() {
         citations: mappedCitations,
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      addMessage(assistantMsg);
       if (mappedCitations.length > 0) {
-        setEvidence(mappedCitations);
+        replaceCitations(mappedCitations);
       }
     } catch (_err: any) {
-      setIsBackendUnavailable(true);
+      setBackendUnavailable(true);
 
       const errorMsg: ChatMessage = {
         id: `asst_${Date.now()}`,
@@ -88,18 +63,18 @@ export function useChat() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-      setMessages((prev) => [...prev, errorMsg]);
+      addMessage(errorMsg);
     } finally {
-      setIsGenerating(false);
+      setGenerating(false);
     }
   };
 
   return {
     messages,
-    evidence,
+    evidence: citations,
     agentLogs,
     inputQuery,
-    setInputQuery,
+    setInputQuery: updateInput,
     sendMessage,
     isGenerating,
     isBackendUnavailable,

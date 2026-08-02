@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ChatMessage } from './useChat';
+import { ChatMessage } from './types';
 import { useAppStore } from '@/store/useAppStore';
 
 interface ChatMessageItemProps {

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Citation, AgentLog } from './useChat';
+import { Citation, AgentLog } from './types';
 
 interface RetrievedEvidencePanelProps {
   evidence: Citation[];

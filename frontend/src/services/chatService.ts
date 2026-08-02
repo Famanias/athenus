@@ -1,5 +1,5 @@
 import { apiClient } from './apiClient';
-import { Citation } from '@/features/chat/useChat';
+import { Citation } from '@/features/chat/types';
 
 export interface BackendCitationDTO {
   chunk_id?: string;

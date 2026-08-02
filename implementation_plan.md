@@ -1,252 +1,160 @@
-# Implementation Plan — Event-Driven Video Ingestion Pipeline & Real-Time SSE Synchronization
+# Chat State Persistence — Implementation Plan
 
-Make the video upload → audio extraction (FFmpeg) → speech-to-text (Faster-Whisper) → semantic chunking → vector indexing (Embedded Qdrant) pipeline fully operational and synchronized between backend background workers and the frontend, using an event-driven architecture where **workers emit domain events** and **REST + SSE both consume a single shared progress source**.
+## Root Cause
 
----
+The problem is in [DesktopShell.tsx](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx), lines 37–45:
 
-## User Review Required
-
-> [!IMPORTANT]
-> **Architecture guardrail — this plan introduces:**
-> 1. A **repository abstraction** so no API or HTTP code ever touches raw `dict()` storage again.
-> 2. **Application-layer event handlers** — `media.py` stays HTTP-only and never owns domain behavior.
-> 3. A **shared Progress Store** that both `GET /status` (REST) and `GET /stream` (SSE) read from, so there is one source of truth.
-> 4. A richer, replayable event model with **progress, correlation ids, and timestamps**.
-
----
-
-## 2. Target Architecture
-
-```text
-                  ┌──────────────┐   MediaUploadedEvent /
-Worker (transcript│     EventBus │   TranscriptCompleted / …events
- & embedding) ────► (in-process) │
-                  └──────┬───────┘
-                         │ publishes
-                         ▼
-            ┌──────────────────────────┐
-            │  Event Handler (application)│   <- decoupled from HTTP
-            │  media_event_handlers.py  │
-            │    └─ Repository.update_status()      STORE
-            │    └─ ProgressStore.record(stage, %)
-            └──────────────┬───────────┘
-                           │
-              ┌────────────┴────────────┐
-              │      MediaRepository          │   Today: dict()
-              │  + Progress Store             │  Later: SQLite / Postgres
-              └────────────┬───────────────T─────▼
-                           │            REST reads repo
-                GET /status │            (always current snapshot)
-                GET /transcript
-                           │
-                           ▼
-                     Progress Store
-                     emits snapshot → SSE
-                           │
-                           ▼
-                       Frontend UI
+```tsx
+{activeView === 'view-chat' && <ChatWorkspace />}
 ```
 
-**Key invariant:** Workers never touch HTTP or storage directly. They publish domain events. Handlers translate events into (a) repository updates and (b) progress entries. Full synchrony).
+Each view is **conditionally rendered using `&&`**. When `activeView` is not `'view-chat'`, `<ChatWorkspace />` is **unmounted from the React tree entirely**. React destroys the component instance, tearing down all local `useState` hooks inside [useChat.ts](file:///e:/repos/athenus/frontend/src/features/chat/useChat.ts):
 
----
-
-## 3. New Abstraction: `MediaRepository`
-
-### [NEW] `backend/app/application/repositories/media_repository.py`
-Define a single interface both the workers‑side handlers and the REST endpoints use. HTTP code must **never** reference `in_memory_media_db` / `in_memory_transcripts_db` again.
-
-```python
-class MediaRepository:
-    def upsert(self, item: MediaItem) -> None: ...
-    def get(self, media_id: str) -> Optional[MediaItem]: ...
-    def update_status(self, media_id: str, status: ProcessingStatus,
-                      error: Optional[str] = None) -> None: ...
-    def save_transcript(self, media_id: str, segments: List[dict]) -> None: ...
-    def get_transcript(self, media_id: str) -> List[dict]: ...
+```ts
+const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+const [inputQuery, setInputQuery] = useState<string>('');
+// ...
 ```
 
-- **[NEW] `InMemoryMediaRepository`** — concrete impl backed by `dict()`. This is the *only* code that references dictionaries.
-- Later swap via config/DI to `SqliteMediaRepository`, `PostgresMediaRepository`, etc. — **no API code changes.**
+When you navigate back to Chat, React mounts a **fresh new component instance** — all accumulated messages, agent logs, and citations are gone.
 
-**Migration in `media.py`:** replace the two module-level dicts with a single `media_repository: MediaRepository = InMemoryMediaRepository()` instance used by all handlers and endpoints.
-
----
-
-## 4. Remove Domain Logic From `media.py`
-
-`presentation/api/v1/media.py` becomes **HTTP-only**. It no longer:
-- subscribes to the `EventBus`,
-- mutates `in_memory_media_db`,
-- owns status transitions.
-
-### [NEW] `backend/app/application/events/media_event_handlers.py`
-A single module of async handlers that translate domain events into repository/progress updates. Registered at bootstrap (see §6), **not** inside the router.
-
-| Event | Handler effect |
-|-------|----------------|
-| `MediaUploadedEvent` | `repo.update_status(id, UPLOADED)` |
-| `ProcessingStartedEvent` | `repo.update_status(id, AUDIO_EXTRACTION)`; `progress.emit({stage,progress:0,...})` |
-| `StageProgressEvent` | `repo.update_status(id, <current stage>)`; `progress.emit({stage, progress, message})` |
-| `TranscriptCompletedEvent` | `repo.save_transcript(segments)`; `repo.update_status(id, EMBEDDING)`; emit progress |
-| `ChunksIndexedEvent` | `repo.update_status(id, COMPLETED, chunk_count)`; emit `completed` |
-| `ProcessingFailedEvent` | `repo.update_status(id, FAILED, error)`; emit `failed` |
-
-The path for a completed upload:
-```text
-Worker → EventBus → Handler → Repository → SSE Publisher → Frontend
-```
+> This affects **every** view that stores local `useState`, but Chat is the most noticeable since conversations are long-lived.
 
 ---
 
-## 5. Richer Event Model
+## Fix Strategy: Lift Chat State into Zustand (Slice Pattern)
 
-### 5.1 New events (currently missing)
+Move chat state from local `useState` in `useChat.ts` into a dedicated **chat slice** within the Zustand store. The chat slice groups all related state and domain actions together, keeping the root store clean and making future enhancements (multiple conversations, long-term persistence) painless.
 
-- **[NEW] `ProcessingStartedEvent`** — emitted at the top of `transcript_worker.handle_media_uploaded` before any work. Explicitly sets `AUDIO_EXTRACTION`, removing the implicit `PENDING → TRANSCRIBING` inference.
-- **[NEW] `StageProgressEvent`** — carries granular **percentage** progress, so the UI shows live percentages instead of coarse stage flips.
+`useChat.ts` becomes a thin hook that reads from and writes to the store — all logic stays the same, only the state storage mechanism changes.
 
-### 5.2 Standardized payloads
+This is the minimal, correct solution:
+- No layout restructuring required.
+- No CSS `display: none` hacks.
+- No structural risk to other views.
+- Naturally extendable to add more slices later (e.g., `createVideoSlice`, `createIngestionSlice`).
 
-Every domain event now carries correlation + progress context via the existing `DomainEvent` (which already has `aggregate_id` and `occurred_at`):
+---
 
-```python
-DomainEvent(
-    event_type="StageProgressEvent",
-    aggregate_id=media_id,          # = media_id
-    payload={
-        "media_id": media_id,
-        "event_id": <ulid/uuid4>,   # [NEW] per-event correlation id
-        "timestamp": <iso8601>,      # source: DomainEvent.occurred_at
-        "stage": "transcription",
-        "progress": 42,
-        "message": "Processing speech..."
-    }
+## Proposed Changes
+
+### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
+
+Adopt the **slice pattern**. The root store is composed from independent slices:
+
+```ts
+export const useAppStore = create<AppState>()(
+  devtools(
+    (...args) => ({
+      ...createUISlice(...args),
+      ...createChatSlice(...args),
+      ...createVideoSlice(...args),
+      ...createIngestionSlice(...args),
+    })
+  )
 )
 ```
 
-- **Correlation ids:** add `event_id` (and re-use `occurred_at`) to every event so logs/debugging and SSE payloads are fully traceable.
-- **Stage progress:** include `progress` (0–100) and `message` alongside `stage` on `StageProgressEvent` and `ProcessingStartedEvent`.
+#### Chat slice shape
 
-### 5.3 [NEW] `ProgressStore`
+All chat-related state is grouped under a single `chat` key — no flat `chatMessages`, `chatEvidence`, etc. polluting the root store:
 
-Rather than SSE subscribing directly to the `EventBus`, introduce a small progress store used by **both** REST and SSE:
-
-### [NEW] `backend/app/application/events/progress_store.py`
-```python
-class ProgressStore:
-    def upsert(self: None, media_id: str, stage: str, progress: int,
-               message: str, status: str) -> None: ...
-    def snapshot(self, media_id: str) -> Optional[dict]: ...
-    def is_complete(self, media_id: str) -> bool: ...
+```ts
+chat: {
+  messages: ChatMessage[];       // initialized with welcome message
+  citations: Citation[];
+  logs: AgentLog[];
+  input: string;
+  isGenerating: boolean;
+  backendUnavailable: boolean;
+}
 ```
 
-- **REST `GET /status`** and **SSE** both read `progress_store.snapshot()`.
-- Reconnected/late SSE clients immediately receive the latest `snapshot` (replay).
-- Multiple front-end clients can observe the same job.
-- Future WebSockets / CLI progress / notifications reuse the same store.
+#### Domain actions (not setters)
+
+Expose **business actions** instead of low-level setters:
+
+- `addMessage(message)` — append a new message
+- `replaceMessages(messages)` — replace the entire message list
+- `clearConversation()` — reset messages, citations, and logs
+- `addCitation(citation)` — append a citation
+- `addLog(log)` — append an agent log
+- `updateInput(input)` — update the input field
+- `setGenerating(isGenerating)` — toggle generation state
+- `setBackendUnavailable(unavailable)` — toggle backend status
+
+#### Selectors (avoid full-state destructuring)
+
+Components should select only the state they need:
+
+```ts
+// ✅ Good — only rerenders when chat.messages changes
+const messages = useAppStore(state => state.chat.messages)
+
+// ❌ Bad — rerenders on every store update
+const { chatMessages, chatEvidence } = useAppStore()
+```
+
+### [MODIFY] [useChat.ts](file:///e:/repos/athenus/frontend/src/features/chat/useChat.ts)
+
+- Remove all local `useState` calls.
+- Read/write state through `useAppStore` selectors/actions.
+- All async `sendMessage` logic stays untouched.
 
 ---
 
-## 6. Bootstrapping Subscribers (single place)
+## What Will NOT Change
 
-### [NEW] `backend/app/bootstrap/event_subscribers.py`
-```python
-def register_media_subscribers(event_bus, repo, progress_store):
-    event_bus.subscribe("MediaUploadedEvent",   lambda e: on_uploaded(e, repo, progress_store))
-    event_bus.subscribe("ProcessingStartedEvent", lambda e: on_started(e, repo, progress_store))
-    event_bus.subscribe("StageProgressEvent",    lambda e: on_progress(e, repo, progress_store))
-    event_bus.subscribe("TranscriptCompletedEvent", lambda e: on_transcript(e, repo, progress_store))
-    event_bus.subscribe("ChunksIndexedEvent",    lambda e: on_indexed(e, repo, progress_store))
-    event_bus.subscribe("ProcessingFailedEvent", lambda e: on_failed(e, repo, progress_store))
-```
-Call this once in `backend/app/main.py` lifespan, alongside `init_db`. **No router imports this; no listeners live in HTTP.**
+- `ChatWorkspace.tsx` — zero changes; it only uses the `useChat()` hook API.
+- `DesktopShell.tsx` — zero changes; the `&&` conditional rendering pattern stays.
+- `ChatMessage`, `Citation`, `AgentLog` type definitions — moved to a shared types file or kept in `useChat.ts`.
 
 ---
 
-## 7. Backend Changes by File
+## Conversation Lifecycle Support
 
-### [MODIFY] `backend/app/services/workers/transcript_worker.py`
-- Emit `ProcessingStartedEvent` (stage `audio_extraction`) before extraction.
-- Emit `StageProgressEvent` at distinct milestones (e.g. started extraction `25`, audio ready `50`, transcription start `60`).
-- On success, emit `TranscriptCompletedEvent` with `segments = [{"start_time","end_time","text"}]` **plus** `event_id` + `timestamp`.
+The slice includes actions to handle **New Chat** and **Clear Conversation** from day one:
 
-### [MODIFY] `backend/app/services/workers/embedding_worker.py`
-- Emit `StageProgressEvent` for `chunking` (`chunks: N`) and `embedding`.
-- On upsert, emit `ChunksIndexedEvent` with `chunk_count` + correlation fields.
+| Action | Behavior |
+|---|---|
+| `clearConversation()` | Resets `messages`, `citations`, `logs` to initial state |
+| `startConversation()` | Alias for `clearConversation()` + any future setup logic |
 
-### [MODIFY] `backend/app/presentation/api/v1/media.py`
-- Remove module-level dicts → use `MediaRepository`.
-- Remove all `EventBus` subscription logic (moved to bootstrap handlers).
-- `POST /media/upload`: write file, `repo.upsert`, then emit `MediaUploadedEvent` (Background task stays).
-- `GET /media/{id}/status`: return `progress_store.snapshot()` (status + error + current progress), always 200 with `state` so late REST calls aren't stale.
-- `GET /media/{id}/transcript`: `repo.get_transcript()`.
-- `GET /media/{id}/stream` (SSE): on connect, **immediately yield the current `progress_store.snapshot()`**, then stream subsequent `StageProgressEvent` / `completed` / `failed` messages as they occur.
-
-### [MODIFY] `backend/app/domain/media/entities.py`
-Align `ProcessingStatus` with the user-visible pipeline stages:
-```text
-UPLOADED → AUDIO_EXTRACTION → TRANSCRIBING → CHUNKING → EMBEDDING → INDEXING → COMPLETED
-```
-- Add a `validate_transition(from, to)` helper laying out both `Retriable` and `Terminal` transitions, even if `retry/cancel/resume` aren't implemented now (define for the future):
-  - `UPLOADED → AUDIO_EXTRACTION → TRANSCRIBING → CHUNKING → EMBEDDING → INDEXING → COMPLETED`
-  - Any non-terminal → `FAILED`.
-  - Allow `FAILED → <stage>` (Retry/Resume) transition.
+This avoids a refactor when these UI buttons are added.
 
 ---
 
-## 8. Frontend Changes
+## Future-Proofing: Multi-Conversation Support
 
-### [MODIFY] `frontend/src/features/ingestion/useIngestion.ts`
-- Parse the richer SSE payload (`stage`, `progress`, `message`, `status`) rather than guessing by `status` string.
-- Update only the *matching stage*'s `progress` percentage, not a full finalize on any event.
-- Drive UI from an explicit state machine `{uploaded, audio_extraction, transcribing, chunking, embedding, indexing, completed, failed}` matching the backend.
-- Handle `onerror`: mark the current stage `failed` with the message (stop fabricating 100% success).
+The plan names things so migration to multiple conversations is straightforward:
 
-### [MODIFY] `frontend/src/features/ingestion/UploadDropzone.tsx`
-- Render `progress` from SSE per stage (0–100 bar) and the last `message`.
+**Today (single conversation):**
+```ts
+chat: {
+  messages: [],
+  citations: [],
+  logs: [],
+  input: "",
+  isGenerating: false,
+  backendUnavailable: false,
+}
+```
 
-### Existing (no change needed)
-- `services/mediaService.ts` already provides `uploadMedia`, `getTranscript`, `createMediaProcessingStream`, all routed via `apiClient` + `API_BASE_URL` (no hardcoded `localhost`).
+**Tomorrow (multiple conversations):**
+```ts
+chat: {
+  conversations: Map<string, { messages, citations, logs }>,
+  activeConversationId: string,
+  input: "",
+  isGenerating: false,
+  backendUnavailable: false,
+}
+```
+
+The `chat` group is already a natural boundary — just swap `messages` → `conversations[activeId].messages`.
 
 ---
 
-## 9. Verification Plan
+## Open Questions
 
-### 9.1 Automated tests (add below)
-```
-cd backend
-python -m pytest tests/test_ingestion_pipeline.py
-python -m pytest
-```
-
-**Additional required unit/integration coverage** (from review):
-1. **Worker unit tests** — assert each worker emits the correct domain events on success and on failure (mock `AIServiceBus`, `FFmpegAudioExtractor`, `vector_store`).
-2. **Event-handler tests** — fake `MediaRepository` + `ProgressStore`; assert `StageProgress`, `TranscriptCompleted`, `ChunksIndexed`, `ProcessingFailed` update repo + store.
-3. **SSE integration tests** — use `httpx`/`TestClient`; open the stream, publish events in order, assert payloads + ordering.
-4. **Reconnect tests** — open SSE after processing already started; assert the initial snapshot + subsequent updates are delivered.
-5. **Failure tests** — simulate FFmpeg, Whisper, embedding, and Qdrant failures; assert `FAILED` status + error propagation to REST and SSE.
-
-### 9.2 Frontend
-```bash
-cd frontend
-npx tsc --noEmit
-```
-
-### 9.3 Manual Verification
-1. Launch backend + `npx tauri dev` → Navigate to **Upload Asset** (`view-ingestion`).
-2. Drop a video/audio file into `UploadDropzone`.
-3. Observe live progress transitions: **FFmpeg Audio Extraction → Faster-Whisper → Semantic Chunker → BGE Embedding → Qdrant Upsert → Completed**, with animated 0–100% per stage.
-4. Navigate to **Synchronized Video Player** & **Library** → verify real extracted transcript segments and indexed asset.
-5. **Reconnect test:** open the ingestion page *after* a job has started, confirm the UI immediately shows mid-progress state (snapshot), not a blank/0% page.
-6. **Failure test:** upload a corrupt/non-media file → confirm stage fails, error message surfaces, no fake 100%.
-
----
-
-## 10. Out of Scope / Future States (design acknowledged, not implemented now)
-
-- `Retry`, `Cancel`, `Resume` actions — state machine defined in §7 so they can be added without rework.
-- Persistence behind `MediaRepository` (SQLite/Postgres/Supabase adapter).
-- WebSockets/CLI progress consumers reusing `ProgressStore`.
-- True event-store persistence (currently in-memory) for full replay across restarts.
-- Per-event durability (Outbox pattern) so event→repo updates can be retried transactionally.
+None — this is a straightforward state lift with no design ambiguity.
