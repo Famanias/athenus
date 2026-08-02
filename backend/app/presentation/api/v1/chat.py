@@ -10,8 +10,16 @@ router = APIRouter()
 intelligence_manager: Optional[WorkspaceIntelligenceManager] = None
 
 def get_intelligence_manager() -> WorkspaceIntelligenceManager:
+    global intelligence_manager
     if intelligence_manager is None:
-        raise HTTPException(status_code=500, detail="WorkspaceIntelligenceManager not initialized")
+        from app.main import ai_service_bus, vector_store
+        from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
+        from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
+        v_store = vector_store or EmbeddedQdrantVectorStoreAdapter()
+        intelligence_manager = WorkspaceIntelligenceManager(
+            ai_service_bus,
+            retriever=MultiStageRetriever(ai_service_bus, vector_store=v_store)
+        )
     return intelligence_manager
 
 class ChatQueryRequest(BaseModel):

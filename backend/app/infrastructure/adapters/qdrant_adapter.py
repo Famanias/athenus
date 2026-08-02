@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional
 from app.core.config import settings
 
 class EmbeddedQdrantVectorStoreAdapter:
+    _shared_clients: Dict[str, Any] = {}
+
     def __init__(self, path: str = settings.QDRANT_PATH, collection_name: str = settings.QDRANT_COLLECTION) -> None:
         self.path = path
         self.collection_name = collection_name
@@ -13,10 +15,18 @@ class EmbeddedQdrantVectorStoreAdapter:
         try:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
-            
+
             os.makedirs(self.path, exist_ok=True)
-            self._client = QdrantClient(path=self.path)
-            
+
+            existing = self._shared_clients.get(self.path)
+            if existing is not None:
+                self._client = existing
+                return
+
+            client = QdrantClient(path=self.path)
+            self._shared_clients[self.path] = client
+            self._client = client
+
             collections = [c.name for c in self._client.get_collections().collections]
             if self.collection_name not in collections:
                 self._client.create_collection(
@@ -47,13 +57,13 @@ class EmbeddedQdrantVectorStoreAdapter:
                 must=[FieldCondition(key="media_id", match=MatchValue(value=filter_media_id))]
             )
 
-        results = self._client.search(
+        results = self._client.query_points(
             collection_name=self.collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit,
             query_filter=query_filter
         )
         return [
             {"id": str(hit.id), "score": hit.score, "payload": hit.payload}
-            for hit in results
+            for hit in results.points
         ]

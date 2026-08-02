@@ -1,18 +1,33 @@
 import asyncio
 import os
 import pytest
-from app.domain.ai.capabilities import TranscriptSegmentDTO
+from app.domain.ai.capabilities import (
+    ISpeechToTextCapability,
+    SpeechToTextRequest,
+    SpeechToTextResponse,
+    TranscriptSegmentDTO,
+)
 from app.domain.knowledge.chunker import SemanticChunker
 from app.infrastructure.events.event_bus import EventBus, DomainEvent
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.ai.provider_router import ProviderRouter
 from app.domain.ai.service_bus import AIServiceBus
-from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
 from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
 from app.services.workers.transcript_worker import TranscriptWorker
 from app.services.workers.embedding_worker import EmbeddingWorker
 from fastapi.testclient import TestClient
 from app.main import app
+
+class MockSTTAdapter(ISpeechToTextCapability):
+    async def transcribe(self, request: SpeechToTextRequest) -> SpeechToTextResponse:
+        return SpeechToTextResponse(
+            text="Mock transcript content for development testing.",
+            segments=[
+                TranscriptSegmentDTO(start_time=0.0, end_time=5.0, text="Mock transcript content"),
+                TranscriptSegmentDTO(start_time=5.0, end_time=10.0, text="for development testing."),
+            ],
+            language_detected="en",
+        )
 
 def test_semantic_chunker():
     chunker = SemanticChunker(target_word_count=10)
@@ -31,7 +46,7 @@ def test_worker_pipeline_end_to_end(tmp_path):
         registry = ModelRegistry()
         router = ProviderRouter(registry)
         ai_bus = AIServiceBus(registry, router)
-        ai_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
+        ai_bus.register_stt_adapter("faster_whisper", MockSTTAdapter())
         ai_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
 
         t_worker = TranscriptWorker(bus, ai_bus)

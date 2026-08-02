@@ -1,4 +1,5 @@
 from typing import List, Optional
+import uuid
 from app.domain.ai.capabilities import TranscriptSegmentDTO
 from app.domain.ai.service_bus import AIServiceBus
 from app.domain.knowledge.chunker import SemanticChunker
@@ -44,9 +45,10 @@ class EmbeddingWorker:
         embeddings = await embedding_capability.embed_texts(chunk_texts)
 
         # 4. Upsert vectors into Embedded Qdrant
-        point_ids = [c.id for c in chunks]
+        point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, c.id)) for c in chunks]
         payloads = [
             {
+                "chunk_id": c.id,
                 "media_id": c.media_id,
                 "workspace_id": c.workspace_id,
                 "text": c.text,

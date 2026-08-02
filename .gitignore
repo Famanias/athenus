@@ -13,6 +13,11 @@
 /data/uploads/
 /data/cache/
 !/data/samples/
+/backend/data/athenus.db
+/backend/data/qdrant/
+/backend/data/uploads/
+/backend/data/cache/
+!/backend/data/samples/
 
 # Python & Virtual Environments
 __pycache__/

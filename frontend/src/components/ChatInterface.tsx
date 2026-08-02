@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 
 export interface Citation {
-  chunk_id?: str;
+  chunk_id?: string;
   start_time: number;
   end_time: number;
   text: string;

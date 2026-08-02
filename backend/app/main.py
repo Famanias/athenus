@@ -1,3 +1,11 @@
+import os
+import sys
+
+# Ensure backend root directory is in sys.path when running script directly
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +33,8 @@ from app.services.workers.summary_worker import SummaryWorker
 from app.services.workers.quiz_worker import QuizWorker
 from app.services.workers.flashcard_worker import FlashcardWorker
 from app.application.services.workspace_intelligence import WorkspaceIntelligenceManager
+from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
+from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
 
 # System AI Service Bus singleton
 registry = ModelRegistry()
@@ -36,20 +46,31 @@ ai_service_bus.register_text_adapter("ollama", OllamaTextGenAdapter())
 ai_service_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
 ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
 
-# Register Background Workers & Workspace Intelligence
-transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
-embedding_worker = EmbeddingWorker(event_bus, ai_service_bus)
-graph_worker = KnowledgeGraphWorker(event_bus, graph_service)
-summary_worker = SummaryWorker(event_bus, ai_service_bus)
-quiz_worker = QuizWorker(event_bus)
-flashcard_worker = FlashcardWorker(event_bus)
-intelligence_manager = WorkspaceIntelligenceManager(ai_service_bus)
-chat_module.intelligence_manager = intelligence_manager
+# Global references (populated in lifespan)
+vector_store = None
+intelligence_manager = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Boot sequence: initialize SQLite schema & load models
     init_db()
+    
+    global vector_store, intelligence_manager
+    vector_store = EmbeddedQdrantVectorStoreAdapter()
+    
+    transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
+    embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
+    graph_worker = KnowledgeGraphWorker(event_bus, graph_service)
+    summary_worker = SummaryWorker(event_bus, ai_service_bus)
+    quiz_worker = QuizWorker(event_bus)
+    flashcard_worker = FlashcardWorker(event_bus)
+
+    intelligence_manager = WorkspaceIntelligenceManager(
+        ai_service_bus,
+        retriever=MultiStageRetriever(ai_service_bus, vector_store=vector_store)
+    )
+    chat_module.intelligence_manager = intelligence_manager
+
     yield
     # Shutdown sequence
 
@@ -80,4 +101,4 @@ app.include_router(agents_router, prefix=settings.API_V1_PREFIX, tags=["Agentic 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
