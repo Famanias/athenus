@@ -26,6 +26,32 @@ Featuring:
 
 ---
 
+## Quickstart Guide
+
+### 1. Launch the Backend Engine (FastAPI)
+```bash
+cd backend
+# Create virtual environment & install requirements
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+
+# Start local engine
+python app/main.py
+```
+
+### 2. Launch the Desktop Application (Tauri + Next.js)
+```bash
+cd frontend
+# Install dependencies
+npm install
+
+# Start native desktop window shell
+npx tauri dev
+```
+
+---
+
 ## Architecture Documentation Suite
 
 All system documentation files are available in [docs/](file:///e:/repos/athenus/docs/):
