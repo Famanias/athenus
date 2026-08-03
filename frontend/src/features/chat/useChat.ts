@@ -19,6 +19,7 @@ export function useChat() {
   const inputQuery      = useAppStore((s) => s.chat.input);
   const isGenerating    = useAppStore((s) => s.chat.isGenerating);
   const isBackendUnavailable = useAppStore((s) => s.chat.backendUnavailable);
+  const activeSessionId = useAppStore((s) => s.chat.activeSessionId);
 
   const addMessage           = useAppStore((s) => s.addMessage);
   const replaceMessages      = useAppStore((s) => s.replaceMessages);
@@ -27,16 +28,18 @@ export function useChat() {
   const setGenerating        = useAppStore((s) => s.setGenerating);
   const setBackendUnavailable = useAppStore((s) => s.setBackendUnavailable);
   const storeClearConversation = useAppStore((s) => s.clearConversation);
+  const setActiveSessionId   = useAppStore((s) => s.setActiveSessionId);
 
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const activeMediaId     = useAppStore((s) => s.activeMediaId);
 
+  const historyKey = `${activeWorkspaceId}:${activeSessionId ?? 'latest'}`;
   const hasLoadedHistoryRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     async function loadHistory() {
       try {
-        const history = await getChatHistory(activeWorkspaceId);
+        const history = await getChatHistory(activeWorkspaceId, activeSessionId);
         if (history && history.length > 0) {
           const formatted: ChatMessage[] = history.map((h) => ({
             id: h.id,
@@ -56,25 +59,24 @@ export function useChat() {
       } catch {
         // Backend unavailable or empty history
       } finally {
-        hasLoadedHistoryRef.current[activeWorkspaceId] = true;
+        hasLoadedHistoryRef.current[historyKey] = true;
       }
     }
 
-    if (!hasLoadedHistoryRef.current[activeWorkspaceId]) {
+    if (!hasLoadedHistoryRef.current[historyKey]) {
       loadHistory();
     }
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, activeSessionId, historyKey, replaceMessages, addEvidence]);
 
   const handleClearConversation = useCallback(async () => {
     try {
-      await clearChatHistory(activeWorkspaceId);
+      await clearChatHistory(activeWorkspaceId, activeSessionId);
     } catch {
       // Backend unavailable or error clearing history
     }
     storeClearConversation();
-    hasLoadedHistoryRef.current[activeWorkspaceId] = true;
-  }, [activeWorkspaceId, storeClearConversation]);
-
+    hasLoadedHistoryRef.current[historyKey] = true;
+  }, [activeWorkspaceId, activeSessionId, historyKey, storeClearConversation]);
 
   const sendMessage = async (queryText?: string, currentTimestamp?: number, selectedText?: string) => {
     const query = queryText ?? inputQuery;
@@ -92,8 +94,19 @@ export function useChat() {
     setGenerating(true);
 
     try {
-      const data = await sendChatQuery(query, activeWorkspaceId, activeMediaId ?? undefined, currentTimestamp, selectedText);
+      const data = await sendChatQuery(
+        query,
+        activeWorkspaceId,
+        activeSessionId,
+        activeMediaId ?? undefined,
+        currentTimestamp,
+        selectedText
+      );
       setBackendUnavailable(false);
+
+      if (data.session_id && data.session_id !== activeSessionId) {
+        setActiveSessionId(data.session_id, false);
+      }
 
       const mappedCitations = mapBackendCitations(data.citations, activeMediaId ?? '', 'Lecture Segment');
 

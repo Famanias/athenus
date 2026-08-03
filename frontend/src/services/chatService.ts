@@ -19,8 +19,22 @@ export interface ContextProvenanceDTO {
 export interface BackendChatResponse {
   query: string;
   answer: string;
+  session_id: string;
   citations: BackendCitationDTO[];
   context_provenance?: ContextProvenanceDTO;
+}
+
+export interface ChatSessionDTO {
+  id: string;
+  workspace_id: string;
+  title: string;
+  is_pinned: boolean;
+  is_archived: boolean;
+  last_message_at?: string | null;
+  message_count: number;
+  preview_text?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export function formatSecondsToTimestamp(seconds: number): string {
@@ -52,6 +66,7 @@ export function mapBackendCitations(
 
 export interface BackendChatMessageDTO {
   id: string;
+  session_id: string;
   sender: 'user' | 'assistant';
   content: string;
   timestamp: string;
@@ -61,6 +76,7 @@ export interface BackendChatMessageDTO {
 export async function sendChatQuery(
   query: string,
   workspaceId = 'default',
+  sessionId?: string | null,
   mediaId?: string,
   currentTimestamp?: number,
   selectedText?: string
@@ -70,6 +86,7 @@ export async function sendChatQuery(
     body: JSON.stringify({
       query,
       workspace_id: workspaceId,
+      session_id: sessionId || undefined,
       media_id: mediaId,
       current_timestamp: currentTimestamp,
       selected_text: selectedText,
@@ -77,13 +94,44 @@ export async function sendChatQuery(
   });
 }
 
-export async function getChatHistory(workspaceId = 'default'): Promise<BackendChatMessageDTO[]> {
-  return apiClient<BackendChatMessageDTO[]>(`/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`);
+export async function getWorkspaceSessions(workspaceId = 'default', includeArchived = true): Promise<ChatSessionDTO[]> {
+  return apiClient<ChatSessionDTO[]>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions?include_archived=${includeArchived}`);
 }
 
-export async function clearChatHistory(workspaceId = 'default'): Promise<{ status: string; deleted_count: number }> {
-  return apiClient<{ status: string; deleted_count: number }>(`/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`, {
+export async function createWorkspaceSession(workspaceId: string, title?: string): Promise<ChatSessionDTO> {
+  return apiClient<ChatSessionDTO>(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/sessions`, {
+    method: 'POST',
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function updateSession(sessionId: string, data: { title?: string; is_pinned?: boolean; is_archived?: boolean }): Promise<ChatSessionDTO> {
+  return apiClient<ChatSessionDTO>(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSession(sessionId: string): Promise<{ status: string; deleted_session_id: string }> {
+  return apiClient<{ status: string; deleted_session_id: string }>(`/api/v1/sessions/${encodeURIComponent(sessionId)}`, {
     method: 'DELETE',
   });
 }
 
+export async function getChatHistory(workspaceId = 'default', sessionId?: string | null): Promise<BackendChatMessageDTO[]> {
+  let url = `/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`;
+  if (sessionId) {
+    url += `&session_id=${encodeURIComponent(sessionId)}`;
+  }
+  return apiClient<BackendChatMessageDTO[]>(url);
+}
+
+export async function clearChatHistory(workspaceId = 'default', sessionId?: string | null): Promise<{ status: string; deleted_count: number }> {
+  let url = `/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`;
+  if (sessionId) {
+    url += `&session_id=${encodeURIComponent(sessionId)}`;
+  }
+  return apiClient<{ status: string; deleted_count: number }>(url, {
+    method: 'DELETE',
+  });
+}

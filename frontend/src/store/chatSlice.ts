@@ -2,7 +2,7 @@ import type { StateCreator } from 'zustand';
 import type { ChatMessage, Citation, AgentLog } from '@/features/chat/types';
 
 // The welcome message that initialises every new session.
-const WELCOME_MESSAGE: ChatMessage = {
+export const WELCOME_MESSAGE: ChatMessage = {
   id: 'msg_0',
   sender: 'assistant',
   content:
@@ -11,6 +11,8 @@ const WELCOME_MESSAGE: ChatMessage = {
 };
 
 export interface ChatState {
+  activeSessionId: string | null;
+  isDraftSession: boolean;
   messages: ChatMessage[];
   evidence: Citation[];
   agentLogs: AgentLog[];
@@ -24,6 +26,7 @@ export interface ChatSlice {
   chat: ChatState;
 
   // Domain actions (describe what happened, not which variable changed).
+  setActiveSessionId: (sessionId: string | null, isDraft?: boolean) => void;
   addMessage: (message: ChatMessage) => void;
   replaceMessages: (messages: ChatMessage[]) => void;
   clearConversation: () => void;
@@ -36,6 +39,8 @@ export interface ChatSlice {
 
 export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set) => ({
   chat: {
+    activeSessionId: null,
+    isDraftSession: true,
     messages: [WELCOME_MESSAGE],
     evidence: [],
     agentLogs: [],
@@ -44,6 +49,15 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set)
     backendUnavailable: false,
   },
 
+  setActiveSessionId: (sessionId, isDraft = false) =>
+    set((state) => ({
+      chat: {
+        ...state.chat,
+        activeSessionId: sessionId,
+        isDraftSession: isDraft,
+      },
+    })),
+
   addMessage: (message) =>
     set((state) => ({
       chat: { ...state.chat, messages: [...state.chat.messages, message] },
@@ -51,7 +65,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set)
 
   replaceMessages: (messages) =>
     set((state) => ({
-      chat: { ...state.chat, messages },
+      chat: { ...state.chat, messages: messages.length > 0 ? messages : [WELCOME_MESSAGE] },
     })),
 
   clearConversation: () =>
