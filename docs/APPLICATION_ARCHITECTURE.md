@@ -1,19 +1,19 @@
-# APPLICATION_ARCHITECTURE.md
+# APPLICATION_ARCHITECTURE.md — Desktop & UI Application Architecture
 
-# Athenus Knowledge OS — Desktop & UI Application Architecture
+This document specifies the canonical frontend and desktop architecture for **Athenus Knowledge OS**.
 
 ---
 
-## Desktop Shell Architecture (Tauri + FastAPI Sidecar)
+## 1. Desktop Shell Architecture (Tauri + FastAPI Sidecar)
 
-The desktop application is built as a **Desktop-First application powered by a local web architecture**:
+The desktop application is built as a **Local-First Desktop Application**:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     Tauri Desktop Shell                     │
 │                                                             │
 │  ┌───────────────────────┐       Internal REST & SSE        │
-│  │ Next.js Frontend (UI) │ ─────────────────────────────┐   │
+│  │ Next.js 16 (Turbopack) │ ─────────────────────────────┐   │
 │  └───────────────────────┘   Bearer Token Authorization │   │
 │                                                         │   │
 │  ┌──────────────────────────────────────────────────┐   │   │
@@ -22,18 +22,32 @@ The desktop application is built as a **Desktop-First application powered by a l
 └─────────────────────────────────────────────────────────────┘
 ```
 
-* **Desktop Shell**: Tauri (`src-tauri/`) manages windowing, local OS permissions, GPU hardware access, and process lifecycle.
-* **Sidecar Launch**: On launch, Tauri spawns the FastAPI Python sidecar executable, passing an ephemeral bearer token (`IPC_BEARER_TOKEN`) for local IPC request security.
-* **Dynamic Port Assignment**: FastAPI automatically binds to available local ports (default `8000`), emitting its port to Tauri stdout during startup.
+- **Desktop Shell**: Tauri (`src-tauri/`) manages desktop windowing, native OS file pickers, GPU hardware access, and sidecar process lifecycle.
+- **Sidecar Spawning**: On launch, Tauri spawns the FastAPI Python backend executable, supplying an ephemeral authorization token for local IPC request verification.
+- **Dynamic Port Assignment**: FastAPI automatically binds to local ports (default `8000`), communicating health state to Tauri.
 
 ---
 
-## Presentation Layer Component Breakdown (`frontend/`)
+## 2. Presentation Layer Component Architecture (`frontend/src/`)
 
-Built with React, Next.js, TypeScript, and Tailwind CSS:
+Built with React 18, Next.js 16 (Turbopack), TypeScript, Vanilla CSS design tokens, and Zustand state management:
 
-1. **Main Layout (`app/page.tsx`)**: Responsive 12-column grid layout organizing video player, interactive transcript, and RAG chat.
-2. **Media Player (`MediaPlayer.tsx`)**: Custom HTML5 video player component with programmatic seek-to-timestamp capability.
-3. **Interactive Transcript Viewer (`TranscriptViewer.tsx`)**: Real-time auto-scrolling transcript synced with video playback position, with click-to-seek timestamp navigation.
-4. **Chat Interface (`ChatInterface.tsx`)**: Interactive RAG chat UI rendering assistant responses and clickable timestamp citation badges `[MM:SS - MM:SS]`.
-5. **Worker Progress Monitor (`WorkerMonitor.tsx`)**: Real-time status indicator showing active background ingestion and worker job progress.
+### 2.1 Single Authoritative Video Player Architecture
+- **Persistent DOM Container**: To prevent browser Picture-in-Picture (PiP) node detachment, `<VideoWorkspace />` is mounted inside a persistent container in [`DesktopShell.tsx`](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx) with CSS `display: none` (`hidden`) when navigating between workspace views.
+- **Zero DOM Re-parenting**: The HTML5 `<video>` DOM element's parent container **never changes**, React **never invokes `removeChild()`**, and the browser **never detaches the player node**, guaranteeing strictly 1 active video player and 0 duplicate audio instances.
+
+### 2.2 Core Feature Modules
+1. **Video Workspace (`VideoWorkspace.tsx`)**:
+   - Synchronized transcript reader with card-level timestamp click-to-seek navigation (`seekToSeconds`).
+   - Resizable side panel (draggable split handle from 260px to 650px) and one-click collapse toggle (`◀ Panel` / `▶ Hide`).
+   - Embedded Context-Aware AI Chat Widget ([`EmbeddedChatWidget.tsx`](file:///e:/repos/athenus/frontend/src/features/chat/EmbeddedChatWidget.tsx)).
+2. **Interactive RAG Chat Workspace (`ChatWorkspace.tsx`)**:
+   - Per-message grounded citations: Assistant responses carry turn-specific evidence badges (`citations`).
+   - Interactive evidence inspection: Clicking any historical assistant response bubble updates `selectedMessageId` and inspects that turn's evidence in `RetrievedEvidencePanel`.
+   - Clear Conversation Action: Invokes `DELETE /api/v1/chat/history` to purge SQLite session records and resets local chat state.
+3. **Workspace Library (`LibraryGrid.tsx`)**:
+   - Workspace asset grid displaying indexed video assets, transcript status badges, and asset selection handlers.
+4. **Ingestion Pipelines (`UploadDropzone.tsx`)**:
+   - Drag-and-drop video upload zone with real-time SSE stage progress telemetry.
+5. **System Settings (`SystemSettings.tsx`)**:
+   - Provider management and System Clear Data ("Factory Reset") trigger.

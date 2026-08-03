@@ -150,9 +150,9 @@ export const VideoWorkspace: React.FC = () => {
       } else if (e.code === 'KeyF') {
         e.preventDefault();
         if (document.fullscreenElement) {
-          document.exitFullscreen().catch(() => {});
+          document.exitFullscreen().catch(() => { });
         } else {
-          videoRef.current.requestFullscreen().catch(() => {});
+          videoRef.current.requestFullscreen().catch(() => { });
         }
       }
     };
@@ -230,7 +230,7 @@ export const VideoWorkspace: React.FC = () => {
         <div className="p-3 bg-surface-container-low border-t border-outline-variant flex flex-wrap justify-between items-center text-xs gap-3 shrink-0">
           <div>
             <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
-              {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
+              {mounted && activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
             </h3>
             <span className="font-mono text-secondary text-[11px]">
               Time: {currentTime}
@@ -245,11 +245,10 @@ export const VideoWorkspace: React.FC = () => {
                   setActiveRightTab('transcript');
                   if (isCollapsed) setIsCollapsed(false);
                 }}
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeRightTab === 'transcript' && !isCollapsed
+                className={`px-2.5 py-1 rounded transition-colors ${activeRightTab === 'transcript' && !isCollapsed
                     ? 'bg-secondary text-on-secondary font-bold'
                     : 'text-on-surface-variant hover:text-on-surface'
-                }`}
+                  }`}
               >
                 📝 Transcript
               </button>
@@ -258,11 +257,10 @@ export const VideoWorkspace: React.FC = () => {
                   setActiveRightTab('chat');
                   if (isCollapsed) setIsCollapsed(false);
                 }}
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeRightTab === 'chat' && !isCollapsed
+                className={`px-2.5 py-1 rounded transition-colors ${activeRightTab === 'chat' && !isCollapsed
                     ? 'bg-secondary text-on-secondary font-bold'
                     : 'text-on-surface-variant hover:text-on-surface'
-                }`}
+                  }`}
               >
                 💬 AI Assistant
               </button>
@@ -284,9 +282,8 @@ export const VideoWorkspace: React.FC = () => {
       {!isCollapsed && (
         <div
           onMouseDown={() => setIsDragging(true)}
-          className={`w-1.5 bg-outline-variant/30 hover:bg-secondary cursor-col-resize transition-colors z-10 shrink-0 ${
-            isDragging ? 'bg-secondary' : ''
-          }`}
+          className={`w-1.5 bg-outline-variant/30 hover:bg-secondary cursor-col-resize transition-colors z-10 shrink-0 ${isDragging ? 'bg-secondary' : ''
+            }`}
         />
       )}
 
@@ -358,11 +355,10 @@ export const VideoWorkspace: React.FC = () => {
                         if (originalIndex >= 0) segmentRefs.current[originalIndex] = el;
                       }}
                       onClick={() => seekToSeconds(seg.start_seconds)}
-                      className={`p-3 rounded border transition-all cursor-pointer ${
-                        isActive
+                      className={`p-3 rounded border transition-all cursor-pointer ${isActive
                           ? 'bg-secondary/15 border-l-4 border-secondary border-secondary/40 text-on-surface shadow-md scale-[1.01]'
                           : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container hover:border-secondary/40 text-on-surface-variant'
-                      }`}
+                        }`}
                     >
                       <div className="flex justify-between items-center mb-1">
                         <button

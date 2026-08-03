@@ -1,12 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Sidebar } from '@/components/navigation/Sidebar';
 import { TopToolbar } from '@/components/navigation/TopToolbar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { MainPanel } from '@/components/layout/MainPanel';
 import { CommandPalette } from '@/components/navigation/CommandPalette';
-import { useAppStore } from '@/store/useAppStore';
+import { useAppStore, rehydrateStoredState } from '@/store/useAppStore';
 
 // Feature Components (Phases B through F)
 import { LibraryGrid } from '@/features/library/LibraryGrid';
@@ -23,6 +23,10 @@ import { PersistentMediaPlayer } from '@/features/video/PersistentMediaPlayer';
 
 export const DesktopShell: React.FC = () => {
   const { activeView } = useAppStore();
+
+  useEffect(() => {
+    rehydrateStoredState();
+  }, []);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-on-background">

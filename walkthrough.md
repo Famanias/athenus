@@ -1,12 +1,16 @@
 # UX/UI Improvement Walkthrough & Manual QA Testing Guide
 
-This guide describes all implemented UX/UI enhancements across Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting), Picture-in-Picture Navigation, Navigation Cleanup, Clear Chat Conversation Resets, Per-Message Grounded Citations, Embedded Context-Aware Video Chat, Transcript Timestamp Navigation Fixes, Video Transcript Synchronization, State Restoration, Resizable Layouts, and Consolidated Views, complete with step-by-step verification instructions.
+This guide describes all implemented UX/UI enhancements across SSR Hydration Mismatch Fixes, Next.js 16 Upgrade, Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting), Picture-in-Picture Navigation, Navigation Cleanup, Clear Chat Conversation Resets, Per-Message Grounded Citations, Embedded Context-Aware Video Chat, Transcript Timestamp Navigation Fixes, Video Transcript Synchronization, State Restoration, Resizable Layouts, and Consolidated Views, complete with step-by-step verification instructions.
 
 ---
 
 ## 🚀 Summary of Accomplished Enhancements
 
-1. **Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting)**:
+1. **SSR Hydration Mismatch & Next.js 16 Upgrade**:
+   - **Hydration Gate for Title Text**: Gated `activeMediaId` title rendering in `VideoWorkspace.tsx` (`{mounted && activeMediaId ? ... : 'Indexed Lecture Video'}`) so initial client HTML matches server rendering prior to Zustand rehydration.
+   - **SSR-Safe Zustand Rehydration**: Deferred reading `localStorage` state to post-mount `rehydrateStoredState()`, eliminating server/client DOM mismatch across `VideoWorkspace` and `TranscriptReader`.
+   - **Next.js 16 Upgrade & Clean Build**: Upgraded to `next@^16.2.12` (Turbopack), created `next.config.ts` with `devIndicators: false`, and verified clean production build (`npm run build`).
+2. **Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting)**:
    - **Root Cause Identified**: When an HTML5 `<video>` element enters Picture-in-Picture mode (`document.pictureInPictureElement`), if React unmounts or re-parents the `<video>` element using conditional rendering or `createPortal`, Chromium/Edge detaches the old DOM node to keep the floating PiP window playing, while React mounts a brand-new `<video>` element on the page. This caused **two active video players and duplicate audio**.
    - **Zero DOM Re-parenting Guarantee**: In [`DesktopShell.tsx`](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx), `<VideoWorkspace />` is mounted persistently in the DOM container:
      ```tsx
@@ -16,17 +20,17 @@ This guide describes all implemented UX/UI enhancements across Single Authoritat
      ```
    - **Unmoved DOM Node**: The `<video>` element's DOM parent **NEVER CHANGES**, React **NEVER CALLS `removeChild`**, and the browser **NEVER DETACHES THE NODE**.
    - **Single `<video>` Element Guarantee**: When switching tabs (`view-video` $\leftrightarrow$ `view-chat`), `VideoWorkspace` receives CSS class `hidden` (`display: none`). The `<video>` DOM element remains in the exact same DOM location. Floating PiP continues playing smoothly without audio duplication.
-2. **Wisdom Sidebar Menu Consolidation**:
-   - **Removed Redundant Items**: Removed `Ask & Explain Concepts` (`view-ask`) and `AI Synthesis Insights` (`view-insights`) from the **Wisdom** sidebar category in [`frontend/src/config/navigation.ts`](file:///e:/repos/athenus/frontend/src/config/navigation.ts).
-3. **Clear Chat Conversation Reset Bug Fix**:
-   - **Backend Deletion Endpoint**: Added `clearChatHistory(workspaceId)` sending `DELETE /api/v1/chat/history?workspace_id=...` to permanently purge SQLite session records.
-   - **History Load Guard**: Added `hasLoadedHistoryRef` in `useChat.ts` ensuring `loadHistory()` only fires once per workspace and is not re-triggered when clearing the conversation.
-4. **Per-Message Grounded Citations Architecture**:
+3. **Wisdom Sidebar Menu Consolidation**:
+   - Removed `Ask & Explain Concepts` (`view-ask`) and `AI Synthesis Insights` (`view-insights`) from the **Wisdom** sidebar category in [`frontend/src/config/navigation.ts`](file:///e:/repos/athenus/frontend/src/config/navigation.ts).
+4. **Clear Chat Conversation Reset Bug Fix**:
+   - Added `clearChatHistory(workspaceId)` sending `DELETE /api/v1/chat/history?workspace_id=...` to permanently purge SQLite session records.
+   - Added `hasLoadedHistoryRef` in `useChat.ts` ensuring `loadHistory()` only fires once per workspace and is not re-triggered when clearing the conversation.
+5. **Per-Message Grounded Citations Architecture**:
    - Every assistant message strictly owns its own `citations` array (stored in SQLite `citations_json` and React state `ChatMessage.citations`).
    - In `ChatWorkspace.tsx`, clicking any historical assistant message bubble sets `selectedMessageId`, dynamically updating `RetrievedEvidencePanel` to display that specific response's evidence.
-5. **Transcript Timestamp Navigation Regression Fix**:
+6. **Transcript Timestamp Navigation Regression Fix**:
    - Restored card-level `onClick` seeking with `cursor-pointer`, removed `select-none` on parent wrapper, added `e.stopPropagation()` to child action buttons (e.g. `💬 Ask AI`), and updated `seekToSeconds` to trigger playback seamlessly.
-6. **Context-Aware Embedded Chat Widget (`EmbeddedChatWidget.tsx`)**:
+7. **Context-Aware Embedded Chat Widget (`EmbeddedChatWidget.tsx`)**:
    - Integrated an AI Chat Assistant tab inside the **Video Workspace** (`view-video`) allowing users to ask questions without leaving the lecture video.
 
 ---

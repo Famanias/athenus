@@ -33,25 +33,22 @@ interface UISlice {
 
 export type AppState = UISlice & ChatSlice;
 
-const getInitialMediaId = (): string | null => {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem('athenus_active_media_id') || null;
-};
-
-const getInitialSpeed = (): number => {
-  if (typeof window === 'undefined') return 1.0;
-  const saved = localStorage.getItem('athenus_playback_speed');
-  return saved ? parseFloat(saved) : 1.0;
-};
+export function rehydrateStoredState() {
+  if (typeof window === 'undefined') return;
+  const mediaId = localStorage.getItem('athenus_active_media_id') || null;
+  const savedSpeed = localStorage.getItem('athenus_playback_speed');
+  const playbackSpeed = savedSpeed ? parseFloat(savedSpeed) : 1.0;
+  useAppStore.setState({ activeMediaId: mediaId, playbackSpeed });
+}
 
 export const useAppStore = create<AppState>()((...args) => ({
   // --- UI slice ---
   activeView: 'view-chat',
   activeWorkspaceId: 'default',
-  activeMediaId: getInitialMediaId(),
+  activeMediaId: null,
   currentTime: '00:00',
   targetSeekSeconds: null,
-  playbackSpeed: getInitialSpeed(),
+  playbackSpeed: 1.0,
   isCmdPaletteOpen: false,
   searchQuery: '',
 

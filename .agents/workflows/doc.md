@@ -4,7 +4,7 @@ description: Generate or update the /doc folder that serves as the canonical sou
 
 # Architecture Source of Truth
 
-  Your task is to create or maintain the documentation in this repository.
+Your task is to create or maintain the documentation in this repository.
 
 The document should enable both human developers and AI coding agents to understand the system's architecture, design decisions, and relationships without reading the entire codebase.
 
