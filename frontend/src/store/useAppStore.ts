@@ -24,6 +24,7 @@ interface UISlice {
 
   // Settings
   llmProvider: string;
+  selectedOllamaModel: string;
   sttProvider: string;
   gpuAcceleration: boolean;
 
@@ -39,7 +40,7 @@ interface UISlice {
   setCmdPaletteOpen: (isOpen: boolean) => void;
   setWorkspaceModalOpen: (isOpen: boolean) => void;
   setSearchQuery: (query: string) => void;
-  setProviderSettings: (llm: string, stt: string, gpu: boolean) => void;
+  setProviderSettings: (llm: string, stt: string, gpu: boolean, ollamaModel?: string) => void;
 
   // 9-Step Workspace Lifecycle Actions
   switchWorkspace: (workspaceId: string) => void;
@@ -64,6 +65,7 @@ export function rehydrateStoredState() {
       if (data) {
         useAppStore.setState({
           llmProvider: data.default_llm,
+          selectedOllamaModel: data.selected_ollama_model || '',
           sttProvider: data.default_stt,
           gpuAcceleration: data.gpu_acceleration,
         });
@@ -95,6 +97,7 @@ export const useAppStore = create<AppState>()((...args) => {
     searchQuery: '',
 
     llmProvider: 'ollama',
+    selectedOllamaModel: '',
     sttProvider: 'faster-whisper',
     gpuAcceleration: true,
 
@@ -135,8 +138,13 @@ export const useAppStore = create<AppState>()((...args) => {
     setCmdPaletteOpen: (isOpen) => set({ isCmdPaletteOpen: isOpen }),
     setWorkspaceModalOpen: (isOpen) => set({ isWorkspaceModalOpen: isOpen }),
     setSearchQuery: (query) => set({ searchQuery: query }),
-    setProviderSettings: (llm, stt, gpu) =>
-      set({ llmProvider: llm, sttProvider: stt, gpuAcceleration: gpu }),
+    setProviderSettings: (llm, stt, gpu, ollamaModel) =>
+      set({
+        llmProvider: llm,
+        selectedOllamaModel: ollamaModel ?? '',
+        sttProvider: stt,
+        gpuAcceleration: gpu,
+      }),
 
     // --- 9-Step Workspace Switching Lifecycle ---
     switchWorkspace: (targetWorkspaceId: string) => {

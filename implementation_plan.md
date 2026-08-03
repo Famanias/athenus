@@ -1,86 +1,77 @@
-# Implementation Plan: Settings Persistence via SQLite Database
+# Final Plan: Model Switcher in Chat Header
 
-Fix settings persistence across application restarts by storing all system settings in the application's existing SQLite database (`./data/athenus.db`) as the single source of truth, removing in-memory state volatility, explicitly initializing settings during application startup, and rehydrating settings in the frontend on launch.
+## Backend
 
----
+**B1. PATCH `/api/v1/settings/providers`** — `backend/app/presentation/api/v1/settings.py`
+*   All-optional DTO; merge with existing record via `payload.model_dump(exclude_unset=True)`.
+*   Never touches `_transient_api_key` unless `api_key` is explicitly sent.
+*   Returns full merged `ProviderSettingsResponse`. `PUT` stays for full saves.
 
-## Technical Architecture & Core Principles
+**B2. GET `/api/v1/settings/providers/catalog`** — `settings.py`
+*   Returns `{ active: {provider, model}, providers: [{id, label, models:[{id}]}] }`.
+*   Ollama models from existing scanner; cloud model defaults centralized in `app/core/config.py` (`GROQ_DEFAULT_MODEL`, `OPENROUTER_DEFAULT_MODEL`) and reused by `main.py` (single source of truth).
+*   `active.model` enables stale-model detection.
 
-### 1. Single Source of Truth (SQLite Database)
-- **Zero Duplicate Storage**: Store all user and system settings inside the application's canonical SQLite database (`./data/athenus.db`).
-- **SQLite Table (`SystemSettings`)**:
-  ```python
-  class SystemSettings(SQLModel, table=True):
-      __tablename__ = "system_settings"
-      id: str = Field(default="global", primary_key=True)
-      default_llm: str = "ollama"
-      selected_ollama_model: Optional[str] = None
-      ollama_models_dir: Optional[str] = None
-      default_stt: str = "faster-whisper"
-      default_embedding: str = "BAAI/bge-small-en-v1.5"
-      gpu_acceleration: bool = True
-      updated_at: datetime = Field(default_factory=datetime.utcnow)
-  ```
-- **Clean Schema**: Focuses strictly on typed, validated application settings (omitting redundant dumping fields or coupled API keys).
+**B3. Adapter resolution** — `backend/app/infrastructure/adapters/ollama_adapter.py`
+*   Constructor takes `settings_service: SettingsService = None` (defaults to the existing singleton; injected once, test-swappable).
+*   `generate()`/`stream()` resolve `selected_ollama_model` or `default_model`, keeping the fallback loop.
+*   Provider routing stays dynamic via `service_bus.py:26`.
 
-### 2. Dedicated `SettingsService` & Explicit Startup Initialization
-- **`SettingsService` (`backend/app/domain/settings/settings_service.py`)**:
-  - `get_settings()`: Fetches global settings from SQLite. Initializes default record if none exists.
-  - `update_settings(updates: dict)`: Updates settings record and commits transaction to SQLite.
-- **Explicit Startup**: Server startup (`app/main.py`) explicitly initializes `SettingsService` and configures router policy / providers during backend startup.
-
-### 3. Edge Case Handling
-- **Missing/Invalid Directory**: If the saved `ollama_models_dir` path no longer exists on disk upon restart, the saved path string remains intact in SQLite. `OllamaModelScanner` returns `valid: False` with descriptive error details instead of clearing the user's saved path.
-- **Provider Integrity**: Provider preferences (`default_llm`, `selected_ollama_model`, `default_stt`, `gpu_acceleration`) remain 100% functional even if the configured models directory is temporarily invalid.
-
-### 4. Frontend Startup Rehydration (`DesktopShell.tsx`)
-- Call `getProviderSettings()` and `getOllamaSettings()` during app initialization in `DesktopShell.tsx` so all components receive persisted settings immediately upon application launch.
+**B4. Tests** — `backend/tests/`
+*   `PATCH` preserves `api_key` and merges partial fields.
+*   Catalog returns active + per-provider models.
+*   Adapter uses `selected_ollama_model` from an injected fake settings service.
 
 ---
 
-## Proposed Code Changes
+## Frontend
 
-### Backend Subsystem (`backend/app/`)
+**F1. Store** — `frontend/src/store/useAppStore.ts`
+*   Add `selectedOllamaModel: string`; extend `setProviderSettings(llm, stt, gpu, ollamaModel?)`; hydrate from `getProviderSettings()` in `rehydrateStoredState()`. No model lists in global state.
 
-#### [MODIFY] [models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)
-- Add `SystemSettings` schema.
+**F2. Services** — `frontend/src/services/settingsService.ts`
+*   Add `patchProviderSettings(payload)` and `getProviderCatalog()` + DTO types.
 
-#### [NEW] [settings_service.py](file:///e:/repos/athenus/backend/app/domain/settings/settings_service.py)
-- Implement `SettingsService` for reading and writing `SystemSettings` in SQLite.
+**F3. `frontend/src/features/chat/ModelSwitcher.tsx` (new)**
+*   Two compact dropdowns (provider + model) in the header, styled like the current badge.
+*   Data-driven from `getProviderCatalog()` (local state).
+*   Provider change → `patchProviderSettings({ default_llm })`; model change → `patchProviderSettings({ default_llm, selected_ollama_model })`.
+*   Ollama model auto-restores on return to Ollama (backend persists it); stale model → warning + prompt to re-select; loading/empty/error states.
 
-#### [MODIFY] [settings.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py)
-- Replace ephemeral `current_settings` dict with calls to `SettingsService`.
+**F4. `frontend/src/features/chat/ChatWorkspace.tsx`**
+*   Replace the hardcoded `Local LLM: llama3:8b` badge (lines 53-55) with `<ModelSwitcher/>`.
 
-#### [MODIFY] [main.py](file:///e:/repos/athenus/backend/app/main.py)
-- Explicitly load settings from `SettingsService` on backend boot.
-
----
-
-### Frontend Subsystem (`frontend/src/`)
-
-#### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
-- Extend `rehydrateStoredState()` to fetch provider and Ollama settings on application boot.
-
-#### [MODIFY] [DesktopShell.tsx](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx)
-- Trigger `rehydrateStoredState()` on mount.
+**F5. `frontend/src/features/settings/SystemSettings.tsx` (migrate)**
+*   Provider options and the "Active Ollama Local Model" dropdown come from the catalog instead of hardcoded values/`getOllamaSettings()`.
+*   Save uses `PATCH` (all fields incl. `api_key`, intentionally edited here); syncs store with `selectedOllamaModel` after save.
+*   "Model Sources" directory/scan/refresh section stays on `/settings/ollama` endpoints (unchanged).
 
 ---
 
-## Verification Plan
+## Verification
 
-### Automated Tests
-- Create test file [`backend/tests/test_settings_persistence.py`](file:///e:/repos/athenus/backend/tests/test_settings_persistence.py):
-  - Save settings via `PUT /settings/providers` and `PUT /settings/ollama`.
-  - Re-instantiate `SettingsService` (simulating process restart).
-  - Assert all settings (`default_llm`, `selected_ollama_model`, `ollama_models_dir`) persist accurately in SQLite.
-- Run backend pytest: `python -m pytest`
-- Run frontend type check: `npx tsc --noEmit` (in `frontend/`)
+**Backend:**
+```bash
+cd backend
+python -m pytest tests
+```
 
-### Manual Verification Matrix
+**Frontend:**
+```bash
+npm run lint
+npm run build # in frontend/
+```
 
-| Scenario | Test Action | Expected Behavior |
-|---|---|---|
-| **Save Settings** | Configure Ollama directory, select provider (`groq`/`ollama`), select model. | Settings save to SQLite successfully without errors. |
-| **Restart Backend & Frontend** | Stop python server & tauri app $\rightarrow$ Restart both. | Settings (directory, provider, model) are restored automatically from SQLite. |
-| **Multiple Restarts** | Restart server 3 times in succession. | Settings remain 100% consistent across every restart. |
-| **Invalid Directory Graceful Handling** | Save invalid directory $\rightarrow$ Restart. | Preserves saved path in SQLite; badge displays `✕ Invalid Directory` while provider & model settings remain intact. |
+**Manual Matrix:**
+
+| Scenario | Expected |
+| :--- | :--- |
+| Switch Ollama model | Next answer uses new model |
+| Groq → Ollama | Prior Ollama model auto-restored |
+| Ollama → Groq → Ollama | Selection persists |
+| Restart app | Provider + model restored from SQLite |
+| Selected model removed from disk | UI warns, prompts valid selection |
+| Multiple workspaces/chats | Global switch applies everywhere |
+| `PATCH` without `api_key` | API key preserved server-side |
+
+> **Note:** No new dependencies; native `<select>` elements matching the existing design system.

@@ -5,12 +5,14 @@ import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
 import {
   getProviderSettings,
-  saveProviderSettings,
+  patchProviderSettings,
   getOllamaSettings,
   updateOllamaDirectory,
   scanOllamaModels,
+  getProviderCatalog,
   clearAllData,
   OllamaSettingsResponse,
+  ProviderCatalogProviderDTO,
 } from '@/services/settingsService';
 
 export const SystemSettings: React.FC = () => {
@@ -26,6 +28,7 @@ export const SystemSettings: React.FC = () => {
   // Ollama Model Sources State
   const [ollamaDir, setOllamaDir] = useState<string>('');
   const [ollamaConfig, setOllamaConfig] = useState<OllamaSettingsResponse | null>(null);
+  const [catalogProviders, setCatalogProviders] = useState<ProviderCatalogProviderDTO[]>([]);
   const [isSavingOllama, setIsSavingOllama] = useState<boolean>(false);
   const [isScanningOllama, setIsScanningOllama] = useState<boolean>(false);
 
@@ -44,16 +47,21 @@ export const SystemSettings: React.FC = () => {
   useEffect(() => {
     async function hydrateSettings() {
       try {
-        const [data, ollamaRes] = await Promise.all([
+        const [data, ollamaRes, catalogRes] = await Promise.all([
           getProviderSettings(),
           getOllamaSettings().catch(() => null),
+          getProviderCatalog().catch(() => null),
         ]);
         const normLlm = normalizeLlmProvider(data.default_llm);
         setSelectedLlm(normLlm);
         setSelectedStt(data.default_stt);
         setGpuEnabled(data.gpu_acceleration);
         setApiKey(data.api_key || '');
-        setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration);
+        setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration, data.selected_ollama_model || '');
+
+        if (catalogRes) {
+          setCatalogProviders(catalogRes.providers);
+        }
 
         if (ollamaRes) {
           setOllamaConfig(ollamaRes);
@@ -76,12 +84,21 @@ export const SystemSettings: React.FC = () => {
     hydrateSettings();
   }, [setProviderSettings]);
 
+  const refreshCatalog = async () => {
+    try {
+      const catalogRes = await getProviderCatalog();
+      setCatalogProviders(catalogRes.providers);
+    } catch {
+      // Ignore refresh failures; existing catalog state remains usable
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     setToastMessage(null);
 
     try {
-      const updated = await saveProviderSettings({
+      const updated = await patchProviderSettings({
         default_llm: selectedLlm,
         selected_ollama_model: selectedLlm === 'ollama' ? selectedOllamaModel : undefined,
         default_stt: selectedStt,
@@ -89,7 +106,12 @@ export const SystemSettings: React.FC = () => {
         api_key: apiKey,
       });
 
-      setProviderSettings(updated.default_llm, updated.default_stt, updated.gpu_acceleration);
+      setProviderSettings(
+        updated.default_llm,
+        updated.default_stt,
+        updated.gpu_acceleration,
+        updated.selected_ollama_model || ''
+      );
       const modelDetail =
         selectedLlm === 'ollama' && selectedOllamaModel
           ? ` (${selectedOllamaModel})`
@@ -130,6 +152,7 @@ export const SystemSettings: React.FC = () => {
     try {
       const res = await updateOllamaDirectory(ollamaDir.trim());
       syncOllamaModelSelection(res);
+      refreshCatalog();
       setToastMessage({
         type: 'success',
         text: `✓ Ollama models directory saved! (${res.models_count} models discovered)`,
@@ -152,6 +175,7 @@ export const SystemSettings: React.FC = () => {
     try {
       const res = await scanOllamaModels();
       syncOllamaModelSelection(res);
+      refreshCatalog();
       setToastMessage({
         type: 'success',
         text: `✓ Refreshed! (${res.models_count} models discovered)`,
@@ -213,6 +237,7 @@ export const SystemSettings: React.FC = () => {
   };
 
   const isCloudProvider = selectedLlm === 'openrouter' || selectedLlm === 'groq';
+  const ollamaCatalogModels = catalogProviders.find((p) => p.id === 'ollama')?.models ?? [];
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-3xl mx-auto space-y-6 w-full">
@@ -253,9 +278,19 @@ export const SystemSettings: React.FC = () => {
             onChange={(e) => setSelectedLlm(e.target.value)}
             className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none"
           >
-            <option value="ollama">Ollama (Local)</option>
-            <option value="groq">Groq API (Cloud LPU)</option>
-            <option value="openrouter">OpenRouter API (Cloud Universal)</option>
+            {catalogProviders.length > 0 ? (
+              catalogProviders.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="ollama">Ollama (Local)</option>
+                <option value="groq">Groq API (Cloud LPU)</option>
+                <option value="openrouter">OpenRouter API (Cloud Universal)</option>
+              </>
+            )}
           </select>
         </div>
 
@@ -265,7 +300,7 @@ export const SystemSettings: React.FC = () => {
             <label className="block text-xs font-bold text-on-surface mb-2 font-mono uppercase">
               Active Ollama Local Model
             </label>
-            {ollamaConfig?.models && ollamaConfig.models.length > 0 ? (
+            {ollamaCatalogModels.length > 0 ? (
               <select
                 value={selectedOllamaModel}
                 onChange={(e) => setSelectedOllamaModel(e.target.value)}
@@ -274,9 +309,9 @@ export const SystemSettings: React.FC = () => {
                 <option value="" disabled>
                   -- Select an Ollama Model --
                 </option>
-                {ollamaConfig.models.map((m) => (
-                  <option key={m.full_id} value={m.full_id}>
-                    {m.full_id}
+                {ollamaCatalogModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}
                   </option>
                 ))}
               </select>

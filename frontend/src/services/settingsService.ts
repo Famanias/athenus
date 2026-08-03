@@ -48,6 +48,39 @@ export async function saveProviderSettings(
   });
 }
 
+export async function patchProviderSettings(
+  payload: Partial<ProviderSettingsDTO>
+): Promise<ProviderSettingsResponse> {
+  return apiClient<ProviderSettingsResponse>('/api/v1/settings/providers', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface ProviderCatalogModelDTO {
+  id: string;
+}
+
+export interface ProviderCatalogProviderDTO {
+  id: string;
+  label: string;
+  models: ProviderCatalogModelDTO[];
+}
+
+export interface ProviderCatalogSelectionDTO {
+  provider: string;
+  model: string | null;
+}
+
+export interface ProviderCatalogResponse {
+  active: ProviderCatalogSelectionDTO;
+  providers: ProviderCatalogProviderDTO[];
+}
+
+export async function getProviderCatalog(): Promise<ProviderCatalogResponse> {
+  return apiClient<ProviderCatalogResponse>('/api/v1/settings/providers/catalog');
+}
+
 export async function getOllamaSettings(): Promise<OllamaSettingsResponse> {
   return apiClient<OllamaSettingsResponse>('/api/v1/settings/ollama');
 }

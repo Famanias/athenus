@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     DEFAULT_LLM_PROVIDER: str = "ollama"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     DEFAULT_LLM_MODEL: str = "llama3:8b"
+
+    # Cloud Provider Model Defaults (single source of truth for catalog + adapters)
+    GROQ_DEFAULT_MODEL: str = "llama3-8b-8192"
+    OPENROUTER_DEFAULT_MODEL: str = "meta-llama/llama-3-8b-instruct:free"
     
     DEFAULT_STT_PROVIDER: str = "faster_whisper"
     WHISPER_MODEL_SIZE: str = "base"

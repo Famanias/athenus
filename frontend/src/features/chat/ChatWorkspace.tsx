@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from './useChat';
 import { ChatMessageItem } from './ChatMessageItem';
 import { RetrievedEvidencePanel } from './RetrievedEvidencePanel';
+import { ModelSwitcher } from './ModelSwitcher';
 import { Button } from '@/components/ui/Button';
 
 export const ChatWorkspace: React.FC = () => {
@@ -50,9 +51,7 @@ export const ChatWorkspace: React.FC = () => {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="bg-surface-container-high px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono text-secondary">
-              Local LLM: llama3:8b
-            </span>
+            <ModelSwitcher />
             <Button
               variant="secondary"
               size="sm"

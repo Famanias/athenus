@@ -45,8 +45,8 @@ router_policy = ProviderRouter(registry)
 ai_service_bus = AIServiceBus(registry, router_policy)
 
 # Instantiated Cloud Adapters
-openrouter_adapter = CloudTextGenAdapter("OpenRouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3-8b-instruct:free")
-groq_adapter = CloudTextGenAdapter("Groq", "https://api.groq.com/openai/v1", "llama3-8b-8192")
+openrouter_adapter = CloudTextGenAdapter("OpenRouter", "https://openrouter.ai/api/v1", settings.OPENROUTER_DEFAULT_MODEL)
+groq_adapter = CloudTextGenAdapter("Groq", "https://api.groq.com/openai/v1", settings.GROQ_DEFAULT_MODEL)
 
 # Register Adapters
 ai_service_bus.register_text_adapter("ollama", OllamaTextGenAdapter())

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
 from app.core.config import settings
 from app.domain.ai.model_registry import ModelRegistry
 
@@ -31,6 +31,30 @@ class ProviderSettingsResponse(BaseModel):
     gpu_acceleration: bool
     api_key: Optional[str] = ""
     status: str = "ok"
+
+class ProviderSettingsPatchDTO(BaseModel):
+    default_llm: Optional[str] = None
+    selected_ollama_model: Optional[str] = None
+    default_stt: Optional[str] = None
+    gpu_acceleration: Optional[bool] = None
+    api_key: Optional[str] = None
+
+def _normalize_provider(raw: str) -> str:
+    provider_map = {
+        "llama3:8b": "ollama",
+        "llama3": "ollama",
+        "ollama": "ollama",
+        "groq": "groq",
+        "openrouter": "openrouter",
+    }
+    provider = provider_map.get(raw.lower(), raw.lower())
+    valid_llms = ["ollama", "groq", "openrouter"]
+    if provider not in valid_llms:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid LLM provider '{raw}'. Must be one of {valid_llms}."
+        )
+    return provider
 
 @router.get("/settings/providers", response_model=ProviderSettingsResponse)
 def get_provider_settings():
@@ -94,9 +118,100 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         api_key=_transient_api_key
     )
 
+@router.patch("/settings/providers", response_model=ProviderSettingsResponse)
+def patch_provider_settings(payload: ProviderSettingsPatchDTO):
+    global _transient_api_key
+    updates = payload.model_dump(exclude_unset=True)
+
+    if "api_key" in updates:
+        key = updates.pop("api_key")
+        _transient_api_key = key
+        if key:
+            from app.main import openrouter_adapter, groq_adapter
+            openrouter_adapter.set_api_key(key)
+            groq_adapter.set_api_key(key)
+
+    if "default_llm" in updates:
+        updates["default_llm"] = _normalize_provider(updates["default_llm"])
+
+    db_rec = settings_service.update_settings(updates)
+
+    # Sync router policy for provider preference
+    from app.main import router_policy
+    new_provider = updates.get("default_llm")
+    if new_provider is not None:
+        router_policy.policy.prefer_local = new_provider == "ollama"
+
+    return ProviderSettingsResponse(
+        default_llm=db_rec.default_llm,
+        selected_ollama_model=db_rec.selected_ollama_model,
+        default_stt=db_rec.default_stt,
+        default_embedding=db_rec.default_embedding,
+        gpu_acceleration=db_rec.gpu_acceleration,
+        api_key=_transient_api_key
+    )
+
+# --- Provider & Model Catalog ---
+
+class CatalogModelDTO(BaseModel):
+    id: str
+
+class CatalogProviderDTO(BaseModel):
+    id: str
+    label: str
+    models: List[CatalogModelDTO] = []
+
+class CatalogSelectionDTO(BaseModel):
+    provider: str
+    model: Optional[str] = None
+
+class ProviderCatalogResponse(BaseModel):
+    active: CatalogSelectionDTO
+    providers: List[CatalogProviderDTO] = []
+
+def _build_provider_catalog() -> ProviderCatalogResponse:
+    db_rec = settings_service.get_settings()
+    ollama_res = _scan_and_build_response(db_rec.ollama_models_dir)
+
+    providers = [
+        CatalogProviderDTO(
+            id="ollama",
+            label="Ollama (Local)",
+            models=[CatalogModelDTO(id=m.full_id) for m in ollama_res.models],
+        ),
+        CatalogProviderDTO(
+            id="groq",
+            label="Groq API (Cloud LPU)",
+            models=[CatalogModelDTO(id=settings.GROQ_DEFAULT_MODEL)],
+        ),
+        CatalogProviderDTO(
+            id="openrouter",
+            label="OpenRouter API (Cloud Universal)",
+            models=[CatalogModelDTO(id=settings.OPENROUTER_DEFAULT_MODEL)],
+        ),
+    ]
+
+    active_provider = (db_rec.default_llm or "ollama").lower()
+    active_model: Optional[str] = None
+    for p in providers:
+        if p.id == active_provider:
+            if active_provider == "ollama":
+                active_model = db_rec.selected_ollama_model
+            elif p.models:
+                active_model = p.models[0].id
+            break
+
+    return ProviderCatalogResponse(
+        active=CatalogSelectionDTO(provider=active_provider, model=active_model),
+        providers=providers,
+    )
+
+@router.get("/settings/providers/catalog", response_model=ProviderCatalogResponse)
+def get_provider_catalog():
+    return _build_provider_catalog()
+
 # --- Ollama Local Models Directory Settings ---
 
-from typing import List
 from app.services.ollama_scanner import (
     OllamaModelScanner,
     DirectoryNotFoundError,
