@@ -6,7 +6,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { getProviderSettings, saveProviderSettings, clearAllData } from '@/services/settingsService';
 
 export const SystemSettings: React.FC = () => {
-  const { llmProvider, sttProvider, gpuAcceleration, setProviderSettings } = useAppStore();
+  const { llmProvider, sttProvider, gpuAcceleration, setProviderSettings, setActiveMediaId } = useAppStore();
   const [selectedLlm, setSelectedLlm] = useState<string>(llmProvider);
   const [selectedStt, setSelectedStt] = useState<string>(sttProvider);
   const [gpuEnabled, setGpuEnabled] = useState<boolean>(gpuAcceleration);
@@ -69,6 +69,15 @@ export const SystemSettings: React.FC = () => {
 
     try {
       await clearAllData();
+
+      // Purge persisted local state so no stale media id/source survives the reset.
+      setActiveMediaId(null);
+      if (typeof window !== 'undefined') {
+        Object.keys(localStorage)
+          .filter((k) => k.startsWith('athenus_'))
+          .forEach((k) => localStorage.removeItem(k));
+      }
+
       setToastMessage({
         type: 'success',
         text: '✓ All application data, transcripts, and vector indices cleared successfully! Reloading...',

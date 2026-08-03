@@ -30,9 +30,42 @@ export function useVideo() {
   const [hasTranscript, setHasTranscript] = useState<boolean>(false);
   const [mediaSrc, setMediaSrc] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isPipActive, setIsPipActive] = useState<boolean>(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const mediaUrl = activeMediaId ? getMediaUrl(activeMediaId) : '';
+
+  // Stage 1 Diagnostic & Stage 2 Unmount Cleanup Lifecycle
+  useEffect(() => {
+    const instanceId = Math.random().toString(36).substring(2, 7);
+    if (typeof window !== 'undefined') {
+      const vCount = document.getElementsByTagName('video').length;
+      console.log(`[useVideo:#${instanceId}] Mounted hook instance | Total DOM Video Count: ${vCount}`);
+    }
+
+    return () => {
+      const videoEl = videoRef.current;
+      console.log(`[useVideo:#${instanceId}] Unmounting hook instance...`);
+
+      if (videoEl) {
+        // Exit Picture-in-Picture if active on this video element
+        if (typeof document !== 'undefined' && document.pictureInPictureElement === videoEl) {
+          console.log(`[useVideo:#${instanceId}] Exiting Picture-in-Picture during unmount`);
+          document.exitPictureInPicture().catch(() => {});
+        }
+
+        // Pause playback and release media decoders
+        videoEl.pause();
+        videoEl.removeAttribute('src');
+        videoEl.load();
+      }
+
+      if (typeof window !== 'undefined') {
+        const remainingCount = document.getElementsByTagName('video').length;
+        console.log(`[useVideo:#${instanceId}] Cleaned up | Remaining DOM Video Count: ${remainingCount}`);
+      }
+    };
+  }, []);
 
   // Fetch transcript segments on activeMediaId change
   useEffect(() => {
@@ -92,6 +125,33 @@ export function useVideo() {
     }
   }, [playbackSpeed]);
 
+  // Bind Picture-in-Picture lifecycle event listeners
+  useEffect(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+
+    const handleEnterPip = () => {
+      console.log('[useVideo] enterpictureinpicture event fired');
+      setIsPipActive(true);
+    };
+
+    const handleLeavePip = () => {
+      console.log('[useVideo] leavepictureinpicture event fired');
+      setIsPipActive(false);
+      if (videoEl && !videoEl.paused) {
+        setIsPlaying(true);
+      }
+    };
+
+    videoEl.addEventListener('enterpictureinpicture', handleEnterPip);
+    videoEl.addEventListener('leavepictureinpicture', handleLeavePip);
+
+    return () => {
+      videoEl.removeEventListener('enterpictureinpicture', handleEnterPip);
+      videoEl.removeEventListener('leavepictureinpicture', handleLeavePip);
+    };
+  }, [videoRef.current]);
+
   // Restore playback position on video loaded metadata if no external target seek
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
@@ -139,6 +199,7 @@ export function useVideo() {
       videoRef.current.currentTime = seconds;
       setCurrentTime(formatSecondsToTimestamp(seconds));
       videoRef.current.play().catch(() => {});
+      setIsPlaying(true);
     }
   }, [setCurrentTime]);
 
@@ -162,6 +223,19 @@ export function useVideo() {
     }
   }, []);
 
+  const togglePictureInPicture = useCallback(async () => {
+    if (!videoRef.current) return;
+    try {
+      if (document.pictureInPictureElement === videoRef.current) {
+        await document.exitPictureInPicture();
+      } else if (document.pictureInPictureEnabled && !videoRef.current.disablePictureInPicture) {
+        await videoRef.current.requestPictureInPicture();
+      }
+    } catch (err) {
+      console.error('[useVideo] Picture-in-Picture error:', err);
+    }
+  }, []);
+
   const changePlaybackSpeed = useCallback((newSpeed: number) => {
     setPlaybackSpeed(newSpeed);
     if (videoRef.current) {
@@ -178,8 +252,10 @@ export function useVideo() {
     seekToTimestamp,
     seekToSeconds,
     togglePlayPause,
+    togglePictureInPicture,
     isPlaying,
     setIsPlaying,
+    isPipActive,
     loading,
     hasTranscript,
     playbackSpeed,

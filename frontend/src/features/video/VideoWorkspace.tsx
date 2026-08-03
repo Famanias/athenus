@@ -5,6 +5,7 @@ import { useVideo } from './useVideo';
 import { EmbeddedChatWidget } from './EmbeddedChatWidget';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
+import { useLibrary } from '@/features/library/useLibrary';
 
 export const VideoWorkspace: React.FC = () => {
   const {
@@ -15,8 +16,10 @@ export const VideoWorkspace: React.FC = () => {
     videoRef,
     seekToSeconds,
     togglePlayPause,
+    togglePictureInPicture,
     isPlaying,
     setIsPlaying,
+    isPipActive,
     loading,
     playbackSpeed,
     changePlaybackSpeed,
@@ -25,6 +28,10 @@ export const VideoWorkspace: React.FC = () => {
   } = useVideo();
 
   const { activeMediaId, setActiveView } = useAppStore();
+
+  // Workspace asset inventory — drives the empty state when no videos remain.
+  const { assets: workspaceAssets, loading: assetsLoading } = useLibrary();
+  const hasNoVideos = !assetsLoading && workspaceAssets.length === 0;
 
   // Active right panel tab ('transcript' | 'chat')
   const [activeRightTab, setActiveRightTab] = useState<'transcript' | 'chat'>('transcript');
@@ -167,8 +174,8 @@ export const VideoWorkspace: React.FC = () => {
   // Current video playback seconds
   const currentVideoSeconds = videoRef.current?.currentTime || 0;
 
-  // Empty state when no media asset is selected
-  if (!activeMediaId && segments.length === 0) {
+  // Empty state when no media asset is selected or none exists in the workspace
+  if (hasNoVideos || (!activeMediaId && segments.length === 0)) {
     return (
       <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
         <span className="text-5xl">🎬</span>
@@ -194,7 +201,7 @@ export const VideoWorkspace: React.FC = () => {
   );
 
   return (
-    <div ref={containerRef} className="flex-1 flex overflow-hidden w-full h-full relative select-none">
+    <div ref={containerRef} className="flex-1 flex overflow-hidden w-full h-full relative">
       {/* Primary Video Player Area */}
       <div className="flex-1 bg-black flex flex-col border-r border-outline-variant min-w-0">
         <div className="flex-1 bg-surface-container-lowest flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -212,42 +219,17 @@ export const VideoWorkspace: React.FC = () => {
 
         {/* Video Control Bar */}
         <div className="p-3 bg-surface-container-low border-t border-outline-variant flex flex-wrap justify-between items-center text-xs gap-3 shrink-0">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={togglePlayPause}
-              className="p-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface font-mono"
-            >
-              {isPlaying ? '⏸ Pause' : '▶ Play'}
-            </button>
-
-            <div>
-              <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
-                {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
-              </h3>
-              <span className="font-mono text-secondary text-[11px]">
-                Time: {currentTime}
-              </span>
-            </div>
+          <div>
+            <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
+              {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
+            </h3>
+            <span className="font-mono text-secondary text-[11px]">
+              Time: {currentTime}
+            </span>
           </div>
 
-          {/* Speed Selector & Tools */}
+          {/* Right Panel Tab Switcher & Tools */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] text-on-surface-variant font-mono uppercase">Speed:</span>
-              <select
-                value={playbackSpeed}
-                onChange={(e) => changePlaybackSpeed(parseFloat(e.target.value))}
-                className="bg-surface-container border border-outline-variant rounded p-1 text-[11px] font-mono text-on-surface focus:outline-none"
-              >
-                <option value={0.75}>0.75x</option>
-                <option value={1.0}>1.0x (Normal)</option>
-                <option value={1.25}>1.25x</option>
-                <option value={1.5}>1.5x</option>
-                <option value={2.0}>2.0x</option>
-              </select>
-            </div>
-
-            {/* Right Panel Tab Switcher */}
             <div className="flex bg-surface-container border border-outline-variant rounded p-0.5 font-mono text-[11px]">
               <button
                 onClick={() => {
@@ -366,15 +348,20 @@ export const VideoWorkspace: React.FC = () => {
                       ref={(el) => {
                         if (originalIndex >= 0) segmentRefs.current[originalIndex] = el;
                       }}
-                      className={`p-3 rounded border transition-all ${
+                      onClick={() => seekToSeconds(seg.start_seconds)}
+                      className={`p-3 rounded border transition-all cursor-pointer ${
                         isActive
                           ? 'bg-secondary/15 border-l-4 border-secondary border-secondary/40 text-on-surface shadow-md scale-[1.01]'
-                          : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container text-on-surface-variant'
+                          : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container hover:border-secondary/40 text-on-surface-variant'
                       }`}
                     >
                       <div className="flex justify-between items-center mb-1">
                         <button
-                          onClick={() => seekToSeconds(seg.start_seconds)}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            seekToSeconds(seg.start_seconds);
+                          }}
                           className={`font-mono text-[11px] font-bold hover:underline ${isActive ? 'text-secondary' : 'text-on-surface-variant'}`}
                         >
                           ⏱ {seg.timestamp}
@@ -384,7 +371,11 @@ export const VideoWorkspace: React.FC = () => {
                             {seg.speaker}
                           </span>
                           <button
-                            onClick={() => handleAskAboutSegment(seg.text, seg.start_seconds)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAskAboutSegment(seg.text, seg.start_seconds);
+                            }}
                             title="Ask AI about this segment"
                             className="px-1.5 py-0.5 rounded bg-surface-container hover:bg-secondary/20 hover:text-secondary text-[10px] font-mono text-on-surface-variant transition-colors"
                           >
