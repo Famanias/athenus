@@ -1,12 +1,12 @@
 # ML_DL_ARCHITECTURE.md
 
-# Athenus Knowledge OS — Machine Learning & Deep Learning Technical Review Guide
+# Athenus — Machine Learning & Deep Learning Technical Review Guide
 
 ---
 
 ## Executive Overview
 
-**Athenus Knowledge OS** is an AI-native Knowledge Operating System designed to transform multimodal educational content (video, audio, keyframes, document text) into an interactive, searchable, explainable, and personalized learning companion.
+**Athenus** is an AI-native Knowledge Operating System designed to transform multimodal educational content (video, audio, keyframes, document text) into an interactive, searchable, explainable, and personalized learning companion.
 
 This document serves as a comprehensive **Technical Reviewer Reference**, detailing every Subsystem, Machine Learning (ML) & Deep Learning (DL) technique, Mathematical formulation, Pre-trained Model, and Library utilized throughout the platform.
 
@@ -128,4 +128,4 @@ This document serves as a comprehensive **Technical Reviewer Reference**, detail
 
 ---
 
-*Document maintained as part of the official Athenus Knowledge OS Documentation Suite ([docs/CONTEXT.md](file:///e:/repos/athenus/docs/CONTEXT.md), [docs/AI_PIPELINE.md](file:///e:/repos/athenus/docs/AI_PIPELINE.md)).*
+*Document maintained as part of the official Athenus Documentation Suite ([docs/CONTEXT.md](file:///e:/repos/athenus/docs/CONTEXT.md), [docs/AI_PIPELINE.md](file:///e:/repos/athenus/docs/AI_PIPELINE.md)).*

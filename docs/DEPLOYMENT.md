@@ -1,6 +1,6 @@
 # DEPLOYMENT.md
 
-# Athenus Knowledge OS — Deployment Strategies
+# Athenus — Deployment Strategies
 
 ---
 

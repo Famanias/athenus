@@ -1,6 +1,6 @@
-# Athenus Knowledge OS — Frontend Development Summary (Phases A – G)
+# Athenus — Frontend Development Summary (Phases A – G)
 
-This document presents a complete summary of the frontend development completed for **Athenus Knowledge OS Version 1.0**, including Multi-Workspace and Multi-Session behavior.
+This document presents a complete summary of the frontend development completed for **Athenus Version 1.0**, including Multi-Workspace and Multi-Session behavior.
 
 ---
 

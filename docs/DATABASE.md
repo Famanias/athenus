@@ -1,6 +1,6 @@
-# DATABASE.md — Athenus Knowledge OS Database & Storage Specifications
+# DATABASE.md — Athenus Database & Storage Specifications
 
-Canonical database schema reference and vector storage specifications for Athenus Knowledge OS.
+Canonical database schema reference and vector storage specifications for Athenus.
 
 ---
 

@@ -1,7 +1,7 @@
 [package]
 name = "athenus-desktop"
 version = "0.1.0"
-description = "Athenus Knowledge OS Desktop Application"
+description = "Athenus Desktop Application"
 authors = ["Athenus Team"]
 edition = "2021"
 

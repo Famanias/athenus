@@ -1,12 +1,12 @@
 # EVALUATION.md
 
-# Athenus Knowledge OS — AI Evaluation Subsystem
+# Athenus — AI Evaluation Subsystem
 
 ---
 
 ## Overview
 
-AI features in Athenus Knowledge OS are evaluated through an automated, first-class **Evaluation Subsystem** (`app/infrastructure/evaluation/evaluator.py`).
+AI features in Athenus are evaluated through an automated, first-class **Evaluation Subsystem** (`app/infrastructure/evaluation/evaluator.py`).
 
 Every retrieval and generation operation is benchmarked against measurable performance metrics to prevent retrieval regression and ensure high citation groundedness.
 

@@ -1,12 +1,12 @@
-# ARCHITECTURE.md — Athenus Knowledge OS Master Architecture Specification
+# ARCHITECTURE.md — Athenus Master Architecture Specification
 
-This document serves as the canonical source of truth for the **Athenus Knowledge OS** architecture, design decisions, data flows, and subsystem boundaries.
+This document serves as the canonical source of truth for the **Athenus** architecture, design decisions, data flows, and subsystem boundaries.
 
 ---
 
 ## 1. System Overview & Core Principles
 
-Athenus Knowledge OS is a **local-first, offline-capable learning operating system** designed to transform video/audio lecture content into an interactive, grounded AI learning assistant.
+Athenus is a **local-first, offline-capable learning operating system** designed to transform video/audio lecture content into an interactive, grounded AI learning assistant.
 
 ### 5 Core Design Principles
 1. **Local-First & Offline-Capable**: Full functionality (database, vector search, ASR, RAG retrieval) runs on the user's desktop without requiring internet access.

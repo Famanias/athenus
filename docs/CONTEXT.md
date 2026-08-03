@@ -1,6 +1,6 @@
 # CONTEXT.md
 
-# Project Context: Athenus Knowledge OS
+# Project Context: Athenus
 
 This document serves as the living memory of the project. It records the active scope, architectural status, and accepted decisions.
 
@@ -8,7 +8,7 @@ This document serves as the living memory of the project. It records the active 
 
 # Project Name
 
-**Athenus Knowledge OS**
+**Athenus**
 
 ---
 

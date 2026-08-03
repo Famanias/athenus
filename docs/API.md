@@ -1,4 +1,4 @@
-# API.md — Athenus Knowledge OS Complete REST API Reference (v1.0)
+# API.md — Athenus Complete REST API Reference (v1.0)
 
 Complete specification for all REST API endpoints exposed by the FastAPI backend engine.
 

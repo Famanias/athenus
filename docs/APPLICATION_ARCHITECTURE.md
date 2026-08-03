@@ -1,6 +1,6 @@
 # APPLICATION_ARCHITECTURE.md — Desktop & UI Application Architecture
 
-This document specifies the canonical frontend and desktop architecture for **Athenus Knowledge OS**.
+This document specifies the canonical frontend and desktop architecture for **Athenus**.
 
 ---
 

@@ -1,6 +1,6 @@
 # MEMORY.md
 
-# Athenus Knowledge OS — Memory Reference
+# Athenus — Memory Reference
 
 ---
 

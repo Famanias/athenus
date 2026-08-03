@@ -1,4 +1,4 @@
-# MEMORY_ARCHITECTURE.md — Athenus Knowledge OS Structured Memory Architecture
+# MEMORY_ARCHITECTURE.md — Athenus Structured Memory Architecture
 
 Comprehensive specification of the 4-layer memory model, persistent chat sessions, workspace isolation, and Knowledge Graph concept storage.
 
@@ -6,7 +6,7 @@ Comprehensive specification of the 4-layer memory model, persistent chat session
 
 ## 1. Overview & 4-Layer Memory Model
 
-Athenus Knowledge OS separates **Knowledge Storage** from **User Conversational & Conceptual Memory** across 4 memory tiers:
+Athenus separates **Knowledge Storage** from **User Conversational & Conceptual Memory** across 4 memory tiers:
 
 ```text
  ┌─────────────────────────────────────────────────────────────┐

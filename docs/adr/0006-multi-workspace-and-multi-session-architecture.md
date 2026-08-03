@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-As users build knowledge bases in Athenus Knowledge OS, a single flat chat timeline per workspace becomes cluttered when exploring multiple distinct questions or topics within the same domain (e.g., lecture course). Furthermore, workspace context restoration needs to be deterministic without splitting source-of-truth authority between client local storage and database schemas.
+As users build knowledge bases in Athenus, a single flat chat timeline per workspace becomes cluttered when exploring multiple distinct questions or topics within the same domain (e.g., lecture course). Furthermore, workspace context restoration needs to be deterministic without splitting source-of-truth authority between client local storage and database schemas.
 
 ## Decision
 1. **Two-Tier Hierarchy**: We establish a parent-child container relationship: **Workspace** (parent learning boundary holding videos, vector index, and knowledge graphs) $\rightarrow$ **Chat Sessions** (child conversations).

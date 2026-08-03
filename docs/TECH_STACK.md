@@ -1,6 +1,6 @@
 # TECH_STACK.md
 
-# Athenus Knowledge OS — Technology Stack & Tradeoffs
+# Athenus — Technology Stack & Tradeoffs
 
 ---
 

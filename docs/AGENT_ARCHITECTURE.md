@@ -1,12 +1,12 @@
 # AGENT_ARCHITECTURE.md
 
-# Athenus Knowledge OS — Agentic AI Suite Architecture
+# Athenus — Agentic AI Suite Architecture
 
 ---
 
 ## Overview
 
-Specialized AI Agents in Athenus Knowledge OS operate as autonomous services managed by the `AgentCoordinator`:
+Specialized AI Agents in Athenus operate as autonomous services managed by the `AgentCoordinator`:
 
 ```text
                         ┌───────────────────┐

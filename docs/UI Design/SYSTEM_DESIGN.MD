@@ -1,6 +1,6 @@
 # SYSTEM_DESIGN.md
 
-# Athenus Knowledge OS
+# Athenus
 ## System Design
 
 Version: 2.0

@@ -1,12 +1,12 @@
-# ROADMAP.md — Athenus Knowledge OS Strategic Product & Architecture Roadmap
+# ROADMAP.md — Athenus Strategic Product & Architecture Roadmap
 
-This document outlines the strategic evolution of **Athenus Knowledge OS**, mapping completed core infrastructure capabilities and upcoming development phases based on [`plan.md`](file:///e:/repos/athenus/plan.md) and [`local-first-philosophy.md`](file:///e:/repos/athenus/local-first-philosophy.md).
+This document outlines the strategic evolution of **Athenus**, mapping completed core infrastructure capabilities and upcoming development phases based on [`plan.md`](file:///e:/repos/athenus/plan.md) and [`local-first-philosophy.md`](file:///e:/repos/athenus/local-first-philosophy.md).
 
 ---
 
 ## 🎯 Strategic Product Vision & Philosophy
 
-Athenus Knowledge OS is an open-source, local-first, privacy-first AI-native Knowledge Operating System. It is designed to transform long-form educational content into interactive, searchable, explainable, and personalized learning companions.
+Athenus is an open-source, local-first, privacy-first AI-native Knowledge Operating System. It is designed to transform long-form educational content into interactive, searchable, explainable, and personalized learning companions.
 
 ### Core Architecture & Local-First Tenets
 1. **Local-First Execution**: 100% offline-capable by default (Faster-Whisper ASR, BGE Small Embeddings, Embedded Qdrant Vector Store, SQLite Metadata, and Local Ollama LLM Discovery).

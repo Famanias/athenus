@@ -1,4 +1,4 @@
-# Athenus Knowledge OS — Product UX Architecture Prototype
+# Athenus — Product UX Architecture Prototype
 
 > **Single-File Interactive Desktop UX Prototype & Design Specification**
 
@@ -6,7 +6,7 @@
 
 ## Executive Summary & Product Vision
 
-This directory contains the self-contained, interactive **Product UX Prototype** for **Athenus Knowledge OS**.
+This directory contains the self-contained, interactive **Product UX Prototype** for **Athenus**.
 
 Designed from the perspective of a **Senior Product Designer & UX Architect**, this prototype visualizes what Athenus Version 1.0 looks and feels like when running as a flagship local-first desktop application.
 

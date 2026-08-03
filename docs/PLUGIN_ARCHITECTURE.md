@@ -1,6 +1,6 @@
 # PLUGIN_ARCHITECTURE.md
 
-# Athenus Knowledge OS — Plugin Architecture
+# Athenus — Plugin Architecture
 
 ---
 

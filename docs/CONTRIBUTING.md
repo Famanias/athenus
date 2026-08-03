@@ -1,8 +1,8 @@
 # CONTRIBUTING.md
 
-# Contributing to Athenus Knowledge OS
+# Contributing to Athenus
 
-Thank you for your interest in contributing to **Athenus Knowledge OS**!
+Thank you for your interest in contributing to **Athenus**!
 
 ---
 

@@ -1,6 +1,6 @@
 # AI_PIPELINE.md
 
-# Athenus Knowledge OS — AI Processing & Retrieval Pipeline
+# Athenus — AI Processing & Retrieval Pipeline
 
 ---
 

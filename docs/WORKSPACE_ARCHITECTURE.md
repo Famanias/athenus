@@ -1,12 +1,12 @@
 # WORKSPACE_ARCHITECTURE.md — Multi-Workspace & Multi-Session Architecture
 
-Comprehensive architectural specification for Workspaces and Multi-Session chat lifecycles in Athenus Knowledge OS.
+Comprehensive architectural specification for Workspaces and Multi-Session chat lifecycles in Athenus.
 
 ---
 
 ## 1. Multi-Workspace & Multi-Session Domain Hierarchy
 
-Workspaces serve as the primary organizational, retrieval, and storage boundary within Athenus Knowledge OS. Each workspace represents a subject, course, or knowledge domain.
+Workspaces serve as the primary organizational, retrieval, and storage boundary within Athenus. Each workspace represents a subject, course, or knowledge domain.
 
 Within a workspace, users can launch **multiple chat sessions** to explore different questions without mixing conversation histories or corrupting vector context.
 

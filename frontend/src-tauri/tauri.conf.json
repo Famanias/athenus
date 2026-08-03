@@ -6,7 +6,7 @@
     "distDir": "../out"
   },
   "package": {
-    "productName": "Athenus Knowledge OS",
+    "productName": "Athenus",
     "version": "0.1.0"
   },
   "tauri": {
@@ -63,7 +63,7 @@
         "fullscreen": false,
         "height": 900,
         "resizable": true,
-        "title": "Athenus Knowledge OS",
+        "title": "Athenus",
         "width": 1440,
         "decorations": true,
         "transparent": false

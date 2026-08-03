@@ -1,12 +1,12 @@
 # IMPLEMENTATION_PLAN.md
 
-# Athenus Knowledge OS — Final Implementation Plan
+# Athenus — Final Implementation Plan
 
 ---
 
 ## Overview
 
-This document defines the production engineering roadmap for **Athenus Knowledge OS**.
+This document defines the production engineering roadmap for **Athenus**.
 
 Following Iteration 3 architectural review feedback, implementation is driven by **Vertical Slice Development** grounded in **Bounded Contexts**, an **AI Service Bus**, an asynchronous **Workflow Engine**, and **Architecture Decision Records (ADRs)**.
 
