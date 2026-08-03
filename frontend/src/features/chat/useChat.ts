@@ -3,8 +3,9 @@
 // State lives in the store (survives view unmount/remount).
 // This hook owns only the async sendMessage workflow — no local useState.
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useAppStore } from '@/store/useAppStore';
+import { WELCOME_MESSAGE } from '@/store/chatSlice';
 import { sendChatQuery, getChatHistory, clearChatHistory, mapBackendCitations } from '@/services/chatService';
 import type { ChatMessage, Citation, AgentLog } from './types';
 
@@ -20,6 +21,7 @@ export function useChat() {
   const isGenerating    = useAppStore((s) => s.chat.isGenerating);
   const isBackendUnavailable = useAppStore((s) => s.chat.backendUnavailable);
   const activeSessionId = useAppStore((s) => s.chat.activeSessionId);
+  const isDraftSession  = useAppStore((s) => s.chat.isDraftSession);
 
   const addMessage           = useAppStore((s) => s.addMessage);
   const replaceMessages      = useAppStore((s) => s.replaceMessages);
@@ -33,13 +35,21 @@ export function useChat() {
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const activeMediaId     = useAppStore((s) => s.activeMediaId);
 
-  const historyKey = `${activeWorkspaceId}:${activeSessionId ?? 'latest'}`;
-  const hasLoadedHistoryRef = useRef<Record<string, boolean>>({});
-
+  // Synchronize chat history whenever workspace or session changes
   useEffect(() => {
+    let isCancelled = false;
+
     async function loadHistory() {
+      if (isDraftSession && !activeSessionId) {
+        replaceMessages([WELCOME_MESSAGE]);
+        addEvidence([]);
+        return;
+      }
+
       try {
         const history = await getChatHistory(activeWorkspaceId, activeSessionId);
+        if (isCancelled) return;
+
         if (history && history.length > 0) {
           const formatted: ChatMessage[] = history.map((h) => ({
             id: h.id,
@@ -55,18 +65,24 @@ export function useChat() {
           } else {
             addEvidence([]);
           }
+        } else {
+          replaceMessages([WELCOME_MESSAGE]);
+          addEvidence([]);
         }
       } catch {
-        // Backend unavailable or empty history
-      } finally {
-        hasLoadedHistoryRef.current[historyKey] = true;
+        if (!isCancelled) {
+          replaceMessages([WELCOME_MESSAGE]);
+          addEvidence([]);
+        }
       }
     }
 
-    if (!hasLoadedHistoryRef.current[historyKey]) {
-      loadHistory();
-    }
-  }, [activeWorkspaceId, activeSessionId, historyKey, replaceMessages, addEvidence]);
+    loadHistory();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeWorkspaceId, activeSessionId, isDraftSession, replaceMessages, addEvidence]);
 
   const handleClearConversation = useCallback(async () => {
     try {
@@ -75,8 +91,7 @@ export function useChat() {
       // Backend unavailable or error clearing history
     }
     storeClearConversation();
-    hasLoadedHistoryRef.current[historyKey] = true;
-  }, [activeWorkspaceId, activeSessionId, historyKey, storeClearConversation]);
+  }, [activeWorkspaceId, activeSessionId, storeClearConversation]);
 
   const sendMessage = async (queryText?: string, currentTimestamp?: number, selectedText?: string) => {
     const query = queryText ?? inputQuery;

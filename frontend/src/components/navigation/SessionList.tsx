@@ -3,56 +3,51 @@ import { useAppStore } from '@/store/useAppStore';
 import { getWorkspaceSessions, deleteSession } from '@/services/chatService';
 
 export const SessionList: React.FC = () => {
-  const {
-    activeWorkspaceId,
-    sessions,
-    setSessions,
-    context,
-    switchSession,
-    initLazyNewChat,
-  } = useAppStore();
-
-  const activeSessionId = context.sessionId;
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
+  const activeSessionId = useAppStore((s) => s.chat.activeSessionId);
+  const sessions = useAppStore((s) => s.sessions);
+  const setSessions = useAppStore((s) => s.setSessions);
+  const switchSession = useAppStore((s) => s.switchSession);
+  const initLazyNewChat = useAppStore((s) => s.initLazyNewChat);
 
   useEffect(() => {
+    let isCancelled = false;
     async function loadSessions() {
       if (!activeWorkspaceId) return;
       try {
         const sessionList = await getWorkspaceSessions(activeWorkspaceId);
-        setSessions(sessionList);
+        if (!isCancelled) {
+          setSessions(sessionList);
+        }
       } catch {
         // Handle error
       }
     }
     loadSessions();
-  }, [activeWorkspaceId, setSessions]);
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeWorkspaceId, activeSessionId, setSessions]);
 
-  const handleDeleteSession = async (e: React.MouseEvent, sid: string) => {
+  const [deletingSessionId, setDeletingSessionId] = React.useState<string | null>(null);
+
+  const handleConfirmDeleteSession = async (e: React.MouseEvent, sid: string) => {
     e.stopPropagation();
-    let confirmed = true;
     try {
-      if (typeof window !== 'undefined' && window.confirm) {
-        confirmed = window.confirm('Delete this chat session history?');
+      await deleteSession(sid);
+      const updated = sessions.filter((s) => s.id !== sid);
+      setSessions(updated);
+      if (sid === activeSessionId) {
+        if (updated.length > 0) {
+          switchSession(updated[0].id);
+        } else {
+          initLazyNewChat();
+        }
       }
     } catch {
-      confirmed = true;
-    }
-
-    if (confirmed) {
-      try {
-        await deleteSession(sid);
-        const updated = sessions.filter((s) => s.id !== sid);
-        setSessions(updated);
-        if (sid === activeSessionId) {
-          if (updated.length > 0) {
-            switchSession(updated[0].id);
-          } else {
-            initLazyNewChat();
-          }
-        }
-      } catch {
-        // Delete error
-      }
+      // Delete error
+    } finally {
+      setDeletingSessionId(null);
     }
   };
 
@@ -72,6 +67,38 @@ export const SessionList: React.FC = () => {
       <div className="space-y-0.5 max-h-48 overflow-y-auto custom-scrollbar">
         {sessions.map((sess) => {
           const isActive = sess.id === activeSessionId;
+          if (deletingSessionId === sess.id) {
+            return (
+              <div
+                key={sess.id}
+                className="flex items-center justify-between px-2 py-1 rounded text-xs border border-error/50 bg-error/10 text-on-surface"
+              >
+                <span className="text-[11px] font-semibold text-error truncate">
+                  Delete chat?
+                </span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => handleConfirmDeleteSession(e, sess.id)}
+                    className="px-1.5 py-0.5 bg-error text-on-error font-bold text-[10px] rounded hover:bg-error/80 transition-colors"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeletingSessionId(null);
+                    }}
+                    className="px-1.5 py-0.5 bg-surface-container text-on-surface-variant font-medium text-[10px] rounded hover:bg-surface-container-high transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div
               key={sess.id}
@@ -99,7 +126,10 @@ export const SessionList: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={(e) => handleDeleteSession(e, sess.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeletingSessionId(sess.id);
+                }}
                 className="opacity-0 group-hover:opacity-100 p-0.5 text-on-surface-variant hover:text-error rounded hover:bg-surface-container-high transition-opacity"
                 title="Delete Chat"
               >

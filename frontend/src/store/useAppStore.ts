@@ -148,6 +148,7 @@ export const useAppStore = create<AppState>()((...args) => {
       state.setGenerating(false);
       state.updateInput('');
       set((prev) => ({
+        activeView: 'view-chat',
         context: { ...prev.context, sessionId },
       }));
       state.setActiveSessionId(sessionId, !sessionId);

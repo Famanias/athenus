@@ -23,6 +23,7 @@ export const WorkspaceModal: React.FC = () => {
   const [selectedIcon, setSelectedIcon] = useState('psychology');
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
 
   if (!isWorkspaceModalOpen) return null;
 
@@ -64,26 +65,17 @@ export const WorkspaceModal: React.FC = () => {
     }
   };
 
-  const handleDelete = async (workspaceId: string) => {
-    let confirmed = true;
+  const handleConfirmDelete = async (workspaceId: string) => {
     try {
-      if (typeof window !== 'undefined' && window.confirm) {
-        confirmed = window.confirm('Are you sure you want to delete this workspace? All associated transcripts, sessions, and vectors will be removed.');
+      const res = await deleteWorkspace(workspaceId);
+      setWorkspaces(workspaces.filter((w) => w.id !== workspaceId));
+      if (workspaceId === activeWorkspaceId && res.active_workspace_id) {
+        switchWorkspace(res.active_workspace_id);
       }
     } catch {
-      confirmed = true;
-    }
-
-    if (confirmed) {
-      try {
-        const res = await deleteWorkspace(workspaceId);
-        setWorkspaces(workspaces.filter((w) => w.id !== workspaceId));
-        if (workspaceId === activeWorkspaceId && res.active_workspace_id) {
-          switchWorkspace(res.active_workspace_id);
-        }
-      } catch {
-        // Handle delete error
-      }
+      // Handle delete error
+    } finally {
+      setDeletingWorkspaceId(null);
     }
   };
 
@@ -194,48 +186,79 @@ export const WorkspaceModal: React.FC = () => {
               Existing Workspaces ({workspaces.length})
             </h3>
             <div className="space-y-1 max-h-36 overflow-y-auto custom-scrollbar">
-              {workspaces.map((ws) => (
-                <div
-                  key={ws.id}
-                  className={`flex items-center justify-between p-2 rounded text-xs border transition-colors ${
-                    ws.id === activeWorkspaceId
-                      ? 'bg-surface-container border-secondary/40 text-on-surface'
-                      : 'border-transparent text-on-surface-variant hover:bg-surface-container'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 truncate pr-2">
-                    <span className="material-symbols-outlined text-xs text-secondary shrink-0">
-                      {ws.icon || 'psychology'}
-                    </span>
-                    <span className="truncate font-medium">{ws.name}</span>
-                    {ws.id === activeWorkspaceId && (
-                      <span className="bg-secondary/20 text-secondary text-[9px] px-1.5 py-0.5 rounded font-mono shrink-0">
-                        ACTIVE
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => startEditing(ws.id)}
-                      className="p-1 hover:text-on-surface text-on-surface-variant rounded hover:bg-surface-container-high"
-                      title="Edit workspace"
+              {workspaces.map((ws) => {
+                if (deletingWorkspaceId === ws.id) {
+                  return (
+                    <div
+                      key={ws.id}
+                      className="flex items-center justify-between p-2 rounded text-xs border border-error/50 bg-error/10 text-on-surface"
                     >
-                      <span className="material-symbols-outlined text-xs">edit</span>
-                    </button>
-                    {workspaces.length > 1 && (
+                      <span className="text-xs font-semibold text-error truncate max-w-[200px]">
+                        Delete &quot;{ws.name}&quot;?
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmDelete(ws.id)}
+                          className="px-2 py-0.5 bg-error text-on-error font-bold text-[11px] rounded hover:bg-error/80 transition-colors"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingWorkspaceId(null)}
+                          className="px-2 py-0.5 bg-surface-container text-on-surface-variant font-medium text-[11px] rounded hover:bg-surface-container-high transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={ws.id}
+                    className={`flex items-center justify-between p-2 rounded text-xs border transition-colors ${
+                      ws.id === activeWorkspaceId
+                        ? 'bg-surface-container border-secondary/40 text-on-surface'
+                        : 'border-transparent text-on-surface-variant hover:bg-surface-container'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate pr-2">
+                      <span className="material-symbols-outlined text-xs text-secondary shrink-0">
+                        {ws.icon || 'psychology'}
+                      </span>
+                      <span className="truncate font-medium">{ws.name}</span>
+                      {ws.id === activeWorkspaceId && (
+                        <span className="bg-secondary/20 text-secondary text-[9px] px-1.5 py-0.5 rounded font-mono shrink-0">
+                          ACTIVE
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        onClick={() => handleDelete(ws.id)}
-                        className="p-1 hover:text-error text-on-surface-variant rounded hover:bg-surface-container-high"
-                        title="Delete workspace"
+                        onClick={() => startEditing(ws.id)}
+                        className="p-1 hover:text-on-surface text-on-surface-variant rounded hover:bg-surface-container-high"
+                        title="Edit workspace"
                       >
-                        <span className="material-symbols-outlined text-xs">delete</span>
+                        <span className="material-symbols-outlined text-xs">edit</span>
                       </button>
-                    )}
+                      {workspaces.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setDeletingWorkspaceId(ws.id)}
+                          className="p-1 hover:text-error text-on-surface-variant rounded hover:bg-surface-container-high"
+                          title="Delete workspace"
+                        >
+                          <span className="material-symbols-outlined text-xs">delete</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
