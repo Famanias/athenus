@@ -5,6 +5,8 @@ from app.domain.knowledge.bm25_retriever import BM25Retriever
 from app.domain.knowledge.reranker import CrossEncoderReranker
 from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
 
+from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
+
 @dataclass
 class RetrievalContext:
     query: str
@@ -12,6 +14,7 @@ class RetrievalContext:
     media_id: Optional[str] = None
     rewritten_query: str = ""
     retrieved_chunks: List[Dict[str, Any]] = field(default_factory=list)
+    graph_triples: List[str] = field(default_factory=list)
     assembled_prompt: str = ""
 
 class MultiStageRetriever:
@@ -20,10 +23,12 @@ class MultiStageRetriever:
     def __init__(
         self,
         ai_service_bus: AIServiceBus,
-        vector_store: Optional[EmbeddedQdrantVectorStoreAdapter] = None
+        vector_store: Optional[EmbeddedQdrantVectorStoreAdapter] = None,
+        kg_service: Optional[KnowledgeGraphService] = None
     ) -> None:
         self.ai_service_bus = ai_service_bus
         self.vector_store = vector_store or EmbeddedQdrantVectorStoreAdapter()
+        self.kg_service = kg_service or KnowledgeGraphService()
         self.bm25 = BM25Retriever()
         self.reranker = CrossEncoderReranker()
 
@@ -35,7 +40,9 @@ class MultiStageRetriever:
 
         # Stage 2: Intent Detection
         # Stage 3: Workspace Context Injection
-        # Stage 4: Knowledge Graph Traversal (interface stub for Phase 1)
+        
+        # Stage 4: Knowledge Graph Traversal
+        ctx.graph_triples = self.kg_service.get_workspace_triples(workspace_id)
 
         # Stage 5: Hybrid Search (Dense Embedded Qdrant + Sparse BM25)
         embedding_cap = self.ai_service_bus.get_embedding_capability()
@@ -59,7 +66,7 @@ class MultiStageRetriever:
         compressed_text = self._compress_context(reranked_chunks)
 
         # Stage 8: Grounded Prompt Assembly
-        ctx.assembled_prompt = self._assemble_prompt(query, compressed_text, reranked_chunks)
+        ctx.assembled_prompt = self._assemble_prompt(query, compressed_text, ctx.graph_triples)
         return ctx
 
     def _compress_context(self, chunks: List[Dict[str, Any]]) -> str:
@@ -73,11 +80,15 @@ class MultiStageRetriever:
             parts.append(f"{time_badge} {c.get('text', '')}")
         return "\n\n".join(parts)
 
-    def _assemble_prompt(self, query: str, context_text: str, chunks: List[Dict[str, Any]]) -> str:
-        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided timestamped video context below. Always include clickable timestamp citations (e.g. [MM:SS - MM:SS]) matching the context.
+    def _assemble_prompt(self, query: str, context_text: str, triples: List[str]) -> str:
+        kg_context = ""
+        if triples:
+            kg_context = "\nKnowledge Graph Concepts & Relationships:\n" + "\n".join(f"- {t}" for t in triples) + "\n"
+
+        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided timestamped video context and knowledge graph relationships below. Always include clickable timestamp citations (e.g. [MM:SS - MM:SS]) matching the context.
 
 Context:
 {context_text}
-
+{kg_context}
 User Question: {query}
 Answer:"""

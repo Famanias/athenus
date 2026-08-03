@@ -1,17 +1,17 @@
-# Implementation Plan — Phase 3: Unified Knowledge Lifecycle
+# Implementation Plan — Phase 4: Persistent Conversational Memory & Knowledge Graph Integration
 
-Formalize a complete, unified ingestion lifecycle for every uploaded lecture resource, recording stage transitions, execution timestamps, progress percentages, and audit logs directly in SQLite.
+Integrate long-term persistent knowledge graph concept nodes, relationship triples, and conversation deletion memory directly into SQLite and the multi-stage RAG retrieval pipeline.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Key Architecture Decisions for Phase 3:**
-> 1. **Persistent Processing Log Schema (`ProcessingLogTable`)**: Create a dedicated SQLite audit table recording every stage event (`audio_extraction`, `transcription`, `chunking`, `embedding`, `indexing`) with timestamps, stage progress, messages, and error tracebacks.
-> 2. **Lifecycle Event Synchronization**: Extend `media_event_handlers.py` and `ProgressStore` so that every published domain event automatically appends an audit record to SQLite.
-> 3. **Processing History Diagnostic Endpoint (`GET /api/v1/media/{id}/history`)**: Add a REST endpoint returning the full timestamped processing history log for any media asset.
-> 4. **Workflow Checkpoint**: Stop after Phase 3 verification and self-review to request user approval before beginning Phase 4.
+> **Key Architecture Decisions for Phase 4:**
+> 1. **Persistent Knowledge Graph Schema (`KnowledgeConceptTable` & `KnowledgeRelationTable`)**: Store extracted domain entities, concept definitions, and relation triples in SQLite bound to `workspace_id`.
+> 2. **RAG Stage 4 Graph Traversal Context Injection**: Update `MultiStageRetriever` to traverse relevant knowledge graph triples and expand the RAG prompt context with structured concept relationships.
+> 3. **Chat Deletion API Endpoint (`DELETE /api/v1/chat/history`)**: Provide explicit backend support to delete/clear chat history for a workspace in SQLite upon user action.
+> 4. **Workflow Checkpoint**: Stop after Phase 4 verification and self-review to request user review before completing the mitigation roadmap.
 
 ---
 
@@ -20,50 +20,60 @@ Formalize a complete, unified ingestion lifecycle for every uploaded lecture res
 ### Database Layer (`backend/app/infrastructure/db/`)
 
 #### [MODIFY] [models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)
-- **[NEW]** Add `ProcessingLogTable` SQLModel and SQLAlchemy ORM class:
-  - `id`: Primary key (autoincrement int or string ID)
-  - `media_id`: Indexed string
-  - `workspace_id`: Indexed string
-  - `stage`: String (`audio_extraction`, `transcription`, `chunking`, `embedding`, `indexing`)
-  - `status`: String (`processing`, `completed`, `failed`)
-  - `progress`: Integer (0–100%)
-  - `message`: Optional string
-  - `error_message`: Optional string
-  - `created_at`: Datetime timestamp
+- **[NEW]** Add `KnowledgeConceptTable` SQLModel/SQLAlchemy class:
+  - `id`: String PK
+  - `workspace_id`: String (indexed)
+  - `name`: String (indexed)
+  - `description`: Optional text
+- **[NEW]** Add `KnowledgeRelationTable` SQLModel/SQLAlchemy class:
+  - `id`: String PK
+  - `workspace_id`: String (indexed)
+  - `source_concept`: String
+  - `target_concept`: String
+  - `relation_type`: String (e.g. `is_a`, `part_of`, `uses`, `prerequisite_for`)
 
 ---
 
-### Application Event Handlers & Event Bus (`backend/app/application/events/`)
+### Knowledge Graph Repository (`backend/app/infrastructure/db/`)
 
-#### [MODIFY] [media_event_handlers.py](file:///e:/repos/athenus/backend/app/application/events/media_event_handlers.py)
-- Update handlers for `ProcessingStartedEvent`, `StageProgressEvent`, `TranscriptCompletedEvent`, `ChunksIndexedEvent`, and `ProcessingFailedEvent` to persist audit records to `ProcessingLogTable` in SQLite.
+#### [MODIFY] [sqlite_knowledge_graph.py](file:///e:/repos/athenus/backend/app/infrastructure/db/sqlite_knowledge_graph.py) or [knowledge_graph.py](file:///e:/repos/athenus/backend/app/domain/knowledge/knowledge_graph.py)
+- Implement SQLite persistence methods for adding concepts, relations, and querying subgraphs by workspace ID.
+
+---
+
+### Retrieval Subsystem (`backend/app/infrastructure/retrieval/`)
+
+#### [MODIFY] [multi_stage_retriever.py](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py)
+- Enable **Stage 4 (Knowledge Graph Traversal)**:
+  - Query persistent graph relations for concepts in `query`.
+  - Append formatted knowledge triples into `ctx.assembled_prompt`.
 
 ---
 
 ### Presentation & API Layer (`backend/app/presentation/api/v1/`)
 
-#### [MODIFY] [media.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/media.py)
-- **[NEW]** Add endpoint `GET /api/v1/media/{media_id}/history` returning list of `ProcessingLogDTO` entries sorted by timestamp.
+#### [MODIFY] [chat.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/chat.py)
+- Add `DELETE /api/v1/chat/history` endpoint to clear active chat messages for a workspace in SQLite.
 
 ---
 
 ### Verification & Test Suite (`backend/tests/`)
 
-#### [NEW] [test_knowledge_lifecycle.py](file:///e:/repos/athenus/backend/tests/test_knowledge_lifecycle.py)
-- Add lifecycle audit test:
-  - Simulate media processing across all pipeline stages.
-  - Query `GET /api/v1/media/{id}/history`.
-  - Assert complete timestamped progression from `audio_extraction` to `indexing` / `completed` is recorded in SQLite.
+#### [NEW] [test_knowledge_graph_memory.py](file:///e:/repos/athenus/backend/tests/test_knowledge_graph_memory.py)
+- Add automated tests:
+  - Concept/relation SQLite persistence.
+  - Knowledge graph traversal prompt expansion.
+  - Chat history deletion endpoint verification.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-1. **Knowledge Lifecycle Pytest**:
+1. **Knowledge Graph & Memory Pytest**:
    ```bash
    cd backend
-   python -m pytest tests/test_knowledge_lifecycle.py
+   python -m pytest tests/test_knowledge_graph_memory.py
    python -m pytest
    ```
 2. **Frontend Type Check**:
@@ -73,6 +83,6 @@ Formalize a complete, unified ingestion lifecycle for every uploaded lecture res
    ```
 
 ### Manual Verification
-1. Upload a video file in **Pipelines** (`view-ingestion`).
-2. Call `GET http://localhost:8000/api/v1/media/{media_id}/history` in browser or curl.
-3. Verify that a complete timestamped JSON log array showing progress transitions (25% $\rightarrow$ 60% $\rightarrow$ 75% $\rightarrow$ 90% $\rightarrow$ 100%) is returned.
+1. Open **Chat** (`view-chat`) and submit questions building domain concepts.
+2. Click **Clear Chat** $\rightarrow$ call `DELETE http://localhost:8000/api/v1/chat/history?workspace_id=default`.
+3. Verify chat history in SQLite is cleared and fresh conversation starts cleanly.

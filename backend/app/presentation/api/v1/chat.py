@@ -159,3 +159,21 @@ async def get_chat_history(workspace_id: str = "default"):
             return history
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/chat/history")
+async def clear_chat_history(workspace_id: str = "default"):
+    """Clear persistent chat session messages for a given workspace in SQLite."""
+    if not engine or not Session or not select:
+        return {"status": "ok", "deleted_count": 0}
+    try:
+        with Session(engine) as session:
+            statement = select(ChatMessageTable).where(ChatMessageTable.workspace_id == workspace_id)
+            records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()
+            count = len(records)
+            for r in records:
+                session.delete(r)
+            session.commit()
+            return {"status": "ok", "deleted_count": count}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

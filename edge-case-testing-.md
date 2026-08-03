@@ -116,3 +116,40 @@ This document tracks the technical implementation details, verification results,
 | **3. Rapid Stage Progression** | Small 5-second video completes all stages in <1s | Database transactions execute sequentially within Session context | Telemetry timestamps preserve stage order without index key collision. |
 | **4. Historical Audit Retrieval** | Call `GET /media/{id}/history` for an asset ingested yesterday | SQLite queries `processing_logs` table filtered by `media_id` ordered by `created_at` | Returns complete historical execution timeline even across system restarts. |
 | **5. Query Non-Existent Media History** | Call `GET /media/{invalid_id}/history` | Database query yields empty list `[]` | Endpoint returns `200 OK` with empty array `[]` cleanly without internal error. |
+
+---
+
+## 🧠 Phase 4 — Persistent Conversational Memory & Knowledge Graph Integration
+
+> [!IMPORTANT]
+> **Primary Milestone**: Store extracted domain concept nodes and relationship triples in SQLite (`KnowledgeConceptTable` & `KnowledgeRelationTable`), expand RAG prompts with Stage 4 Knowledge Graph traversal context, and provide explicit backend deletion API endpoints (`DELETE /api/v1/chat/history`).
+
+### 1. Key Achievements & Implementation Details
+
+- **Persistent Knowledge Graph Schema ([models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py))**:
+  - Added `KnowledgeConceptTable` and `KnowledgeRelationTable` in SQLite storing domain concepts, descriptions, and directional relationship edges bound to `workspace_id`.
+- **SQLite-Backed Knowledge Graph Service ([knowledge_graph_service.py](file:///e:/repos/athenus/backend/app/domain/knowledge/knowledge_graph_service.py))**:
+  - Upgraded `KnowledgeGraphService` to persist concept nodes and relation triples to SQLite, offering `get_workspace_triples(workspace_id)` for RAG context expansion.
+- **RAG Stage 4 Concept Traversal ([multi_stage_retriever.py](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py))**:
+  - Integrated Stage 4 Knowledge Graph Traversal into `MultiStageRetriever`, automatically appending structured concept triples into `ctx.assembled_prompt`.
+- **Workspace Chat History Deletion Endpoint ([chat.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/chat.py))**:
+  - Implemented `DELETE /api/v1/chat/history` endpoint to delete all chat message turns for a workspace in SQLite upon user action.
+- **Automated Memory & Graph Test Suite ([test_knowledge_graph_memory.py](file:///e:/repos/athenus/backend/tests/test_knowledge_graph_memory.py))**:
+  - Verified node/edge SQLite persistence, graph prompt expansion, and chat history deletion endpoint execution.
+
+### 2. Verification Summary
+
+| Component | Command | Result |
+|---|---|---|
+| **Frontend Type Check** | `npx tsc --noEmit` (in `frontend/`) | **0 Errors** |
+| **Backend Pytest Suite** | `python -m pytest` (in `backend/`) | **35 Passed** (100% pass rate in 16.08s) |
+
+### 3. Edge Case Matrix & Expected Behavior (Phase 4)
+
+| Edge Case Scenario | Test Action / Trigger | Internal Execution | Expected Behavior & Success Indicator |
+|---|---|---|---|
+| **1. Empty Knowledge Graph Traversal** | Query RAG in workspace with 0 graph concepts | `KnowledgeGraphService.get_workspace_triples()` returns `[]` | RAG prompt assembles context from dense/sparse text hits cleanly without error. |
+| **2. Chat History Deletion** | Call `DELETE /api/v1/chat/history?workspace_id=default` | `select(ChatMessageTable)` deletes all matching message records in SQLite | Message records deleted in SQLite; `GET /chat/history` returns `[]`. Media assets and transcripts remain intact. |
+| **3. Idempotent Chat Deletion** | Call `DELETE /api/v1/chat/history` twice in succession | Second call finds 0 records to delete in SQLite | Endpoint returns `200 OK` with `deleted_count: 0`. No exception thrown. |
+| **4. Multi-Workspace Knowledge Graph Isolation** | Add concept nodes in Workspace A vs Workspace B | `get_workspace_triples(workspace_id)` filters relations by active workspace ID | Knowledge graph triples are isolated to active workspace; zero concept leakage. |
+| **5. Graph-Enhanced Prompt Assembly** | Query RAG with active concept triples in workspace | `MultiStageRetriever` formats `\nKnowledge Graph Concepts & Relationships:` | LLM receives structured domain concept relationships alongside timestamped transcript chunks. |

@@ -77,6 +77,23 @@ try:
         error_message: Optional[str] = None
         created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    class KnowledgeConceptTable(SQLModel, table=True):
+        __tablename__ = "knowledge_concepts"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        name: str = Field(index=True)
+        description: Optional[str] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class KnowledgeRelationTable(SQLModel, table=True):
+        __tablename__ = "knowledge_relations"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        source_concept: str = Field(index=True)
+        target_concept: str = Field(index=True)
+        relation_type: str = "relates_to"
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
 except ImportError:
     from sqlalchemy import Column, String, Float, Integer, DateTime, Text
     from app.infrastructure.db.session import Base
@@ -153,4 +170,22 @@ except ImportError:
         message = Column(String, nullable=True)
         error_message = Column(String, nullable=True)
         created_at = Column(DateTime, default=datetime.utcnow)
+
+    class KnowledgeConceptTable(Base):
+        __tablename__ = "knowledge_concepts"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        name = Column(String, index=True, nullable=False)
+        description = Column(Text, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
+    class KnowledgeRelationTable(Base):
+        __tablename__ = "knowledge_relations"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        source_concept = Column(String, index=True, nullable=False)
+        target_concept = Column(String, index=True, nullable=False)
+        relation_type = Column(String, default="relates_to")
+        created_at = Column(DateTime, default=datetime.utcnow)
+
 
