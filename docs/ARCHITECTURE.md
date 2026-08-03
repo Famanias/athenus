@@ -53,11 +53,12 @@ graph TD
 
 ### 3.3 Domain Layer (`backend/app/domain/`)
 - **`AIServiceBus`**: Abstract routing layer decoupling LLMs (`MockOllamaAdapter`), Embedding Models (`SentenceTransformersEmbeddingAdapter`), and Whisper ASR.
-- **`WorkspaceService`**: Workspace domain model backed by SQLite persistence.
+- **`WorkspaceService`**: Workspace domain model backed by SQLite persistence with active workspace context tracking.
+- **`SessionService`**: Multi-session domain service managing chat thread lifecycles, lazy session creation, and session preview metadata.
 - **`KnowledgeGraphService`**: Concept node and edge graph traversal backed by SQLite (`knowledge_concepts`, `knowledge_relations`).
 
 ### 3.4 Infrastructure Layer (`backend/app/infrastructure/`)
-- **SQLite Database (`session.py` & `models.py`)**: Canonical relational store managing 9 SQLModel / SQLAlchemy ORM tables (`workspaces`, `media_items`, `transcript_chunks`, `transcript_segments`, `chat_sessions`, `chat_messages`, `processing_logs`, `knowledge_concepts`, `knowledge_relations`).
+- **SQLite Database (`session.py` & `models.py`)**: Canonical relational store managing 9 SQLModel / SQLAlchemy ORM tables (`workspaces`, `media_items`, `transcript_chunks`, `transcript_segments`, `chat_sessions`, `chat_messages`, `processing_logs`, `knowledge_concepts`, `knowledge_relations`) with automatic column migrations on startup.
 - **`SqliteMediaRepository`**: Persistent implementation of `MediaRepository` contract.
 - **`EmbeddedQdrantVectorStoreAdapter`**: Local vector store using 384-dimensional cosine embeddings with payload `workspace_id` filtering.
 
@@ -74,7 +75,7 @@ sequenceDiagram
     participant QDRANT as Embedded Qdrant
     participant LLM as AIServiceBus (LLM)
 
-    User->>API: POST /chat/query (query, workspace_id)
+    User->>API: POST /chat/query (query, workspace_id, session_id)
     API->>RET: execute_retrieval()
     RET->>RET: Stage 1: Query Expansion & Rewrite
     RET->>KG: Stage 4: Traverse Knowledge Graph Triples (workspace_id)
@@ -82,8 +83,8 @@ sequenceDiagram
     RET->>RET: Stage 5-6: BM25 Sparse & Cross-Encoder Re-Ranking
     RET->>RET: Stage 7-8: Grounded Prompt Assembly (Context + KG Triples)
     RET->>LLM: Generate Answer with Citations
-    API->>API: Persist Turn to SQLite chat_messages
-    API-->>User: Return ChatQueryResponse (answer + citations)
+    API->>API: Lazy-Create Session & Persist Turn to SQLite (chat_messages & chat_sessions)
+    API-->>User: Return ChatQueryResponse (answer + citations + session_id)
 ```
 
 ---
@@ -97,6 +98,8 @@ sequenceDiagram
 | **[ADR 0003](file:///e:/repos/athenus/docs/adr/0003-unified-ingestion-stage-audit-logging.md)** | Ingestion Audit Logging | Added `ProcessingLogTable` in SQLite to record timestamped ingestion telemetry accessible via `GET /media/{id}/history`. |
 | **[ADR 0004](file:///e:/repos/athenus/docs/adr/0004-persistent-knowledge-graph-and-conversational-memory.md)** | Persistent Knowledge Graph & Memory | Stored concept nodes and relation triples in SQLite, expanded RAG prompts with Stage 4 graph triples, and added `DELETE /chat/history`. |
 | **[ADR 0005](file:///e:/repos/athenus/docs/adr/0005-zero-dom-reparenting-video-player-and-per-message-citations.md)** | Zero DOM Re-parenting & Per-Message Citations | Implemented persistent CSS-hidden `VideoWorkspace` to prevent PiP video detachment, and stored citations per assistant response turn. |
+| **[ADR 0006](file:///e:/repos/athenus/docs/adr/0006-multi-workspace-and-multi-session-architecture.md)** | Multi-Workspace & Multi-Session Architecture | Implemented a two-tier domain hierarchy (Workspace $\rightarrow$ Chat Sessions), single backend context source of truth, lazy session creation, and 9-step workspace switching lifecycle. |
+
 
 ---
 

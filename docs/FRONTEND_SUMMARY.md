@@ -1,36 +1,38 @@
-# Athenus Knowledge OS — Frontend Development Summary (Phases A – F)
+# Athenus Knowledge OS — Frontend Development Summary (Phases A – G)
 
-This document presents a complete summary of the frontend development completed for **Athenus Knowledge OS Version 1.0**.
+This document presents a complete summary of the frontend development completed for **Athenus Knowledge OS Version 1.0**, including Multi-Workspace and Multi-Session behavior.
 
 ---
 
 ## 1. Architectural Principles & Theme System
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Desktop Shell Component                  │
-│                                                             │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │ TopToolbar (Data-Driven Search, Workspace Selector)   │  │
-│  ├───────────────┬───────────────────────────────────────┤  │
-│  │ Sidebar       │ MainPanel (Zustand Active View)       │  │
-│  │               │                                       │  │
-│  │ 🦉 Wisdom     │  • 8-Stage RAG Chat                   │  │
-│  │ 📚 Knowledge  │  • Video Player & Synced Transcript   │  │
-│  │ ⚔️ Strategy   │  • Document Transcript Reader         │  │
-│  │ ⚙️ System     │  • Active Recall 3D Flashcard Grid    │  │
-│  │               │  • Adaptive Quiz Studio               │  │
-│  │               │  • Concept Knowledge Graph            │  │
-│  ├───────────────┴───────────────────────────────────────┤  │
-│  │ StatusBar (Local Engine Diagnostics & Latency)        │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                    Desktop Shell Component                        │
+│                                                                   │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ TopToolbar (WorkspaceDropdown, Global Search, CTRL+K)       │  │
+│  ├───────────────┬─────────────────────────────────────────────┤  │
+│  │ Sidebar       │ MainPanel (Zustand Active View)             │  │
+│  │               │                                             │  │
+│  │ [+ New Chat]  │  • 8-Stage RAG Multi-Session Chat           │  │
+│  │               │  • Video Player & Synced Transcript         │  │
+│  │ 🦉 Wisdom     │  • Document Transcript Reader               │  │
+│  │ 📚 Knowledge  │  • Active Recall 3D Flashcard Grid          │  │
+│  │ ⚔️ Strategy   │  • Adaptive Quiz Studio                     │  │
+│  │ ⚙️ System     │  • Concept Knowledge Graph                  │  │
+│  │               │                                             │  │
+│  │ [Recent Chats]│                                             │  │
+│  ├───────────────┴─────────────────────────────────────────────┤  │
+│  │ StatusBar (Local Engine Diagnostics & Latency)              │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 * **Athena Theme System**: Enforces Navy (`#051424`), Dark Blue Containers (`#0d1c2d`, `#122131`, `#1c2b3c`, `#273647`), Muted Ice Blue (`#d4e4fa`), and **Athena Gold Accent** (`#e9c349`).
 * **Custom Typography System**: `@font-face` bindings for `TT Carvist` (Headlines & Branding), `Geist` (UI text), and `JetBrains Mono` (Code & Timestamps).
 * **Data-Driven Domain Categorization (`src/config/navigation.ts`)**: Structured into Wisdom 🦉, Knowledge 📚, Strategy ⚔️, and Infrastructure ⚙️.
-* **Shared State Layer (`src/store/useAppStore.ts`)**: Centralized Zustand store for active view, workspace context, timestamp, and command palette overlay.
+* **Shared State Layer (`src/store/useAppStore.ts`)**: Centralized Zustand store for active view, `WorkspaceContext` (`workspaceId`, `sessionId`, `mediaId`), 9-step workspace switching lifecycle, timestamp, and command palette overlay.
 
 ---
 
@@ -63,9 +65,15 @@ This document presents a complete summary of the frontend development completed 
 * **AI Capability Settings (`src/features/settings/`)**: `SystemSettings.tsx` managing provider selection (Ollama, Faster-Whisper, BGE, Qdrant) and CUDA GPU acceleration toggles.
 * **Global Command Palette (`CommandPalette.tsx`)**: `Ctrl + K` / `Cmd + K` search overlay across all views.
 
+### Phase G: Multi-Workspace & Multi-Session Navigation
+* **`WorkspaceDropdown.tsx`**: Searchable dropdown in `TopToolbar` displaying active workspace, icon badge, pinned list, and create trigger.
+* **`WorkspaceModal.tsx`**: Dialog for workspace creation and management (renaming, icon selection, safe active fallback deletion).
+* **`SessionList.tsx`**: Sidebar list displaying recent chat sessions with preview snippets (`preview_text`) and deletion controls.
+* **Lazy Chat State**: "+ New Chat" button initiates a clean in-memory draft; session record is created on turn 1 submit.
+
 ---
 
 ## 3. Verification & Build Integrity
 
 * **TypeScript TypeCheck (`npx tsc --noEmit`)**: Clean exit (0 errors across all feature modules).
-* **Next.js Production Build (`npx next build`)**: Compiled successfully in 8.8s with prerendered static routes.
+* **Next.js Production Build (`npx next build`)**: Compiled successfully in 7.7s with prerendered static routes.

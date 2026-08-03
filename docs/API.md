@@ -36,27 +36,49 @@ Complete specification for all REST API endpoints exposed by the FastAPI backend
 
 ---
 
-## 3. RAG Retrieval & Persistent Workspace Chat
+## 3. RAG Retrieval & Multi-Session Workspace Chat
 * **POST** `/api/v1/chat/query`
-  - Executes 8-stage RAG retrieval pipeline and returns assistant answer with timestamp citations. Automatically persists query turn and citations to SQLite `chat_messages` table.
-  - **Body**: `{ "query": "string", "workspace_id": "default", "media_id": optional }`
-* **GET** `/api/v1/chat/history?workspace_id={workspace_id}`
-  - Fetches past conversation messages for a workspace from SQLite `chat_messages` table across app restarts.
-* **DELETE** `/api/v1/chat/history?workspace_id={workspace_id}`
-  - Deletes all chat session messages for a workspace in SQLite upon user action.
+  - Executes 8-stage RAG retrieval pipeline and returns assistant answer with timestamp citations. Automatically lazy-creates `ChatSession` if `session_id` is omitted and persists query turn and citations to SQLite `chat_messages` table.
+  - **Body**: `{ "query": "string", "workspace_id": "default", "session_id": "optional", "media_id": "optional", "current_timestamp": optional, "selected_text": optional }`
+* **GET** `/api/v1/chat/history?workspace_id={workspace_id}&session_id={session_id}`
+  - Fetches conversation history for a specific session or active workspace session from SQLite `chat_messages` table.
+* **DELETE** `/api/v1/chat/history?workspace_id={workspace_id}&session_id={session_id}`
+  - Deletes chat session messages for a specific session or workspace in SQLite.
 
 ---
 
-## 4. Workspace Management
-* **GET** `/api/v1/workspaces`
-  - Lists all learning workspaces loaded from SQLite `workspaces` table.
+## 4. Multi-Workspace Management
+* **GET** `/api/v1/workspaces?include_archived=true`
+  - Lists all learning workspaces loaded from SQLite `workspaces` table (sorted by pinned status and `last_accessed_at`).
 * **POST** `/api/v1/workspaces`
   - Creates a new workspace and saves it to SQLite database.
+* **GET** `/api/v1/workspaces/active`
+  - Returns current active workspace context (`active_workspace_id`).
+* **POST** `/api/v1/workspaces/{workspace_id}/activate`
+  - Sets active workspace context and updates `last_accessed_at` timestamp.
 * **GET** `/api/v1/workspaces/{workspace_id}`
-  - Returns workspace details and associated media item IDs.
+  - Returns workspace details, metadata (`is_pinned`, `is_archived`, `last_accessed_at`), and associated media item IDs.
+* **PATCH** `/api/v1/workspaces/{workspace_id}`
+  - Updates workspace metadata (name, description, icon, `is_pinned`, `is_archived`).
+* **DELETE** `/api/v1/workspaces/{workspace_id}`
+  - Deletes a workspace with cascading removal of SQLite records and vector payloads. Safely switches active workspace context if target workspace is currently active.
 
 ---
 
-## 5. Knowledge Graph
+## 5. Multi-Session Management
+* **GET** `/api/v1/workspaces/{workspace_id}/sessions?include_archived=true`
+  - Lists chat sessions for a workspace with preview metadata (`preview_text`, `message_count`, `last_message_at`).
+* **POST** `/api/v1/workspaces/{workspace_id}/sessions`
+  - Manually creates a new chat session under a workspace.
+* **GET** `/api/v1/sessions/{session_id}`
+  - Returns details for a specific chat session.
+* **PATCH** `/api/v1/sessions/{session_id}`
+  - Updates session metadata (title, `is_pinned`, `is_archived`).
+* **DELETE** `/api/v1/sessions/{session_id}`
+  - Deletes a chat session and its associated chat messages.
+
+---
+
+## 6. Knowledge Graph
 * **GET** `/api/v1/graph/prerequisites/{concept_id}`
   - Queries prerequisite hierarchy for a concept node.

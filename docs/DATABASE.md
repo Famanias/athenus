@@ -6,7 +6,7 @@ Canonical database schema reference and vector storage specifications for Athenu
 
 ## 1. SQLite Relational Schema (`./data/athenus.db`)
 
-Managed via SQLModel / SQLAlchemy with auto-creation on application startup (`init_db()`).
+Managed via SQLModel / SQLAlchemy with auto-creation and schema migrations on application startup (`init_db()`).
 
 ### Table: `workspaces`
 Stores learning workspace definitions and metadata.
@@ -16,6 +16,10 @@ CREATE TABLE workspaces (
     name VARCHAR NOT NULL,
     description VARCHAR,
     icon VARCHAR,
+    is_pinned BOOLEAN DEFAULT 0,
+    is_archived BOOLEAN DEFAULT 0,
+    settings_json TEXT,
+    last_accessed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,12 +76,17 @@ CREATE INDEX ix_transcript_segments_media_id ON transcript_segments (media_id);
 ```
 
 ### Table: `chat_sessions`
-Stores chat session containers bound to workspaces.
+Stores chat session containers bound to workspaces with session list preview metadata.
 ```sql
 CREATE TABLE chat_sessions (
     id VARCHAR PRIMARY KEY,
     workspace_id VARCHAR NOT NULL,
     title VARCHAR DEFAULT 'Chat Session',
+    is_pinned BOOLEAN DEFAULT 0,
+    is_archived BOOLEAN DEFAULT 0,
+    last_message_at DATETIME,
+    message_count INTEGER DEFAULT 0,
+    preview_text TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
