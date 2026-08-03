@@ -5,7 +5,6 @@
 
 import { useEffect, useCallback } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { WELCOME_MESSAGE } from '@/store/chatSlice';
 import { sendChatQuery, getChatHistory, clearChatHistory, mapBackendCitations } from '@/services/chatService';
 import type { ChatMessage, Citation, AgentLog } from './types';
 
@@ -20,6 +19,7 @@ export function useChat() {
   const inputQuery      = useAppStore((s) => s.chat.input);
   const isGenerating    = useAppStore((s) => s.chat.isGenerating);
   const isBackendUnavailable = useAppStore((s) => s.chat.backendUnavailable);
+  const isConversationLoading = useAppStore((s) => s.chat.isConversationLoading);
   const activeSessionId = useAppStore((s) => s.chat.activeSessionId);
   const isDraftSession  = useAppStore((s) => s.chat.isDraftSession);
 
@@ -29,6 +29,7 @@ export function useChat() {
   const updateInput          = useAppStore((s) => s.updateInput);
   const setGenerating        = useAppStore((s) => s.setGenerating);
   const setBackendUnavailable = useAppStore((s) => s.setBackendUnavailable);
+  const setConversationLoading = useAppStore((s) => s.setConversationLoading);
   const storeClearConversation = useAppStore((s) => s.clearConversation);
   const setActiveSessionId   = useAppStore((s) => s.setActiveSessionId);
 
@@ -41,11 +42,13 @@ export function useChat() {
 
     async function loadHistory() {
       if (isDraftSession && !activeSessionId) {
-        replaceMessages([WELCOME_MESSAGE]);
+        replaceMessages([]);
         addEvidence([]);
+        setConversationLoading(false);
         return;
       }
 
+      setConversationLoading(true);
       try {
         const history = await getChatHistory(activeWorkspaceId, activeSessionId);
         if (isCancelled) return;
@@ -66,13 +69,17 @@ export function useChat() {
             addEvidence([]);
           }
         } else {
-          replaceMessages([WELCOME_MESSAGE]);
+          replaceMessages([]);
           addEvidence([]);
         }
       } catch {
         if (!isCancelled) {
-          replaceMessages([WELCOME_MESSAGE]);
+          replaceMessages([]);
           addEvidence([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setConversationLoading(false);
         }
       }
     }
@@ -82,7 +89,7 @@ export function useChat() {
     return () => {
       isCancelled = true;
     };
-  }, [activeWorkspaceId, activeSessionId, isDraftSession, replaceMessages, addEvidence]);
+  }, [activeWorkspaceId, activeSessionId, isDraftSession, replaceMessages, addEvidence, setConversationLoading]);
 
   const handleClearConversation = useCallback(async () => {
     try {
@@ -160,6 +167,7 @@ export function useChat() {
     sendMessage,
     isGenerating,
     isBackendUnavailable,
+    isConversationLoading,
     clearConversation: handleClearConversation,
   };
 }

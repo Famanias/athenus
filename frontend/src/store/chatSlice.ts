@@ -1,15 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { ChatMessage, Citation, AgentLog } from '@/features/chat/types';
 
-// The welcome message that initialises every new session.
-export const WELCOME_MESSAGE: ChatMessage = {
-  id: 'msg_0',
-  sender: 'assistant',
-  content:
-    'Hi! I am Athenus. What do you want to know?',
-  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-};
-
 export interface ChatState {
   activeSessionId: string | null;
   isDraftSession: boolean;
@@ -18,6 +9,7 @@ export interface ChatState {
   agentLogs: AgentLog[];
   input: string;
   isGenerating: boolean;
+  isConversationLoading: boolean;
   backendUnavailable: boolean;
 }
 
@@ -34,6 +26,7 @@ export interface ChatSlice {
   addAgentLog: (log: AgentLog) => void;
   updateInput: (value: string) => void;
   setGenerating: (generating: boolean) => void;
+  setConversationLoading: (loading: boolean) => void;
   setBackendUnavailable: (unavailable: boolean) => void;
 }
 
@@ -41,11 +34,12 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set)
   chat: {
     activeSessionId: null,
     isDraftSession: true,
-    messages: [WELCOME_MESSAGE],
+    messages: [],
     evidence: [],
     agentLogs: [],
     input: '',
     isGenerating: false,
+    isConversationLoading: false,
     backendUnavailable: false,
   },
 
@@ -65,18 +59,19 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set)
 
   replaceMessages: (messages) =>
     set((state) => ({
-      chat: { ...state.chat, messages: messages.length > 0 ? messages : [WELCOME_MESSAGE] },
+      chat: { ...state.chat, messages },
     })),
 
   clearConversation: () =>
     set((state) => ({
       chat: {
         ...state.chat,
-        messages: [WELCOME_MESSAGE],
+        messages: [],
         evidence: [],
         agentLogs: [],
         input: '',
         isGenerating: false,
+        isConversationLoading: false,
         backendUnavailable: false,
       },
     })),
@@ -99,6 +94,11 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set)
   setGenerating: (generating) =>
     set((state) => ({
       chat: { ...state.chat, isGenerating: generating },
+    })),
+
+  setConversationLoading: (loading) =>
+    set((state) => ({
+      chat: { ...state.chat, isConversationLoading: loading },
     })),
 
   setBackendUnavailable: (unavailable) =>

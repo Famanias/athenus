@@ -5,15 +5,28 @@ import { useChat } from './useChat';
 import { ChatMessageItem } from './ChatMessageItem';
 import { RetrievedEvidencePanel } from './RetrievedEvidencePanel';
 import { ModelSwitcher } from './ModelSwitcher';
+import { WelcomeBanner } from './WelcomeBanner';
 import { Button } from '@/components/ui/Button';
 
 export const ChatWorkspace: React.FC = () => {
-  const { messages, evidence, agentLogs, inputQuery, setInputQuery, sendMessage, isGenerating, clearConversation } =
-    useChat();
+  const {
+    messages,
+    evidence,
+    agentLogs,
+    inputQuery,
+    setInputQuery,
+    sendMessage,
+    isGenerating,
+    isConversationLoading,
+    clearConversation,
+  } = useChat();
   const threadEndRef = useRef<HTMLDivElement | null>(null);
 
   // Active focused assistant message for inspection in RetrievedEvidencePanel
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+
+  // Show the Welcome Banner only for an empty, fully-loaded conversation.
+  const showBanner = messages.length === 0 && !isConversationLoading;
 
   // Auto-scroll to bottom on new message and update selectedMessageId to latest assistant response
   useEffect(() => {
@@ -67,17 +80,27 @@ export const ChatWorkspace: React.FC = () => {
           </div>
         </div>
 
-        {/* Message Thread List */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-          {messages.map((msg) => (
-            <ChatMessageItem
-              key={msg.id}
-              message={msg}
-              isSelected={msg.id === selectedMessageId}
-              onSelectMessage={(id) => setSelectedMessageId(id)}
-            />
-          ))}
-          <div ref={threadEndRef} />
+        {/* Message Thread + Welcome Banner Overlay */}
+        <div className="relative flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto p-6 space-y-6 custom-scrollbar">
+            {messages.map((msg) => (
+              <ChatMessageItem
+                key={msg.id}
+                message={msg}
+                isSelected={msg.id === selectedMessageId}
+                onSelectMessage={(id) => setSelectedMessageId(id)}
+              />
+            ))}
+            <div ref={threadEndRef} />
+          </div>
+
+          <div
+            className={`absolute inset-0 flex items-center justify-center transition-all duration-200 ease-out ${
+              showBanner ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+            }`}
+          >
+            <WelcomeBanner />
+          </div>
         </div>
 
         {/* Query Input Box */}

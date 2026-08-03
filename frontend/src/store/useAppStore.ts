@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { createChatSlice, type ChatSlice, WELCOME_MESSAGE } from './chatSlice';
+import { createChatSlice, type ChatSlice } from './chatSlice';
 import type { WorkspaceContext } from '@/types/workspaceContext';
 import type { BackendWorkspaceDTO } from '@/services/libraryService';
 import type { ChatSessionDTO } from '@/services/chatService';
@@ -164,6 +164,7 @@ export const useAppStore = create<AppState>()((...args) => {
       });
       // 4. Mark as lazy draft session until history loads
       state.setActiveSessionId(null, true);
+      state.setConversationLoading(false);
     },
 
     switchSession: (sessionId: string | null) => {
@@ -175,6 +176,7 @@ export const useAppStore = create<AppState>()((...args) => {
         context: { ...prev.context, sessionId },
       }));
       state.setActiveSessionId(sessionId, !sessionId);
+      state.setConversationLoading(false);
     },
 
     initLazyNewChat: () => {
@@ -186,7 +188,8 @@ export const useAppStore = create<AppState>()((...args) => {
         activeView: 'view-chat',
       }));
       state.setActiveSessionId(null, true);
-      state.replaceMessages([WELCOME_MESSAGE]);
+      state.setConversationLoading(false);
+      state.replaceMessages([]);
     },
 
     // --- Chat slice ---
