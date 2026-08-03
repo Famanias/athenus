@@ -9,7 +9,7 @@ model_registry = ModelRegistry()
 
 # In-memory settings state
 current_settings = {
-    "default_llm": settings.DEFAULT_LLM_MODEL,
+    "default_llm": settings.DEFAULT_LLM_PROVIDER,
     "default_stt": settings.DEFAULT_STT_PROVIDER,
     "default_embedding": settings.EMBEDDING_MODEL_NAME,
     "gpu_acceleration": True,
@@ -42,14 +42,23 @@ def get_provider_settings():
 
 @router.put("/settings/providers", response_model=ProviderSettingsResponse)
 def update_provider_settings(payload: ProviderSettingsDTO):
+    llm_raw = payload.default_llm.lower()
+    provider_map = {
+        "llama3:8b": "ollama",
+        "llama3": "ollama",
+        "ollama": "ollama",
+        "groq": "groq",
+        "openrouter": "openrouter",
+    }
+    provider = provider_map.get(llm_raw, llm_raw)
     valid_llms = ["ollama", "groq", "openrouter"]
-    if payload.default_llm.lower() not in valid_llms:
+    if provider not in valid_llms:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid LLM provider '{payload.default_llm}'. Must be one of {valid_llms}."
         )
 
-    current_settings["default_llm"] = payload.default_llm
+    current_settings["default_llm"] = provider
     current_settings["default_stt"] = payload.default_stt
     current_settings["gpu_acceleration"] = payload.gpu_acceleration
     current_settings["api_key"] = payload.api_key or ""

@@ -19,15 +19,23 @@ export const SystemSettings: React.FC = () => {
   const [confirmInputText, setConfirmInputText] = useState<string>('');
   const [isResetting, setIsResetting] = useState<boolean>(false);
 
+  const normalizeLlmProvider = (providerStr: string): string => {
+    const p = (providerStr || '').toLowerCase();
+    if (p.includes('groq')) return 'groq';
+    if (p.includes('openrouter')) return 'openrouter';
+    return 'ollama';
+  };
+
   useEffect(() => {
     async function hydrateSettings() {
       try {
         const data = await getProviderSettings();
-        setSelectedLlm(data.default_llm);
+        const normLlm = normalizeLlmProvider(data.default_llm);
+        setSelectedLlm(normLlm);
         setSelectedStt(data.default_stt);
         setGpuEnabled(data.gpu_acceleration);
         setApiKey(data.api_key || '');
-        setProviderSettings(data.default_llm, data.default_stt, data.gpu_acceleration);
+        setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration);
       } catch (_err) {
         // Fall back to store values
       }

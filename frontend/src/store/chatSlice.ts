@@ -6,7 +6,7 @@ export const WELCOME_MESSAGE: ChatMessage = {
   id: 'msg_0',
   sender: 'assistant',
   content:
-    'Welcome to Athenus AI Learning Assistant! Upload your lecture videos or ask any question about your workspace content to get started.',
+    'Hi! I am Athenus. What do you want to know?',
   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
 };
 
