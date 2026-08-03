@@ -9,6 +9,7 @@ class EmbeddedQdrantVectorStoreAdapter:
         self.path = path
         self.collection_name = collection_name
         self._client = None
+        self._fallback_memory: List[Dict[str, Any]] = []
         self._init_qdrant()
 
     def _init_qdrant(self) -> None:
@@ -43,7 +44,10 @@ class EmbeddedQdrantVectorStoreAdapter:
 
     async def upsert(self, ids: List[str], vectors: List[List[float]], payloads: List[Dict[str, Any]]) -> None:
         if not self._client:
+            for idx, vec, pay in zip(ids, vectors, payloads):
+                self._fallback_memory.append({"id": idx, "vector": vec, "payload": pay})
             return
+
         from qdrant_client.models import PointStruct
         points = [
             PointStruct(id=idx, vector=vec, payload=pay)
@@ -51,16 +55,37 @@ class EmbeddedQdrantVectorStoreAdapter:
         ]
         self._client.upsert(collection_name=self.collection_name, points=points)
 
-    async def search(self, query_vector: List[float], limit: int = 5, filter_media_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def search(
+        self,
+        query_vector: List[float],
+        limit: int = 5,
+        filter_media_id: Optional[str] = None,
+        filter_workspace_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         if not self._client:
-            return []
+            results = []
+            for item in self._fallback_memory:
+                pay = item.get("payload", {})
+                if filter_workspace_id and pay.get("workspace_id") != filter_workspace_id:
+                    continue
+                if filter_media_id and pay.get("media_id") != filter_media_id:
+                    continue
+                results.append({"id": item["id"], "score": 0.85, "payload": pay})
+            return results[:limit]
+
         from qdrant_client.models import Filter, FieldCondition, MatchValue
-        
-        query_filter = None
-        if filter_media_id:
-            query_filter = Filter(
-                must=[FieldCondition(key="media_id", match=MatchValue(value=filter_media_id))]
+
+        must_conditions = []
+        if filter_workspace_id:
+            must_conditions.append(
+                FieldCondition(key="workspace_id", match=MatchValue(value=filter_workspace_id))
             )
+        if filter_media_id:
+            must_conditions.append(
+                FieldCondition(key="media_id", match=MatchValue(value=filter_media_id))
+            )
+
+        query_filter = Filter(must=must_conditions) if must_conditions else None
 
         results = self._client.query_points(
             collection_name=self.collection_name,

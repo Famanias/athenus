@@ -1,80 +1,61 @@
-# Implementation Plan — Phase 1: Establish a True Persistent Workspace
+# Implementation Plan — Phase 2: Proper Workspace Isolation
 
-Establish full application data persistence using **SQLite as the canonical metadata database**, ensuring workspaces, uploaded videos, transcripts, status, and chat conversations survive backend restarts and application re-opens.
+Establish strict workspace knowledge isolation so that vector search and multi-stage retrieval queries never leak embeddings or knowledge passages across different workspaces.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Key Architecture Decisions for Phase 1:**
-> 1. **SQLite as Canonical Metadata Store**: Replace `InMemoryMediaRepository` and `InMemory WorkspaceService` dictionary maps with `SqliteMediaRepository` and SQLModel database models stored in `./data/athenus.db`.
-> 2. **Persistent Chat Session Models**: Introduce `ChatSessionTable` and `ChatMessageTable` in SQLite so chat conversations survive application restarts.
-> 3. **Automatic Startup Restoration**: On backend initialization (`lifespan`), `init_db()` automatically migrates SQLite tables, ensures the default workspace exists, reconnects to Embedded Qdrant vector storage, and loads persisted asset metadata.
-> 4. **Incremental Phase Execution**: Focus strictly on Phase 1 persistence. Stop and request user review before moving to Phase 2 (Workspace Isolation).
+> **Key Architecture Decisions for Phase 2:**
+> 1. **Qdrant Payload Filtering by `workspace_id`**: Update `EmbeddedQdrantVectorStoreAdapter.search()` to filter points by `workspace_id` first, preventing cross-workspace vector retrieval.
+> 2. **Multi-Stage Retriever Alignment**: Update `MultiStageRetriever.execute_retrieval()` to pass both `workspace_id` and optional `media_id` down to the Qdrant vector store adapter and BM25 sparse ranker.
+> 3. **Combined Filter Support**: Support dual filtering (`must` clause containing both `workspace_id` AND `media_id` when searching a specific video within a workspace).
+> 4. **Workflow Checkpoint**: Stop after Phase 2 verification and self-review to request user approval before beginning Phase 3.
 
 ---
 
 ## Proposed Changes
 
-### Database Layer (`backend/app/infrastructure/db/`)
+### Vector Store Adapter Layer (`backend/app/infrastructure/adapters/`)
 
-#### [MODIFY] [models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)
-- Expand `WorkspaceTable`, `MediaItemTable`, and `TranscriptChunkTable` fields.
-- **[NEW]** Add `ChatSessionTable` and `ChatMessageTable` SQLModel classes for chat persistence.
-  - `ChatSessionTable`: `id` (PK), `workspace_id` (Indexed), `title`, `created_at`, `updated_at`
-  - `ChatMessageTable`: `id` (PK), `session_id` (Indexed), `sender`, `content`, `citations_json`, `created_at`
-
----
-
-### Application Repositories & Domain Services (`backend/app/application/repositories/`)
-
-#### [NEW] [sqlite_media_repository.py](file:///e:/repos/athenus/backend/app/application/repositories/sqlite_media_repository.py)
-- Implement `SqliteMediaRepository(MediaRepository)` using SQLModel sessions (`get_session()` / `engine` from `session.py`).
-- Implement methods:
-  - `upsert(item: MediaItem)`
-  - `get(media_id: str) -> Optional[MediaItem]`
-  - `update_status(media_id: str, status: ProcessingStatus, error_message: Optional[str])`
-  - `save_transcript(media_id: str, segments: List[Dict[str, Any]])`
-  - `get_transcript(media_id: str) -> List[Dict[str, Any]]`
-  - `list_by_workspace(workspace_id: str) -> List[MediaItem]`
-
-#### [MODIFY] [workspace_service.py](file:///e:/repos/athenus/backend/app/domain/workspace/workspace_service.py)
-- Update `WorkspaceService` to query and persist workspaces and media associations directly to `WorkspaceTable` in SQLite rather than an in-memory dictionary.
+#### [MODIFY] [qdrant_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/qdrant_adapter.py)
+- Update `search()` signature to accept `filter_workspace_id: Optional[str] = None` alongside `filter_media_id: Optional[str] = None`.
+- Build a Qdrant `Filter` with `FieldCondition` rules:
+  - Match `workspace_id == filter_workspace_id` when specified.
+  - Match `media_id == filter_media_id` when specified.
+  - Combine conditions using `Filter(must=[...])`.
 
 ---
 
-### Presentation & API Layer (`backend/app/presentation/api/v1/`)
+### Retrieval Subsystem (`backend/app/infrastructure/retrieval/`)
 
-#### [MODIFY] [media.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/media.py)
-- Instantiate `media_repository = SqliteMediaRepository()` instead of `InMemoryMediaRepository()`.
-
-#### [MODIFY] [chat.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/chat.py)
-- Save query turns and citations to `ChatMessageTable` in SQLite during `POST /chat/query`.
-- Add endpoint `GET /chat/history` to load past conversation messages for a workspace on startup/re-open.
-
-#### [MODIFY] [main.py](file:///e:/repos/athenus/backend/app/main.py)
-- Ensure `init_db()` is invoked during `lifespan` startup to create all tables.
-- Ensure `WorkspaceService.ensure_default_workspace()` runs against SQLite.
+#### [MODIFY] [multi_stage_retriever.py](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py)
+- Pass `filter_workspace_id=workspace_id` and `filter_media_id=media_id` into `self.vector_store.search()`.
+- Ensure candidate documents passed to `BM25Retriever` and `CrossEncoderReranker` respect workspace bounds.
 
 ---
 
-### Frontend Chat Persistence (`frontend/src/`)
+### Verification & Test Suite (`backend/tests/`)
 
-#### [MODIFY] [chatSlice.ts](file:///e:/repos/athenus/frontend/src/store/chatSlice.ts) & [useChat.ts](file:///e:/repos/athenus/frontend/src/features/chat/useChat.ts)
-- Load past chat history from `GET /api/v1/chat/history` when mounting `ChatWorkspace`, keeping previous discussions intact across restarts.
+#### [NEW] [test_workspace_isolation.py](file:///e:/repos/athenus/backend/tests/test_workspace_isolation.py)
+- Add isolated integration tests:
+  - Upsert 5 chunks for `workspace_ml` ("Machine Learning / Gradient Descent").
+  - Upsert 5 chunks for `workspace_history` ("Roman Empire / Julius Caesar").
+  - Query `workspace_ml` for *"Who was Julius Caesar?"* $\rightarrow$ assert **0 hits** returned from Roman Empire.
+  - Query `workspace_history` for *"What is backpropagation?"* $\rightarrow$ assert **0 hits** returned from Machine Learning.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-1. **Backend Test Suite**:
+1. **Workspace Isolation Pytest**:
    ```bash
    cd backend
+   python -m pytest tests/test_workspace_isolation.py
    python -m pytest
    ```
-   - Add test cases in `tests/test_sqlite_repository.py` verifying that `MediaItem`, transcripts, and chat turns written to SQLite persist across session closing/re-opening.
 2. **Frontend Type Check**:
    ```bash
    cd frontend
@@ -82,8 +63,7 @@ Establish full application data persistence using **SQLite as the canonical meta
    ```
 
 ### Manual Verification
-1. Start FastAPI backend (`python app/main.py`) & Tauri frontend (`npx tauri dev`).
-2. Upload a video file into a workspace.
-3. Submit a chat query in the Chat tab and receive a grounded response.
-4. Stop the backend server and restart `main.py`.
-5. Verify in the UI and via REST endpoints (`GET /api/v1/workspaces`, `GET /api/v1/media`, `GET /api/v1/chat/history`) that the workspace, video metadata, transcript, and chat messages are fully restored.
+1. Create Workspace A ("Machine Learning") and upload a CS video.
+2. Create Workspace B ("History") and upload a History video.
+3. Switch to Workspace B, open Chat, and ask a question about Machine Learning.
+4. Verify that 0 citations or context passages from Workspace A are retrieved or returned in the citations panel.

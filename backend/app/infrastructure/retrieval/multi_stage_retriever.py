@@ -44,7 +44,8 @@ class MultiStageRetriever:
         dense_hits = await self.vector_store.search(
             query_vector=query_vector,
             limit=10,
-            filter_media_id=media_id
+            filter_media_id=media_id,
+            filter_workspace_id=workspace_id
         )
 
         dense_docs = [hit["payload"] for hit in dense_hits if "payload" in hit]
