@@ -14,7 +14,10 @@ from app.core.config import settings
 from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
 from app.infrastructure.events.event_bus import DomainEvent, event_bus
 
+from app.domain.workspace.workspace_service import WorkspaceService
+
 router = APIRouter()
+workspace_service = WorkspaceService()
 
 # Global repository instance
 media_repository: MediaRepository = SqliteMediaRepository()
@@ -64,6 +67,7 @@ async def upload_media(
         status=ProcessingStatus.UPLOADED
     )
     media_repository.upsert(media_item)
+    workspace_service.add_media_to_workspace(workspace_id, media_id)
 
     async def trigger_event():
         await event_bus.publish(DomainEvent(

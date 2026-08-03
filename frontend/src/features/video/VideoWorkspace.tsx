@@ -184,7 +184,7 @@ export const VideoWorkspace: React.FC = () => {
   // Empty state when no media asset is selected or none exists in the workspace.
   // `mounted` ensures server & first client render agree before reading
   // hydration-dependent state like activeMediaId.
-  if (mounted && (hasNoVideos || (!activeMediaId && segments.length === 0))) {
+  if (mounted && !loading && !activeMediaId && segments.length === 0) {
     return (
       <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
         <span className="text-5xl">🎬</span>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getWorkspaces } from '@/services/libraryService';
+import { useAppStore } from '@/store/useAppStore';
 
 export interface MediaAsset {
   id: string;
@@ -12,10 +13,13 @@ export interface MediaAsset {
   uploadedAt: string;
 }
 
-export function useLibrary() {
+export function useLibrary(targetWorkspaceId?: string) {
+  const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isOffline, setIsOffline] = useState<boolean>(false);
+
+  const effectiveWorkspaceId = targetWorkspaceId || activeWorkspaceId;
 
   useEffect(() => {
     async function fetchAssets() {
@@ -24,9 +28,11 @@ export function useLibrary() {
         const workspaces = await getWorkspaces();
         setIsOffline(false);
 
-        if (workspaces && workspaces.length > 0 && workspaces[0].media_item_ids.length > 0) {
-          // Map real workspace media items
-          const realAssets: MediaAsset[] = workspaces[0].media_item_ids.map((id, idx) => ({
+        const currentWs =
+          workspaces.find((w) => w.id === effectiveWorkspaceId) || workspaces[0];
+
+        if (currentWs && currentWs.media_item_ids && currentWs.media_item_ids.length > 0) {
+          const realAssets: MediaAsset[] = currentWs.media_item_ids.map((id, idx) => ({
             id,
             title: `Indexed Lecture ${idx + 1}`,
             description: `Media Item ID ${id} stored in workspace collection.`,
@@ -48,7 +54,7 @@ export function useLibrary() {
       }
     }
     fetchAssets();
-  }, []);
+  }, [effectiveWorkspaceId]);
 
   return { assets, loading, isOffline };
 }
