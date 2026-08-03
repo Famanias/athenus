@@ -82,3 +82,115 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         gpu_acceleration=current_settings["gpu_acceleration"],
         api_key=current_settings["api_key"]
     )
+
+# --- Ollama Local Models Directory Settings ---
+
+from typing import List
+from app.services.ollama_scanner import (
+    OllamaModelScanner,
+    DirectoryNotFoundError,
+    InvalidOllamaDirectoryError,
+)
+
+ollama_scanner = OllamaModelScanner()
+current_settings["ollama_models_dir"] = None
+
+class DiscoveredModelDTO(BaseModel):
+    full_id: str
+    model_name: str
+    tag: str
+    provider: str = "ollama"
+    size_bytes: Optional[int] = None
+
+class UpdateOllamaDirectoryDTO(BaseModel):
+    models_dir: str
+
+class OllamaSettingsResponse(BaseModel):
+    configured_dir: Optional[str] = None
+    resolved_dir: Optional[str] = None
+    valid: bool = False
+    models_count: int = 0
+    models: List[DiscoveredModelDTO] = []
+    error: Optional[str] = None
+
+def _scan_and_build_response(models_dir: Optional[str]) -> OllamaSettingsResponse:
+    if not models_dir:
+        return OllamaSettingsResponse(
+            configured_dir=None,
+            resolved_dir=None,
+            valid=False,
+            models_count=0,
+            models=[],
+            error=None
+        )
+
+    try:
+        config_dir, res_dir, models = ollama_scanner.scan(models_dir)
+        dto_models = [
+            DiscoveredModelDTO(
+                full_id=m.full_id,
+                model_name=m.model_name,
+                tag=m.tag,
+                provider=m.provider,
+                size_bytes=m.size_bytes
+            )
+            for m in models
+        ]
+        return OllamaSettingsResponse(
+            configured_dir=config_dir,
+            resolved_dir=res_dir,
+            valid=True,
+            models_count=len(dto_models),
+            models=dto_models,
+            error=None
+        )
+    except DirectoryNotFoundError as e:
+        return OllamaSettingsResponse(
+            configured_dir=models_dir,
+            resolved_dir=None,
+            valid=False,
+            models_count=0,
+            models=[],
+            error=str(e)
+        )
+    except InvalidOllamaDirectoryError as e:
+        return OllamaSettingsResponse(
+            configured_dir=models_dir,
+            resolved_dir=None,
+            valid=False,
+            models_count=0,
+            models=[],
+            error=str(e)
+        )
+    except Exception as e:
+        return OllamaSettingsResponse(
+            configured_dir=models_dir,
+            resolved_dir=None,
+            valid=False,
+            models_count=0,
+            models=[],
+            error=f"Scanning failed: {str(e)}"
+        )
+
+@router.get("/settings/ollama", response_model=OllamaSettingsResponse)
+def get_ollama_settings():
+    return _scan_and_build_response(current_settings.get("ollama_models_dir"))
+
+@router.put("/settings/ollama", response_model=OllamaSettingsResponse)
+def update_ollama_directory(payload: UpdateOllamaDirectoryDTO):
+    current_settings["ollama_models_dir"] = payload.models_dir
+    res = _scan_and_build_response(payload.models_dir)
+    if not res.valid and res.error:
+        raise HTTPException(status_code=400, detail=res.error)
+    return res
+
+@router.post("/settings/ollama/scan", response_model=OllamaSettingsResponse)
+def scan_ollama_models():
+    configured = current_settings.get("ollama_models_dir")
+    if not configured:
+        raise HTTPException(status_code=400, detail="No Ollama models directory is currently configured.")
+    res = _scan_and_build_response(configured)
+    if not res.valid and res.error:
+        raise HTTPException(status_code=400, detail=res.error)
+    return res
+

@@ -1,23 +1,19 @@
 # UX/UI Improvement Walkthrough & Manual QA Testing Guide
 
-This guide describes all implemented UX/UI enhancements across In-App Explicit Workspace Deletion Confirmation, Session Deletion Confirmation, Frontend Chat Session Synchronization, Multi-Workspace & Multi-Session Architecture, SSR Hydration Mismatch Fixes, Next.js 16 Upgrade, Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting), Picture-in-Picture Navigation, Navigation Cleanup, Clear Chat Conversation Resets, Per-Message Grounded Citations, Embedded Context-Aware Video Chat, Transcript Timestamp Navigation Fixes, Video Transcript Synchronization, State Restoration, Resizable Layouts, and Consolidated Views, complete with step-by-step verification instructions.
+This guide describes all implemented UX/UI enhancements across Configure Local Ollama Models Directory, In-App Explicit Workspace Deletion Confirmation, Session Deletion Confirmation, Frontend Chat Session Synchronization, Multi-Workspace & Multi-Session Architecture, SSR Hydration Mismatch Fixes, Next.js 16 Upgrade, Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting), Picture-in-Picture Navigation, Navigation Cleanup, Clear Chat Conversation Resets, Per-Message Grounded Citations, Embedded Context-Aware Video Chat, Transcript Timestamp Navigation Fixes, Video Transcript Synchronization, State Restoration, Resizable Layouts, and Consolidated Views, complete with step-by-step verification instructions.
 
 ---
 
 ## 🚀 Summary of Accomplished Enhancements
 
-1. **In-App Explicit Workspace & Session Deletion Confirmation**:
-   - **Root Cause Discovered**: Relying on native browser `window.confirm` in desktop webviews (Tauri / WebView2) was non-blocking or threw exceptions, triggering `let confirmed = true` fallback defaults that executed `deleteWorkspace()` immediately when the dialog appeared.
-   - **Explicit In-App Confirmation UI**:
-     - Implemented `deletingWorkspaceId` state in [`WorkspaceModal.tsx`](file:///e:/repos/athenus/frontend/src/components/workspace/WorkspaceModal.tsx).
-     - Clicking the workspace trash icon toggles an in-app confirmation row (`Delete "Workspace Name"? [Confirm] [Cancel]`).
-     - `deleteWorkspace(id)` API request is sent **ONLY AND EXCLUSIVELY when the user clicks the explicit [Confirm] button**.
-     - Clicking **[Cancel]** immediately restores the standard workspace row without modifying database or state.
-     - Implemented matching inline confirmation state in [`SessionList.tsx`](file:///e:/repos/athenus/frontend/src/components/navigation/SessionList.tsx) for chat session deletions.
+1. **Configure Local Ollama Models Directory & Filesystem Scanner**:
+   - **Pure Filesystem Model Scanner**: Created [`OllamaModelScanner`](file:///e:/repos/athenus/backend/app/services/ollama_scanner.py) operating 100% locally on directory structures with zero external network or daemon dependencies.
+   - **Forgiving Path Normalization**: Automatically resolves candidate paths if the user selects `.ollama`, `.ollama/models`, or `.ollama/models/manifests`.
+   - **Streamlined API Endpoints**: Added `GET /api/v1/settings/ollama`, `PUT /api/v1/settings/ollama`, and `POST /api/v1/settings/ollama/scan` in [`settings.py`](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py).
+   - **Future-Proof Model Sources UI**: Added a dedicated **Model Sources → Local Ollama Models** card in [`SystemSettings.tsx`](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx) displaying both Configured and Resolved directory paths, status badge (`✓ Valid (X models)`), **Save** and **Refresh** controls, and an **Available Local Models** grid with model names and tag badges.
 
-2. **Frontend Recent Chat Session Synchronization Fix**:
-   - Removed blocking `hasLoadedHistoryRef` barrier from `useChat.ts`.
-   - Added `isCancelled` async cleanup guard for instant, synchronized message thread updates during rapid chat switching.
+2. **In-App Explicit Workspace & Session Deletion Confirmation**:
+   - Replaced native browser `window.confirm` with explicit stateful in-app confirmation rows in [`WorkspaceModal.tsx`](file:///e:/repos/athenus/frontend/src/components/workspace/WorkspaceModal.tsx) and [`SessionList.tsx`](file:///e:/repos/athenus/frontend/src/components/navigation/SessionList.tsx).
 
 3. **Single Authoritative Video Player DOM Architecture (Zero DOM Re-parenting)**:
    - Persistent DOM container in `DesktopShell.tsx` with CSS `display: none` (`hidden`), guaranteeing strictly **1 active `<video>` element** and 0 duplicate audio streams during Picture-in-Picture.
@@ -28,8 +24,9 @@ This guide describes all implemented UX/UI enhancements across In-App Explicit W
 
 | Scenario | Test Action / Trigger | Expected Behavior | Verification |
 |---|---|---|---|
-| **Delete Workspace Prompt** | Click trash icon next to a workspace in Workspace Modal. | Displays inline confirmation row: `Delete "Workspace Name"? [Confirm] [Cancel]`. **Workspace remains 100% intact**. | ✅ PASSED |
-| **Cancel Workspace Deletion** | Click **Cancel** on the confirmation prompt. | Cancels deletion immediately. Workspace remains active and unchanged. **Zero API calls sent**. | ✅ PASSED |
-| **Confirm Workspace Deletion** | Click **Confirm** on the confirmation prompt. | Executes cascading workspace deletion in SQLite and updates state cleanly. | ✅ PASSED |
-| **Switch Conversations** | Click another recent chat in the same workspace. | Message list **immediately updates** to the newly selected conversation without requiring page changes. | ✅ PASSED |
-| **Console & Network** | Perform tests with DevTools console open. | Zero JavaScript errors, failed requests, or premature deletion calls. | ✅ PASSED |
+| **Invalid Directory Path** | Enter `C:\FakePath` in **Model Sources** $\rightarrow$ Click **Save**. | Displays clear error banner stating path does not exist. Badge shows `✕ Invalid Directory`. | ✅ PASSED |
+| **Parent `.ollama` Path Resolution** | Enter `.ollama` folder path $\rightarrow$ Click **Save**. | Auto-normalizes resolved path to `.ollama/models`. Status badge displays `✓ Valid (X models discovered)`. | ✅ PASSED |
+| **Discover Models Grid** | Save a valid Ollama models directory. | Populates **Available Local Models** grid with model names (e.g. `llama3`) and tag badges (e.g. `:8b`). | ✅ PASSED |
+| **Rescan Local Models** | Click **Refresh** button in Model Sources card. | Rescans configured directory on demand without reloading or re-saving settings. | ✅ PASSED |
+| **Delete Workspace Prompt** | Click trash icon next to a workspace in Workspace Modal. | Displays inline confirmation row: `Delete "Workspace Name"? [Confirm] [Cancel]`. Workspace remains 100% intact. | ✅ PASSED |
+| **Console & Network** | Perform tests with DevTools console open. | Zero JavaScript errors, failed requests, or unexpected API exceptions. | ✅ PASSED |
