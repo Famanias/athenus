@@ -19,7 +19,18 @@ except ImportError:
 class WorkspaceService:
     """Domain service managing workspace lifecycle and collections, backed by SQLite."""
 
+    _instance: Optional["WorkspaceService"] = None
+    _initialized: bool = False
+
+    def __new__(cls) -> "WorkspaceService":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self) -> None:
+        if WorkspaceService._initialized:
+            return
+        WorkspaceService._initialized = True
         self._workspaces: Dict[str, Workspace] = {}
         self._active_workspace_id: str = "default"
         self._load_from_db()

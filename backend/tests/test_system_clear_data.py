@@ -64,13 +64,19 @@ def test_system_clear_data_factory_reset():
         msg_records = session.scalars(select(ChatMessageTable)).all() if hasattr(session, "scalars") else session.exec(select(ChatMessageTable)).all()
         assert len(msg_records) == 0
 
-        # Assert default workspace is re-created
+        # Assert only the default workspace is re-created
         ws_records = session.scalars(select(WorkspaceTable)).all() if hasattr(session, "scalars") else session.exec(select(WorkspaceTable)).all()
-        assert len(ws_records) >= 1
+        assert len(ws_records) == 1
         assert any(w.id == "default" for w in ws_records)
 
-    # 4. Assert disk uploads purged
+    # 4. Assert API exposes exactly one workspace (no stale in-memory leftovers)
+    ws_list = client.get("/api/v1/workspaces")
+    assert ws_list.status_code == 200
+    assert len(ws_list.json()) == 1
+    assert ws_list.json()[0]["id"] == "default"
+
+    # 5. Assert disk uploads purged
     assert not os.path.exists(dummy_file)
 
-    # 5. Assert progress store reset
+    # 6. Assert progress store reset
     assert len(progress_store._snapshots) == 0
