@@ -29,7 +29,16 @@ export const SessionList: React.FC = () => {
 
   const handleDeleteSession = async (e: React.MouseEvent, sid: string) => {
     e.stopPropagation();
-    if (confirm('Delete this chat session history?')) {
+    let confirmed = true;
+    try {
+      if (typeof window !== 'undefined' && window.confirm) {
+        confirmed = window.confirm('Delete this chat session history?');
+      }
+    } catch {
+      confirmed = true;
+    }
+
+    if (confirmed) {
       try {
         await deleteSession(sid);
         const updated = sessions.filter((s) => s.id !== sid);

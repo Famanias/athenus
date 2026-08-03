@@ -65,7 +65,16 @@ export const WorkspaceModal: React.FC = () => {
   };
 
   const handleDelete = async (workspaceId: string) => {
-    if (confirm('Are you sure you want to delete this workspace? All associated transcripts, sessions, and vectors will be removed.')) {
+    let confirmed = true;
+    try {
+      if (typeof window !== 'undefined' && window.confirm) {
+        confirmed = window.confirm('Are you sure you want to delete this workspace? All associated transcripts, sessions, and vectors will be removed.');
+      }
+    } catch {
+      confirmed = true;
+    }
+
+    if (confirmed) {
       try {
         const res = await deleteWorkspace(workspaceId);
         setWorkspaces(workspaces.filter((w) => w.id !== workspaceId));
