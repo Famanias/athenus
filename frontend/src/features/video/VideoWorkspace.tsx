@@ -39,25 +39,31 @@ export const VideoWorkspace: React.FC = () => {
   const [selectedTranscriptText, setSelectedTranscriptText] = useState<string>('');
 
   // Layout states (width & collapse)
-  const [transcriptWidth, setTranscriptWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') return 380;
-    const saved = localStorage.getItem('athenus_transcript_width');
-    return saved ? parseInt(saved, 10) : 380;
-  });
-
-  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('athenus_transcript_collapsed') === 'true';
-  });
+  const [transcriptWidth, setTranscriptWidth] = useState<number>(380);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
 
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [searchFilter, setSearchFilter] = useState<string>('');
   const [userScrolled, setUserScrolled] = useState<boolean>(false);
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
 
+  // Gate hydration-dependent UI (localStorage-driven state) behind a mounted flag
+  // so the server render matches the first client render.
+  const [mounted, setMounted] = useState<boolean>(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const segmentRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+
+  // Load persisted layout state on mount (client-side only)
+  useEffect(() => {
+    const savedWidth = localStorage.getItem('athenus_transcript_width');
+    if (savedWidth) setTranscriptWidth(parseInt(savedWidth, 10));
+    if (localStorage.getItem('athenus_transcript_collapsed') === 'true') setIsCollapsed(true);
+  }, []);
 
   // Persist transcript width & collapse state
   useEffect(() => {
@@ -175,8 +181,10 @@ export const VideoWorkspace: React.FC = () => {
   // Current video playback seconds
   const currentVideoSeconds = videoRef.current?.currentTime || 0;
 
-  // Empty state when no media asset is selected or none exists in the workspace
-  if (hasNoVideos || (!activeMediaId && segments.length === 0)) {
+  // Empty state when no media asset is selected or none exists in the workspace.
+  // `mounted` ensures server & first client render agree before reading
+  // hydration-dependent state like activeMediaId.
+  if (mounted && (hasNoVideos || (!activeMediaId && segments.length === 0))) {
     return (
       <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
         <span className="text-5xl">🎬</span>
