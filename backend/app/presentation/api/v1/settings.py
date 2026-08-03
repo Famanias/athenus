@@ -10,6 +10,7 @@ model_registry = ModelRegistry()
 # In-memory settings state
 current_settings = {
     "default_llm": settings.DEFAULT_LLM_PROVIDER,
+    "selected_ollama_model": None,
     "default_stt": settings.DEFAULT_STT_PROVIDER,
     "default_embedding": settings.EMBEDDING_MODEL_NAME,
     "gpu_acceleration": True,
@@ -18,12 +19,14 @@ current_settings = {
 
 class ProviderSettingsDTO(BaseModel):
     default_llm: str
+    selected_ollama_model: Optional[str] = None
     default_stt: str
     gpu_acceleration: bool
     api_key: Optional[str] = ""
 
 class ProviderSettingsResponse(BaseModel):
     default_llm: str
+    selected_ollama_model: Optional[str] = None
     default_stt: str
     default_embedding: str
     gpu_acceleration: bool
@@ -34,6 +37,7 @@ class ProviderSettingsResponse(BaseModel):
 def get_provider_settings():
     return ProviderSettingsResponse(
         default_llm=current_settings["default_llm"],
+        selected_ollama_model=current_settings.get("selected_ollama_model"),
         default_stt=current_settings["default_stt"],
         default_embedding=current_settings["default_embedding"],
         gpu_acceleration=current_settings["gpu_acceleration"],
@@ -59,6 +63,7 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         )
 
     current_settings["default_llm"] = provider
+    current_settings["selected_ollama_model"] = payload.selected_ollama_model
     current_settings["default_stt"] = payload.default_stt
     current_settings["gpu_acceleration"] = payload.gpu_acceleration
     current_settings["api_key"] = payload.api_key or ""
@@ -77,6 +82,7 @@ def update_provider_settings(payload: ProviderSettingsDTO):
 
     return ProviderSettingsResponse(
         default_llm=current_settings["default_llm"],
+        selected_ollama_model=current_settings["selected_ollama_model"],
         default_stt=current_settings["default_stt"],
         default_embedding=current_settings["default_embedding"],
         gpu_acceleration=current_settings["gpu_acceleration"],

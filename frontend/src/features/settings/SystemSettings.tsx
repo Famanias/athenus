@@ -16,6 +16,7 @@ import {
 export const SystemSettings: React.FC = () => {
   const { llmProvider, sttProvider, gpuAcceleration, setProviderSettings, setActiveMediaId } = useAppStore();
   const [selectedLlm, setSelectedLlm] = useState<string>(llmProvider);
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>('');
   const [selectedStt, setSelectedStt] = useState<string>(sttProvider);
   const [gpuEnabled, setGpuEnabled] = useState<boolean>(gpuAcceleration);
   const [apiKey, setApiKey] = useState<string>('');
@@ -59,6 +60,14 @@ export const SystemSettings: React.FC = () => {
           if (ollamaRes.configured_dir) {
             setOllamaDir(ollamaRes.configured_dir);
           }
+
+          // Hydrate selected Ollama model if present in discovered models
+          const savedModel = data.selected_ollama_model;
+          if (savedModel && ollamaRes.models.some((m) => m.full_id === savedModel)) {
+            setSelectedOllamaModel(savedModel);
+          } else {
+            setSelectedOllamaModel('');
+          }
         }
       } catch (_err) {
         // Fall back to store values
@@ -74,15 +83,20 @@ export const SystemSettings: React.FC = () => {
     try {
       const updated = await saveProviderSettings({
         default_llm: selectedLlm,
+        selected_ollama_model: selectedLlm === 'ollama' ? selectedOllamaModel : undefined,
         default_stt: selectedStt,
         gpu_acceleration: gpuEnabled,
         api_key: apiKey,
       });
 
       setProviderSettings(updated.default_llm, updated.default_stt, updated.gpu_acceleration);
+      const modelDetail =
+        selectedLlm === 'ollama' && selectedOllamaModel
+          ? ` (${selectedOllamaModel})`
+          : '';
       setToastMessage({
         type: 'success',
-        text: `✓ ${selectedLlm.toUpperCase()} Provider & API Key saved successfully!`,
+        text: `✓ ${selectedLlm.toUpperCase()}${modelDetail} Provider & API Key saved successfully!`,
       });
     } catch (err: any) {
       setToastMessage({
@@ -94,6 +108,20 @@ export const SystemSettings: React.FC = () => {
     }
   };
 
+  const syncOllamaModelSelection = (res: OllamaSettingsResponse) => {
+    setOllamaConfig(res);
+    if (res.configured_dir) {
+      setOllamaDir(res.configured_dir);
+    }
+    // Preserve selection if model exists, otherwise prompt user
+    setSelectedOllamaModel((prev) => {
+      if (prev && res.models.some((m) => m.full_id === prev)) {
+        return prev;
+      }
+      return '';
+    });
+  };
+
   const handleSaveOllamaDir = async () => {
     if (!ollamaDir.trim() || isSavingOllama) return;
     setIsSavingOllama(true);
@@ -101,10 +129,7 @@ export const SystemSettings: React.FC = () => {
 
     try {
       const res = await updateOllamaDirectory(ollamaDir.trim());
-      setOllamaConfig(res);
-      if (res.configured_dir) {
-        setOllamaDir(res.configured_dir);
-      }
+      syncOllamaModelSelection(res);
       setToastMessage({
         type: 'success',
         text: `✓ Ollama models directory saved! (${res.models_count} models discovered)`,
@@ -126,7 +151,7 @@ export const SystemSettings: React.FC = () => {
 
     try {
       const res = await scanOllamaModels();
-      setOllamaConfig(res);
+      syncOllamaModelSelection(res);
       setToastMessage({
         type: 'success',
         text: `✓ Refreshed! (${res.models_count} models discovered)`,
@@ -228,11 +253,40 @@ export const SystemSettings: React.FC = () => {
             onChange={(e) => setSelectedLlm(e.target.value)}
             className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none"
           >
-            <option value="ollama">Ollama (Local - llama3:8b)</option>
+            <option value="ollama">Ollama (Local)</option>
             <option value="groq">Groq API (Cloud LPU)</option>
             <option value="openrouter">OpenRouter API (Cloud Universal)</option>
           </select>
         </div>
+
+        {/* Dynamic Active Ollama Model Dropdown */}
+        {selectedLlm === 'ollama' && (
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-on-surface mb-2 font-mono uppercase">
+              Active Ollama Local Model
+            </label>
+            {ollamaConfig?.models && ollamaConfig.models.length > 0 ? (
+              <select
+                value={selectedOllamaModel}
+                onChange={(e) => setSelectedOllamaModel(e.target.value)}
+                className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
+              >
+                <option value="" disabled>
+                  -- Select an Ollama Model --
+                </option>
+                {ollamaConfig.models.map((m) => (
+                  <option key={m.full_id} value={m.full_id}>
+                    {m.full_id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded text-xs text-amber-300">
+                ⚠️ No local Ollama models discovered. Configure your local models directory below to scan installed models.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Dynamic API Key Input for Cloud Providers */}
         {isCloudProvider && (
@@ -435,7 +489,12 @@ export const SystemSettings: React.FC = () => {
         </p>
 
         {!isResetModalOpen ? (
-          <Button variant="secondary" size="sm" className="text-rose-400 hover:bg-rose-950/40 border-rose-500/40" onClick={() => setIsResetModalOpen(true)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="text-rose-400 hover:bg-rose-950/40 border-rose-500/40"
+            onClick={() => setIsResetModalOpen(true)}
+          >
             Clear All Data
           </Button>
         ) : (

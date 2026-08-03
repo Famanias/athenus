@@ -40,3 +40,23 @@ def test_put_and_scan_ollama_directory_valid():
         assert scan_data["valid"] is True
         assert scan_data["models_count"] == 1
         assert scan_data["models"][0]["full_id"] == "phi3:mini"
+
+def test_provider_settings_selected_ollama_model():
+    # Initial GET provider settings
+    get_res = client.get("/api/v1/settings/providers")
+    assert get_res.status_code == 200
+    assert get_res.json()["selected_ollama_model"] is None
+
+    # PUT provider settings with selected_ollama_model
+    put_res = client.put(
+        "/api/v1/settings/providers",
+        json={
+            "default_llm": "ollama",
+            "selected_ollama_model": "phi3:mini",
+            "default_stt": "faster_whisper",
+            "gpu_acceleration": True,
+            "api_key": ""
+        }
+    )
+    assert put_res.status_code == 200
+    assert put_res.json()["selected_ollama_model"] == "phi3:mini"
