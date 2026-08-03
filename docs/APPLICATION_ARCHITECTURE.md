@@ -50,4 +50,7 @@ Built with React 18, Next.js 16 (Turbopack), TypeScript, Vanilla CSS design toke
 4. **Ingestion Pipelines (`UploadDropzone.tsx`)**:
    - Drag-and-drop video upload zone with real-time SSE stage progress telemetry.
 5. **System Settings (`SystemSettings.tsx`)**:
-   - Provider management and System Clear Data ("Factory Reset") trigger.
+   - **Persistent Settings Management**: Interfaces with `SettingsService` via `GET/PUT /api/v1/settings/providers` and `GET/PUT /api/v1/settings/ollama`.
+   - **Local Model Sources & Discovery**: Displays configured and resolved Ollama directory paths (`.ollama` $\rightarrow$ `.ollama/models`), scan status badges (`✓ Valid (X models)` / `✕ Invalid Directory`), and interactive **Save** and **Refresh** controls.
+   - **Dynamic Model Selection**: Renders a dynamic `<select>` dropdown populated from discovered local models with seamless provider restoration across Groq and Ollama.
+   - **System Clear Data**: Triggers atomic system reset (`POST /api/v1/system/clear-data`) purging SQLite records and vector collections while restoring a clean single default workspace.

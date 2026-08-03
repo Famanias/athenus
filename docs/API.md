@@ -82,3 +82,18 @@ Complete specification for all REST API endpoints exposed by the FastAPI backend
 ## 6. Knowledge Graph
 * **GET** `/api/v1/graph/prerequisites/{concept_id}`
   - Queries prerequisite hierarchy for a concept node.
+
+---
+
+## 7. System Settings & Local Model Sources
+* **GET** `/api/v1/settings/providers`
+  - Fetches persistent system settings from SQLite `system_settings` table (`default_llm`, `selected_ollama_model`, `default_stt`, `default_embedding`, `gpu_acceleration`).
+* **PUT** `/api/v1/settings/providers`
+  - Updates provider selections and selected local model, persisting updates directly to SQLite.
+* **GET** `/api/v1/settings/ollama`
+  - Returns configured Ollama models directory path, resolved path, directory validation status, and discovered model list.
+* **PUT** `/api/v1/settings/ollama`
+  - Updates and persists configured Ollama models directory path in SQLite `system_settings` table, performing path normalization (`.ollama` $\rightarrow$ `.ollama/models`) and filesystem validation.
+* **POST** `/api/v1/settings/ollama/scan`
+  - Triggers on-demand filesystem scan of the configured Ollama models directory to discover installed models.
+

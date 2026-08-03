@@ -46,9 +46,11 @@ Future knowledge sources:
 * **Phase 5 (v1.0)**: Agentic AI Suite (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`), Agent APIs (`/api/v1/agents`).
 * **Frontend Presentation Layer (Phases A-F Complete)**: Next.js + React + Tauri Desktop App (`npx tauri dev`) with Athena Theme (`#051424` & `#e9c349`), custom typography (`TT Carvist`, `Geist`, `JetBrains Mono`), Zustand state store, and 6 domain feature modules (`features/chat/`, `features/video/`, `features/transcript/`, `features/library/`, `features/flashcards/`, `features/quiz/`, `features/graph/`, `features/ingestion/`, `features/settings/`).
 * **Runtime Verification**: End-to-end integration verified. Native Tauri desktop app (`npx tauri dev`) communicates with FastAPI backend RAG query endpoint (`python app/main.py`).
-* **Automated Tests**: 29 of 29 unit and integration tests passing in `backend/tests/`.
+* **Automated Tests**: 50 of 50 unit and integration tests passing in `backend/tests/`.
 * **Clean UI & Real Data Pipeline**: All sample/mock data removed; clean empty states implemented across all 6 frontend feature modules (`features/library/`, `features/video/`, `features/transcript/`, `features/quiz/`, `features/flashcards/`, `features/graph/`).
 * **Event-Driven Pipeline & Single Progress Source**: Asynchronous video ingestion pipeline decoupled from HTTP layer using `MediaRepository`, application-layer event handlers (`media_event_handlers.py`), and snapshot replay via `ProgressStore`.
+* **SQLite System Settings Persistence**: `SystemSettings` table in SQLite (`./data/athenus.db`) managed via `SettingsService` and auto-rehydrated on application launch.
+* **Local Ollama Model Discovery**: Pure local filesystem model discovery (`OllamaModelScanner`) with dynamic dropdown selection in LLM settings.
 
 ---
 
@@ -57,7 +59,7 @@ Future knowledge sources:
 Build a flagship open-source AI Engineering project demonstrating:
 * Modern RAG (8-Stage Layered Retrieval)
 * Multimodal AI (Video, Audio, Keyframes)
-* Local-First AI (Ollama, Faster-Whisper, BGE Small, Embedded Qdrant)
+* Local-First AI (Ollama Scanner, Faster-Whisper, BGE Small, Embedded Qdrant)
 * Agentic AI Workflows (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`)
 * Production Engineering & Clean Architecture (7 Bounded Contexts)
 
@@ -67,7 +69,7 @@ Build a flagship open-source AI Engineering project demonstrating:
 
 Desktop-first application using a local web architecture.
 
-* **Frontend**: React + Next.js + TypeScript + Tailwind CSS
+* **Frontend**: React + Next.js 16 + TypeScript + Vanilla CSS Design System
 * **Backend**: FastAPI (Python 3.11)
 * **Desktop Shell**: Tauri (Rust) with sidecar bearer token authorization
 * **Database**: SQLite (SQLModel) for Desktop; PostgreSQL for Cloud/Multi-user
@@ -88,7 +90,7 @@ Supports three deployment modes:
 
 * **Desktop-First & Local-First Architecture**
 * **Domain-Driven Architecture with 7 Bounded Contexts**: `Knowledge`, `Learning`, `Workspace`, `AI`, `User`, `Evaluation`, `Media`.
-* **AI Service Bus & Model Registry Architecture**: Centralized gateway for capability routing and model metadata resolution (`llama3:8b`, `whisper-base`, `bge-small-en-v1.5`).
+* **AI Service Bus & Model Registry Architecture**: Centralized gateway for capability routing and model metadata resolution (`whisper-base`, `bge-small-en-v1.5`).
 * **Workload Scheduler Subsystem**: Resource-aware AI task concurrency throttle.
 * **Event-Driven Task Queue & Background Workers**: Asynchronous worker pipeline (`TranscriptWorker`, `EmbeddingWorker`, `KnowledgeGraphWorker`, `SummaryWorker`, `QuizWorker`, `FlashcardWorker`).
 * **Decomposed Workspace Intelligence**: Decomposed into `MemoryManager`, `RetrievalManager`, `ContextBuilder`, `RecommendationEngine`, and `AgentCoordinator`.
@@ -97,6 +99,8 @@ Supports three deployment modes:
 * **8-Stage Layered Retrieval Engine**: Query Rewrite, HyDE, Intent Detection, Context Injection, Knowledge Graph Traversal, Hybrid Search (Vector + BM25), Cross-Encoder Re-Ranking, Context Compression, Grounded Prompt Assembly.
 * **Capability-Based Provider Abstraction & Provider Router**
 * **MediaRepository & ProgressStore Ingestion Pattern**: Decoupled HTTP layer using repository abstractions and domain-event snapshot streaming (`docs/adr/0005-event-driven-pipeline-and-progress-store.md`).
-* **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0005`).
+* **Multi-Workspace & Multi-Session Architecture**: In-app workspace switching, lazy chat session creation, and explicit confirmation modals (`docs/adr/0006-multi-workspace-and-multi-session-architecture.md`).
+* **SQLite Settings Persistence & Local Ollama Model Scanner**: Persistent settings table in SQLite and pure filesystem scanner (`docs/adr/0007-sqlite-settings-persistence-and-local-ollama-scanner.md`).
+* **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0007`).
 * **First-Class AI Evaluation Subsystem**: Automated benchmark suite evaluating Retrieval Precision/Recall@K, Groundedness, Latency, and Token Cost.
 * **Machine Learning & Deep Learning Reviewer Guide**: Comprehensive architectural theory reference in `docs/ML_DL_ARCHITECTURE.md`.

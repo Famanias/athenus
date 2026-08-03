@@ -40,8 +40,8 @@ Athenus Knowledge OS separates **Knowledge Storage** from **User Conversational 
 
 ### Tier 3: Long-Term Memory (SQLite Relational Persistence)
 * **Lifetime**: Persistent on disk (`./data/athenus.db`).
-* **Tables**: `chat_sessions`, `chat_messages`, `processing_logs`.
-* **Function**: Stores turn-by-turn chat history (user prompts, assistant responses, citations) and pipeline execution audit logs across backend and desktop app restarts. REST endpoints `GET /chat/history` and `DELETE /chat/history` manage lifecycle.
+* **Tables**: `system_settings`, `chat_sessions`, `chat_messages`, `processing_logs`, `workspaces`.
+* **Function**: Stores system configurations (`default_llm`, `selected_ollama_model`, `ollama_models_dir`, `default_stt`, `gpu_acceleration`), turn-by-turn chat history (user prompts, assistant responses, citations), and pipeline execution audit logs across backend and desktop app restarts. REST endpoints `GET/PUT /settings/providers`, `GET/PUT /settings/ollama`, `GET /chat/history`, and `DELETE /chat/history` manage lifecycle.
 
 ### Tier 4: Semantic Memory (Persistent Knowledge Graph)
 * **Lifetime**: Persistent on disk (`./data/athenus.db`).

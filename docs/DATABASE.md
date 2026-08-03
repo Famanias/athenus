@@ -155,6 +155,19 @@ CREATE TABLE knowledge_relations (
 CREATE INDEX ix_knowledge_relations_workspace_id ON knowledge_relations (workspace_id);
 CREATE INDEX ix_knowledge_relations_source_concept ON knowledge_relations (source_concept);
 CREATE INDEX ix_knowledge_relations_target_concept ON knowledge_relations (target_concept);
+### Table: `system_settings`
+Stores persistent global application configuration, model provider selections, and local directory configurations.
+```sql
+CREATE TABLE system_settings (
+    id VARCHAR PRIMARY KEY DEFAULT 'global',
+    default_llm VARCHAR DEFAULT 'ollama',
+    selected_ollama_model VARCHAR,
+    ollama_models_dir VARCHAR,
+    default_stt VARCHAR DEFAULT 'faster-whisper',
+    default_embedding VARCHAR DEFAULT 'BAAI/bge-small-en-v1.5',
+    gpu_acceleration BOOLEAN DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 ---

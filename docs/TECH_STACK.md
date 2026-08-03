@@ -15,4 +15,4 @@
 | **Vector DB** | **Embedded Qdrant** | Chroma / Milvus | **Embedded Qdrant** (`qdrant-client` local path) eliminates mandatory Docker Desktop requirement for desktop end-users. |
 | **Speech-to-Text** | **Faster-Whisper** | OpenAI Whisper API | **Faster-Whisper** provides 4x faster local CTranslate2 inference with integer quantization and zero API cost. |
 | **Embeddings** | **BAAI BGE Small** | OpenAI `text-embedding-3` | **BAAI BGE** (`bge-small-en-v1.5`) runs 100% offline, generating 384-d vectors with top-tier retrieval performance. |
-| **Local LLM** | **Ollama (`llama3:8b`)** | LM Studio | **Ollama** offers simple CLI REST API integration for streaming local LLM text generation. |
+| **Local LLM** | **Ollama** | LM Studio | **Ollama** offers simple CLI REST API integration for streaming local LLM text generation. |

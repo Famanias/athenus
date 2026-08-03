@@ -41,24 +41,26 @@ graph TD
 ## 3. Component Ownership & Subsystem Boundaries
 
 ### 3.1 Presentation Layer (`frontend/` & `backend/app/presentation/api/v1/`)
-- **Desktop Shell**: Tauri + Next.js 14 + Vanilla CSS + Zustand.
+- **Desktop Shell**: Tauri + Next.js 16 + Vanilla CSS + Zustand.
 - **REST Endpoints**:
   - `media.py`: Asset upload, SSE stage progress streaming, file serving, history telemetry audit log.
   - `chat.py`: RAG question-answering (`POST /chat/query`), conversation history restoration (`GET /chat/history`), and chat clearing (`DELETE /chat/history`).
   - `workspaces.py`: Workspace lifecycle management.
+  - `settings.py`: Provider settings (`GET/PUT /settings/providers`) and local Ollama model sources (`GET/PUT /settings/ollama`, `POST /settings/ollama/scan`).
 
 ### 3.2 Application Services & Event Bus (`backend/app/application/`)
 - **`WorkspaceIntelligenceManager`**: Coordinates retrieval and text generation via `AIServiceBus`.
 - **`ProgressStore` & `media_event_handlers.py`**: Intercepts domain events (`ProcessingStartedEvent`, `StageProgressEvent`, `TranscriptCompletedEvent`, `ChunksIndexedEvent`) and writes immutable telemetry rows to SQLite `processing_logs` table.
 
 ### 3.3 Domain Layer (`backend/app/domain/`)
-- **`AIServiceBus`**: Abstract routing layer decoupling LLMs (`MockOllamaAdapter`), Embedding Models (`SentenceTransformersEmbeddingAdapter`), and Whisper ASR.
+- **`AIServiceBus`**: Abstract routing layer decoupling LLMs (`OllamaTextGenAdapter`, `CloudTextGenAdapter`), Embedding Models (`SentenceTransformersEmbeddingAdapter`), and Whisper ASR.
+- **`SettingsService`**: Persistent global application settings domain service backed by SQLite (`SystemSettings` model).
 - **`WorkspaceService`**: Workspace domain model backed by SQLite persistence with active workspace context tracking.
 - **`SessionService`**: Multi-session domain service managing chat thread lifecycles, lazy session creation, and session preview metadata.
 - **`KnowledgeGraphService`**: Concept node and edge graph traversal backed by SQLite (`knowledge_concepts`, `knowledge_relations`).
 
 ### 3.4 Infrastructure Layer (`backend/app/infrastructure/`)
-- **SQLite Database (`session.py` & `models.py`)**: Canonical relational store managing 9 SQLModel / SQLAlchemy ORM tables (`workspaces`, `media_items`, `transcript_chunks`, `transcript_segments`, `chat_sessions`, `chat_messages`, `processing_logs`, `knowledge_concepts`, `knowledge_relations`) with automatic column migrations on startup.
+- **SQLite Database (`session.py` & `models.py`)**: Canonical relational store managing 10 SQLModel / SQLAlchemy ORM tables (`system_settings`, `workspaces`, `media_items`, `transcript_chunks`, `transcript_segments`, `chat_sessions`, `chat_messages`, `processing_logs`, `knowledge_concepts`, `knowledge_relations`) with automatic column migrations on startup.
 - **`SqliteMediaRepository`**: Persistent implementation of `MediaRepository` contract.
 - **`EmbeddedQdrantVectorStoreAdapter`**: Local vector store using 384-dimensional cosine embeddings with payload `workspace_id` filtering.
 
@@ -99,6 +101,7 @@ sequenceDiagram
 | **[ADR 0004](file:///e:/repos/athenus/docs/adr/0004-persistent-knowledge-graph-and-conversational-memory.md)** | Persistent Knowledge Graph & Memory | Stored concept nodes and relation triples in SQLite, expanded RAG prompts with Stage 4 graph triples, and added `DELETE /chat/history`. |
 | **[ADR 0005](file:///e:/repos/athenus/docs/adr/0005-zero-dom-reparenting-video-player-and-per-message-citations.md)** | Zero DOM Re-parenting & Per-Message Citations | Implemented persistent CSS-hidden `VideoWorkspace` to prevent PiP video detachment, and stored citations per assistant response turn. |
 | **[ADR 0006](file:///e:/repos/athenus/docs/adr/0006-multi-workspace-and-multi-session-architecture.md)** | Multi-Workspace & Multi-Session Architecture | Implemented a two-tier domain hierarchy (Workspace $\rightarrow$ Chat Sessions), single backend context source of truth, lazy session creation, and 9-step workspace switching lifecycle. |
+| **[ADR 0007](file:///e:/repos/athenus/docs/adr/0007-sqlite-settings-persistence-and-local-ollama-scanner.md)** | SQLite Settings Persistence & Local Ollama Scanner | Stored all user system settings in SQLite `system_settings` table (`SettingsService`), rehydrated on startup, and implemented pure local filesystem scanner (`OllamaModelScanner`). |
 
 
 ---
