@@ -230,7 +230,7 @@ export const VideoWorkspace: React.FC = () => {
         <div className="p-3 bg-surface-container-low border-t border-outline-variant flex flex-wrap justify-between items-center text-xs gap-3 shrink-0">
           <div>
             <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
-              {mounted && activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
+              {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
             </h3>
             <span className="font-mono text-secondary text-[11px]">
               Time: {currentTime}
@@ -246,8 +246,8 @@ export const VideoWorkspace: React.FC = () => {
                   if (isCollapsed) setIsCollapsed(false);
                 }}
                 className={`px-2.5 py-1 rounded transition-colors ${activeRightTab === 'transcript' && !isCollapsed
-                    ? 'bg-secondary text-on-secondary font-bold'
-                    : 'text-on-surface-variant hover:text-on-surface'
+                  ? 'bg-secondary text-on-secondary font-bold'
+                  : 'text-on-surface-variant hover:text-on-surface'
                   }`}
               >
                 📝 Transcript
@@ -258,8 +258,8 @@ export const VideoWorkspace: React.FC = () => {
                   if (isCollapsed) setIsCollapsed(false);
                 }}
                 className={`px-2.5 py-1 rounded transition-colors ${activeRightTab === 'chat' && !isCollapsed
-                    ? 'bg-secondary text-on-secondary font-bold'
-                    : 'text-on-surface-variant hover:text-on-surface'
+                  ? 'bg-secondary text-on-secondary font-bold'
+                  : 'text-on-surface-variant hover:text-on-surface'
                   }`}
               >
                 💬 AI Assistant
@@ -356,8 +356,8 @@ export const VideoWorkspace: React.FC = () => {
                       }}
                       onClick={() => seekToSeconds(seg.start_seconds)}
                       className={`p-3 rounded border transition-all cursor-pointer ${isActive
-                          ? 'bg-secondary/15 border-l-4 border-secondary border-secondary/40 text-on-surface shadow-md scale-[1.01]'
-                          : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container hover:border-secondary/40 text-on-surface-variant'
+                        ? 'bg-secondary/15 border-l-4 border-secondary border-secondary/40 text-on-surface shadow-md scale-[1.01]'
+                        : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container hover:border-secondary/40 text-on-surface-variant'
                         }`}
                     >
                       <div className="flex justify-between items-center mb-1">
