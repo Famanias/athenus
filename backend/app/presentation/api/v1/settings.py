@@ -7,15 +7,14 @@ from app.domain.ai.model_registry import ModelRegistry
 router = APIRouter()
 model_registry = ModelRegistry()
 
-# In-memory settings state
-current_settings = {
-    "default_llm": settings.DEFAULT_LLM_PROVIDER,
-    "selected_ollama_model": None,
-    "default_stt": settings.DEFAULT_STT_PROVIDER,
-    "default_embedding": settings.EMBEDDING_MODEL_NAME,
-    "gpu_acceleration": True,
-    "api_key": ""
-}
+from app.domain.settings.settings_service import SettingsService
+
+router = APIRouter()
+model_registry = ModelRegistry()
+settings_service = SettingsService()
+
+# In-memory transient API key store (kept out of persistent DB for security)
+_transient_api_key: str = ""
 
 class ProviderSettingsDTO(BaseModel):
     default_llm: str
@@ -35,17 +34,19 @@ class ProviderSettingsResponse(BaseModel):
 
 @router.get("/settings/providers", response_model=ProviderSettingsResponse)
 def get_provider_settings():
+    db_rec = settings_service.get_settings()
     return ProviderSettingsResponse(
-        default_llm=current_settings["default_llm"],
-        selected_ollama_model=current_settings.get("selected_ollama_model"),
-        default_stt=current_settings["default_stt"],
-        default_embedding=current_settings["default_embedding"],
-        gpu_acceleration=current_settings["gpu_acceleration"],
-        api_key=current_settings.get("api_key", "")
+        default_llm=db_rec.default_llm,
+        selected_ollama_model=db_rec.selected_ollama_model,
+        default_stt=db_rec.default_stt,
+        default_embedding=db_rec.default_embedding,
+        gpu_acceleration=db_rec.gpu_acceleration,
+        api_key=_transient_api_key
     )
 
 @router.put("/settings/providers", response_model=ProviderSettingsResponse)
 def update_provider_settings(payload: ProviderSettingsDTO):
+    global _transient_api_key
     llm_raw = payload.default_llm.lower()
     provider_map = {
         "llama3:8b": "ollama",
@@ -62,11 +63,15 @@ def update_provider_settings(payload: ProviderSettingsDTO):
             detail=f"Invalid LLM provider '{payload.default_llm}'. Must be one of {valid_llms}."
         )
 
-    current_settings["default_llm"] = provider
-    current_settings["selected_ollama_model"] = payload.selected_ollama_model
-    current_settings["default_stt"] = payload.default_stt
-    current_settings["gpu_acceleration"] = payload.gpu_acceleration
-    current_settings["api_key"] = payload.api_key or ""
+    if payload.api_key is not None:
+        _transient_api_key = payload.api_key
+
+    db_rec = settings_service.update_settings({
+        "default_llm": provider,
+        "selected_ollama_model": payload.selected_ollama_model,
+        "default_stt": payload.default_stt,
+        "gpu_acceleration": payload.gpu_acceleration,
+    })
 
     # Dynamically update backend adapters
     from app.main import openrouter_adapter, groq_adapter, router_policy
@@ -81,12 +86,12 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         router_policy.policy.prefer_local = False
 
     return ProviderSettingsResponse(
-        default_llm=current_settings["default_llm"],
-        selected_ollama_model=current_settings["selected_ollama_model"],
-        default_stt=current_settings["default_stt"],
-        default_embedding=current_settings["default_embedding"],
-        gpu_acceleration=current_settings["gpu_acceleration"],
-        api_key=current_settings["api_key"]
+        default_llm=db_rec.default_llm,
+        selected_ollama_model=db_rec.selected_ollama_model,
+        default_stt=db_rec.default_stt,
+        default_embedding=db_rec.default_embedding,
+        gpu_acceleration=db_rec.gpu_acceleration,
+        api_key=_transient_api_key
     )
 
 # --- Ollama Local Models Directory Settings ---
@@ -99,7 +104,6 @@ from app.services.ollama_scanner import (
 )
 
 ollama_scanner = OllamaModelScanner()
-current_settings["ollama_models_dir"] = None
 
 class DiscoveredModelDTO(BaseModel):
     full_id: str
@@ -180,23 +184,21 @@ def _scan_and_build_response(models_dir: Optional[str]) -> OllamaSettingsRespons
 
 @router.get("/settings/ollama", response_model=OllamaSettingsResponse)
 def get_ollama_settings():
-    return _scan_and_build_response(current_settings.get("ollama_models_dir"))
+    db_rec = settings_service.get_settings()
+    return _scan_and_build_response(db_rec.ollama_models_dir)
 
 @router.put("/settings/ollama", response_model=OllamaSettingsResponse)
 def update_ollama_directory(payload: UpdateOllamaDirectoryDTO):
-    current_settings["ollama_models_dir"] = payload.models_dir
-    res = _scan_and_build_response(payload.models_dir)
+    db_rec = settings_service.update_settings({"ollama_models_dir": payload.models_dir})
+    res = _scan_and_build_response(db_rec.ollama_models_dir)
     if not res.valid and res.error:
         raise HTTPException(status_code=400, detail=res.error)
     return res
 
 @router.post("/settings/ollama/scan", response_model=OllamaSettingsResponse)
 def scan_ollama_models():
-    configured = current_settings.get("ollama_models_dir")
-    if not configured:
+    db_rec = settings_service.get_settings()
+    if not db_rec.ollama_models_dir:
         raise HTTPException(status_code=400, detail="No Ollama models directory is currently configured.")
-    res = _scan_and_build_response(configured)
-    if not res.valid and res.error:
-        raise HTTPException(status_code=400, detail=res.error)
-    return res
+    return _scan_and_build_response(db_rec.ollama_models_dir)
 

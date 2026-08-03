@@ -16,6 +16,7 @@ from app.infrastructure.db.models import (
     KnowledgeConceptTable,
     KnowledgeRelationTable,
     WorkspaceTable,
+    SystemSettings,
 )
 from app.infrastructure.db.session import engine
 
@@ -70,6 +71,7 @@ class SystemResetService:
                             KnowledgeConceptTable,
                             MediaItemTable,
                             WorkspaceTable,
+                            SystemSettings,
                         ]:
                             statement = select(table)
                             records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()

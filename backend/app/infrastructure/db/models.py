@@ -4,6 +4,17 @@ from typing import Optional
 try:
     from sqlmodel import Field, SQLModel
 
+    class SystemSettings(SQLModel, table=True):
+        __tablename__ = "system_settings"
+        id: str = Field(default="global", primary_key=True)
+        default_llm: str = "ollama"
+        selected_ollama_model: Optional[str] = None
+        ollama_models_dir: Optional[str] = None
+        default_stt: str = "faster-whisper"
+        default_embedding: str = "BAAI/bge-small-en-v1.5"
+        gpu_acceleration: bool = True
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
     class WorkspaceTable(SQLModel, table=True):
         __tablename__ = "workspaces"
         id: str = Field(primary_key=True)
@@ -106,6 +117,17 @@ try:
 except ImportError:
     from sqlalchemy import Column, String, Float, Integer, DateTime, Text
     from app.infrastructure.db.session import Base
+
+    class SystemSettings(Base):
+        __tablename__ = "system_settings"
+        id = Column(String, primary_key=True, default="global")
+        default_llm = Column(String, default="ollama")
+        selected_ollama_model = Column(String, nullable=True)
+        ollama_models_dir = Column(String, nullable=True)
+        default_stt = Column(String, default="faster-whisper")
+        default_embedding = Column(String, default="BAAI/bge-small-en-v1.5")
+        gpu_acceleration = Column(Integer, default=1)
+        updated_at = Column(DateTime, default=datetime.utcnow)
 
     class WorkspaceTable(Base):
         __tablename__ = "workspaces"

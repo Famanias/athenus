@@ -42,6 +42,9 @@ def test_put_and_scan_ollama_directory_valid():
         assert scan_data["models"][0]["full_id"] == "phi3:mini"
 
 def test_provider_settings_selected_ollama_model():
+    from app.domain.settings.settings_service import SettingsService
+    SettingsService().update_settings({"selected_ollama_model": None})
+
     # Initial GET provider settings
     get_res = client.get("/api/v1/settings/providers")
     assert get_res.status_code == 200

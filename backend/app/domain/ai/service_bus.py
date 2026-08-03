@@ -22,8 +22,8 @@ class AIServiceBus:
         self._embedding_adapters[provider_id] = adapter
 
     def get_text_capability(self, model_id: Optional[str] = None) -> ITextGenerationCapability:
-        from app.presentation.api.v1.settings import current_settings
-        active_provider = current_settings.get("default_llm", "ollama").lower()
+        from app.domain.settings.settings_service import SettingsService
+        active_provider = SettingsService().get_settings().default_llm.lower()
 
         adapter = self._text_adapters.get(active_provider)
         if not adapter:

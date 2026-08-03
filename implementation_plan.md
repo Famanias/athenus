@@ -1,62 +1,86 @@
-# Implementation Plan: Dynamically Populate Discovered Local Ollama Models in LLM Provider Settings
+# Implementation Plan: Settings Persistence via SQLite Database
 
-Refactor the **Text Generation Provider (LLM)** settings flow to consume dynamically discovered local Ollama models as the single source of truth, removing static hardcoded model strings, setting `selected_ollama_model` to `Optional[str] = None` by default, maintaining model selection state, and gracefully handling missing models.
+Fix settings persistence across application restarts by storing all system settings in the application's existing SQLite database (`./data/athenus.db`) as the single source of truth, removing in-memory state volatility, explicitly initializing settings during application startup, and rehydrating settings in the frontend on launch.
 
 ---
 
 ## Technical Architecture & Core Principles
 
-### 1. Single Source of Truth & Dynamic Defaults
-- **Discovered Models API (`GET /api/v1/settings/ollama`)**: Serves as the authoritative source for installed local models.
-- **Provider Settings API (`GET/PUT /api/v1/settings/providers`)**: Owns provider persistence (`default_llm` and `selected_ollama_model: Optional[str] = None`).
-- **Zero Static Defaults**: Removed all hardcoded `"llama3:8b"` fallbacks. `selected_ollama_model` defaults to `None` until explicitly configured by the user.
-- **Zero Redundant Store State**: Read and write directly through `settingsService.ts` and component state without adding state to Zustand.
+### 1. Single Source of Truth (SQLite Database)
+- **Zero Duplicate Storage**: Store all user and system settings inside the application's canonical SQLite database (`./data/athenus.db`).
+- **SQLite Table (`SystemSettings`)**:
+  ```python
+  class SystemSettings(SQLModel, table=True):
+      __tablename__ = "system_settings"
+      id: str = Field(default="global", primary_key=True)
+      default_llm: str = "ollama"
+      selected_ollama_model: Optional[str] = None
+      ollama_models_dir: Optional[str] = None
+      default_stt: str = "faster-whisper"
+      default_embedding: str = "BAAI/bge-small-en-v1.5"
+      gpu_acceleration: bool = True
+      updated_at: datetime = Field(default_factory=datetime.utcnow)
+  ```
+- **Clean Schema**: Focuses strictly on typed, validated application settings (omitting redundant dumping fields or coupled API keys).
 
-### 2. Selection, Save & Fallback Rules
-- **Clean Provider Label**: Provider dropdown displays `Ollama (Local)` (removing static model text).
-- **Model Selection UI**: When **Ollama** is selected as the text provider, render a dynamic model `<select>` populated from `ollamaConfig.models`.
-- **Model Preservation**: If the currently selected model exists in the scanned model list, preserve it.
-- **Explicit Prompting (No Silent Overwrites)**: If the selected model no longer exists in the directory (or none is selected yet), prompt the user: `"-- Select an Ollama model --"`.
-- **Unified Save Behavior**: Clicking **Save Configuration** validates provider, validates the selected Ollama model (when active provider is Ollama), persists both in the backend, and displays a success toast.
-- **Seamless Provider Restore**: When switching provider back to Ollama, automatically restore the previously saved `selected_ollama_model` if present in discovered models.
+### 2. Dedicated `SettingsService` & Explicit Startup Initialization
+- **`SettingsService` (`backend/app/domain/settings/settings_service.py`)**:
+  - `get_settings()`: Fetches global settings from SQLite. Initializes default record if none exists.
+  - `update_settings(updates: dict)`: Updates settings record and commits transaction to SQLite.
+- **Explicit Startup**: Server startup (`app/main.py`) explicitly initializes `SettingsService` and configures router policy / providers during backend startup.
+
+### 3. Edge Case Handling
+- **Missing/Invalid Directory**: If the saved `ollama_models_dir` path no longer exists on disk upon restart, the saved path string remains intact in SQLite. `OllamaModelScanner` returns `valid: False` with descriptive error details instead of clearing the user's saved path.
+- **Provider Integrity**: Provider preferences (`default_llm`, `selected_ollama_model`, `default_stt`, `gpu_acceleration`) remain 100% functional even if the configured models directory is temporarily invalid.
+
+### 4. Frontend Startup Rehydration (`DesktopShell.tsx`)
+- Call `getProviderSettings()` and `getOllamaSettings()` during app initialization in `DesktopShell.tsx` so all components receive persisted settings immediately upon application launch.
 
 ---
 
 ## Proposed Code Changes
 
-### Backend Subsystem (`backend/app/presentation/api/v1/`)
+### Backend Subsystem (`backend/app/`)
+
+#### [MODIFY] [models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)
+- Add `SystemSettings` schema.
+
+#### [NEW] [settings_service.py](file:///e:/repos/athenus/backend/app/domain/settings/settings_service.py)
+- Implement `SettingsService` for reading and writing `SystemSettings` in SQLite.
 
 #### [MODIFY] [settings.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py)
-- Initialize `current_settings["selected_ollama_model"] = None`.
-- Update `ProviderSettingsDTO` and `ProviderSettingsResponse` to include `selected_ollama_model: Optional[str] = None`.
-- Save and validate `selected_ollama_model` in `update_provider_settings()`.
+- Replace ephemeral `current_settings` dict with calls to `SettingsService`.
+
+#### [MODIFY] [main.py](file:///e:/repos/athenus/backend/app/main.py)
+- Explicitly load settings from `SettingsService` on backend boot.
 
 ---
 
 ### Frontend Subsystem (`frontend/src/`)
 
-#### [MODIFY] [settingsService.ts](file:///e:/repos/athenus/frontend/src/services/settingsService.ts)
-- Update `ProviderSettingsDTO` and `ProviderSettingsResponse` to include `selected_ollama_model?: string`.
+#### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
+- Extend `rehydrateStoredState()` to fetch provider and Ollama settings on application boot.
 
-#### [MODIFY] [SystemSettings.tsx](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx)
-- Change provider option label from `Ollama (Local - llama3:8b)` to `Ollama (Local)`.
-- Render dynamic model selector for Ollama consuming `ollamaConfig.models`.
-- Implement selection preservation and prompt fallback (`-- Select an Ollama model --`).
-- Save provider and selected model together on **Save Configuration**.
+#### [MODIFY] [DesktopShell.tsx](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx)
+- Trigger `rehydrateStoredState()` on mount.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-- Update API integration test [`backend/tests/test_ollama_settings_api.py`](file:///e:/repos/athenus/backend/tests/test_ollama_settings_api.py):
-  - Test GET/PUT `selected_ollama_model` persistence with `None` default.
+- Create test file [`backend/tests/test_settings_persistence.py`](file:///e:/repos/athenus/backend/tests/test_settings_persistence.py):
+  - Save settings via `PUT /settings/providers` and `PUT /settings/ollama`.
+  - Re-instantiate `SettingsService` (simulating process restart).
+  - Assert all settings (`default_llm`, `selected_ollama_model`, `ollama_models_dir`) persist accurately in SQLite.
 - Run backend pytest: `python -m pytest`
 - Run frontend type check: `npx tsc --noEmit` (in `frontend/`)
 
-### Manual Verification
-1. Open **Settings → AI Models**.
-2. Select **Ollama (Local)** $\rightarrow$ Verify active model dropdown renders all discovered models.
-3. Save a valid models directory $\rightarrow$ Verify dropdown populates dynamically.
-4. Switch provider from **Groq** $\rightarrow$ **Ollama** $\rightarrow$ **Groq** $\rightarrow$ **Ollama** $\rightarrow$ Verify previously selected Ollama model is restored correctly without reselection.
-5. Change models directory $\rightarrow$ Click **Refresh** $\rightarrow$ Verify app prompts user to select a model if the previous one is missing.
+### Manual Verification Matrix
+
+| Scenario | Test Action | Expected Behavior |
+|---|---|---|
+| **Save Settings** | Configure Ollama directory, select provider (`groq`/`ollama`), select model. | Settings save to SQLite successfully without errors. |
+| **Restart Backend & Frontend** | Stop python server & tauri app $\rightarrow$ Restart both. | Settings (directory, provider, model) are restored automatically from SQLite. |
+| **Multiple Restarts** | Restart server 3 times in succession. | Settings remain 100% consistent across every restart. |
+| **Invalid Directory Graceful Handling** | Save invalid directory $\rightarrow$ Restart. | Preserves saved path in SQLite; badge displays `✕ Invalid Directory` while provider & model settings remain intact. |

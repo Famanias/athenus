@@ -47,6 +47,8 @@ interface UISlice {
   initLazyNewChat: () => void;
 }
 
+import { getProviderSettings } from '@/services/settingsService';
+
 export type AppState = UISlice & ChatSlice;
 
 export function rehydrateStoredState() {
@@ -55,6 +57,19 @@ export function rehydrateStoredState() {
   const savedSpeed = localStorage.getItem('athenus_playback_speed');
   const playbackSpeed = savedSpeed ? parseFloat(savedSpeed) : 1.0;
   useAppStore.setState({ activeMediaId: mediaId, playbackSpeed });
+
+  // Hydrate provider settings from backend SQLite store on boot
+  getProviderSettings()
+    .then((data) => {
+      if (data) {
+        useAppStore.setState({
+          llmProvider: data.default_llm,
+          sttProvider: data.default_stt,
+          gpuAcceleration: data.gpu_acceleration,
+        });
+      }
+    })
+    .catch(() => {});
 }
 
 export const useAppStore = create<AppState>()((...args) => {
