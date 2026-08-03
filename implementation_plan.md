@@ -1,120 +1,148 @@
-# Implementation Plan — Comprehensive UX/UI Improvements & Video Learning Experience
+# Implementation Plan — Context-Aware Chat Widget in Video Workspace
 
-Implement grounded citation navigation with auto-seek and auto-scroll, consolidate redundant transcript reader views, build a resizable video/transcript layout, implement real-time video transcript synchronization with scroll-lock resume, add playback controls/keyboard shortcuts, and implement complete video playback state restoration across app restarts.
+Implement an embedded AI Chat Widget directly within the Video Workspace (`view-video`), providing instant, context-aware AI assistance grounded in the current playback timestamp, video asset, and surrounding transcript speech without breaking the user's learning flow.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Key Design Decisions & Enhancements Incorporated:**
-> 1. **Video Learning State Restoration**:
->    - Persists the following learning state parameters in `localStorage` across app restarts and tab closes:
->      - `activeMediaId`: Last watched video asset.
->      - `playbackSeconds`: Exact video timestamp resume position (e.g., `14:52`).
->      - `playbackSpeed`: User preferred playback rate (`0.75x`, `1x`, `1.25x`, `1.5x`, `2x`).
->      - `transcriptPanelWidth`: User preferred transcript panel width (e.g., `350px`).
->      - `isTranscriptCollapsed`: Transcript panel open/collapsed toggle state.
-> 2. **Deep Grounded Citation Navigation**:
->    - Clicking a citation badge in Chat automatically sets `activeMediaId` (switches video if necessary), seeks `<video>` to exact timestamp seconds, auto-scrolls transcript panel to the matching segment, and highlights the card with a gold-bordered pulse animation.
-> 3. **Consolidation of Redundant Transcript Reader (`view-transcript`)**:
->    - *Rationale*: The `VideoWorkspace` already embeds the complete, synchronized transcript alongside the video player. Consolidating into `VideoWorkspace` eliminates duplicate tab clutter while preserving all transcript features (search, copy, seek, timestamp badges).
-> 4. **Resizable & Collapsible Video Workspace Layout**:
->    - Replaces static 60/40 grid with a resizable divider handle.
->    - Includes a one-click collapse/expand toggle button for distraction-free full video viewing.
-> 5. **Smart Video Transcript Sync & Scroll-Lock Protection**:
->    - Tracks `timeupdate` on `<video>` to highlight current spoken segment.
->    - Auto-scrolls active segment into view.
->    - Detects manual user scroll in transcript container to temporarily pause auto-scrolling; presents a floating **"↓ Resume Sync"** button to re-engage auto-follow.
-> 6. **Keyboard Shortcuts & Playback Speed Controls**:
->    - Add playback speed selector and keyboard shortcuts (`Space` = Play/Pause, `←/→` = ±5s, `M` = Mute, `F` = Fullscreen).
+> **Key Architecture Decisions & Enhancements Incorporated:**
+> 1. **Backend-Owned Context Extraction (Single Source of Truth)**:
+>    - *Redesign*: The frontend passes ONLY `{ workspace_id, media_id, current_timestamp: 754 }` to the backend.
+>    - The backend (`chat.py` & `multi_stage_retriever.py`) queries SQLite (`TranscriptSegmentTable`), retrieves transcript segments within a ±30–45 second window around `current_timestamp`, and injects them into RAG Stage 8 prompt assembly.
+>    - *Rationale*: Keeps request payloads lightweight, prevents client spoofing, centralizes context window logic on the server, and eliminates duplicated frontend transcript slicing code.
+> 2. **Learning-State Aware Prompting**:
+>    - Prepend rich learning state metadata into RAG Stage 8 prompt assembly:
+>      ```text
+>      [Active Playback Context]
+>      Workspace ID: default
+>      Media Asset: Lecture 3
+>      Playback Timestamp: 12:34 (754s)
+>      Surrounding Spoken Transcript (12:04 - 13:04):
+>      "[12:04] ...spoken segment... [12:34] ...active line..."
+>      ```
+> 3. **Explicit Context Provenance Badge**:
+>    - The backend returns `context_provenance` metadata in `ChatQueryResponse` (`media_title`, `timestamp_range: "12:04–13:04"`, `segment_count: 4`).
+>    - Embedded Chat renders a sleek pill badge above AI responses: `📹 Lecture 3 | ⏱ 12:04–13:04 | 📝 4 Segments`.
+> 4. **Selected Transcript Text Q&A ("Ask About Selection")**:
+>    - Support optional `selected_text` parameter in `ChatQueryRequest`.
+>    - In transcript card UI, add a **"💬 Ask AI About Selection"** button when hovering/selecting text.
+> 5. **Unified Conversation Store (Shared Memory)**:
+>    - Embedded Chat and Main Chat share the active workspace's conversation session in `chatSlice` and SQLite.
+>    - Includes **"Full Chat View ↗"** button to transition to `ChatWorkspace` (`view-chat`) with full conversation state intact.
 
 ---
 
-## State Restoration Matrix
+## Backend-Owned Data & Context Flow
 
-| State Parameter | Storage Target | Default | Resumed Behavior |
-|---|---|---|---|
-| `activeMediaId` | `localStorage["athenus_active_media_id"]` | `null` | Automatically re-selects last watched video |
-| `playbackSeconds` | `localStorage["athenus_playback_pos_<mediaId>"]` | `0` | Auto-seeks `<video>` to exact resume timestamp (e.g. `14:52`) |
-| `playbackSpeed` | `localStorage["athenus_playback_speed"]` | `1.0` | Restores video `playbackRate` |
-| `transcriptPanelWidth` | `localStorage["athenus_transcript_width"]` | `350` | Restores transcript panel width in pixels |
-| `isTranscriptCollapsed` | `localStorage["athenus_transcript_collapsed"]` | `false` | Restores transcript panel open/collapsed state |
+```text
+ ┌────────────────────────────────────────────────────────────────────────────────┐
+ │                              FRONTEND                                          │
+ │  Video Workspace                                                               │
+ │  Active Media: "med_123" | Current Time: 754s (12:34)                          │
+ └──────────────────────────────────────┬─────────────────────────────────────────┘
+                                        │
+             POST /api/v1/chat/query {
+               query: "Can you explain this concept?",
+               workspace_id: "default",
+               media_id: "med_123",
+               current_timestamp: 754.0,
+               selected_text: null
+             }
+                                        │
+                                        ▼
+ ┌────────────────────────────────────────────────────────────────────────────────┐
+ │                               BACKEND                                          │
+ │  1. Query SQLite `transcript_segments` where `media_id == med_123`             │
+ │     and `start_time` between (754 - 30s) and (754 + 30s)                       │
+ │  2. MultiStageRetriever Stage 8: Prepend Active Playback Context into Prompt   │
+ │  3. Execute LLM Text Generation -> Formulate Answer & Provenance Metadata      │
+ └──────────────────────────────────────┬─────────────────────────────────────────┘
+                                        │
+             Returns ChatQueryResponse {
+               answer: "...",
+               citations: [...],
+               context_provenance: {
+                 media_title: "Lecture 3",
+                 timestamp_range: "12:04 - 13:04",
+                 segment_count: 4
+               }
+             }
+```
 
 ---
 
 ## Proposed Changes
 
-### Navigation & Routing (`frontend/src/`)
+### Backend Infrastructure (`backend/app/`)
 
-#### [MODIFY] [navigation.ts](file:///e:/repos/athenus/frontend/src/config/navigation.ts)
-- Remove `view-transcript` from `NAVIGATION_CONFIG` under Knowledge category.
+#### [MODIFY] [models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)
+- Ensure indexed query lookup on `TranscriptSegmentTable.media_id` and `start_time`.
 
-#### [MODIFY] [AppLayout.tsx](file:///e:/repos/athenus/frontend/src/components/layout/AppLayout.tsx)
-- Remove `view-transcript` rendering branch and route directly to `VideoWorkspace` (`view-video`).
+#### [MODIFY] [chat.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/chat.py)
+- Update `ChatQueryRequest`:
+  - `current_timestamp: Optional[float] = None`
+  - `selected_text: Optional[str] = None`
+- Update `ChatQueryResponse` to include `context_provenance: Optional[Dict[str, Any]] = None`.
 
----
+#### [MODIFY] [workspace_intelligence.py](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py)
+- Update `query_workspace()` signature to accept `current_timestamp` and `selected_text`.
 
-### Store & Citation State (`frontend/src/store/`)
-
-#### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
-- Add state restoration properties:
-  - `targetSeekSeconds: number | null`
-  - `playbackSpeed: number`
-  - `setTargetSeekSeconds(seconds: number | null)`
-  - `setPlaybackSpeed(speed: number)`
-  - Re-hydrate `activeMediaId` and settings from `localStorage` on initial mount.
-
-#### [MODIFY] [ChatMessageItem.tsx](file:///e:/repos/athenus/frontend/src/features/chat/ChatMessageItem.tsx)
-- Update `handleCitationClick`: set `activeMediaId` (if citation contains `mediaId`), set `targetSeekSeconds` (converted from `startTime`), set `currentTime`, and switch `activeView` to `view-video`.
-- Add hover tooltip displaying citation passage preview text (`cit.text`).
+#### [MODIFY] [multi_stage_retriever.py](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py)
+- Implement `_extract_timestamp_context(media_id, current_timestamp, window_seconds=30)` querying SQLite for active spoken segments.
+- Prepend extracted timestamp context into Stage 8 RAG prompt assembly:
+  `[Active Playback Context (Timestamp MM:SS): ...]`
 
 ---
 
-### Video Workspace & Synchronization (`frontend/src/features/video/`)
+### Frontend Services & Components (`frontend/src/`)
 
-#### [MODIFY] [useVideo.ts](file:///e:/repos/athenus/frontend/src/features/video/useVideo.ts)
-- Update `useVideo` hook to:
-  - Restore last playback position (`athenus_playback_pos_<mediaId>`) on load.
-  - Continuously save `currentTime` seconds to `localStorage` during playback.
-  - Track active transcript segment based on `videoRef.current.currentTime` range (`seg.start_time <= currentTime < seg.end_time`).
-  - Listen to `targetSeekSeconds` store state and seek `<video>` automatically.
+#### [MODIFY] [chatService.ts](file:///e:/repos/athenus/frontend/src/services/chatService.ts)
+- Update `sendChatQuery()` to pass `current_timestamp` and `selected_text`.
+
+#### [NEW] [EmbeddedChatWidget.tsx](file:///e:/repos/athenus/frontend/src/features/video/EmbeddedChatWidget.tsx)
+- Create embedded chat widget:
+  - Header: Active context badge (`📍 Context: 12:34`), expand button (`Full Chat View ↗`), clear chat.
+  - Context Provenance badge above assistant responses (`📹 Lecture 3 | ⏱ 12:04–13:04`).
+  - One-click prompt chips (`💡 Explain this`, `📝 Summarize last 2 min`, `❓ Quiz me`).
+  - Input box with target seek citation handlers.
 
 #### [MODIFY] [VideoWorkspace.tsx](file:///e:/repos/athenus/frontend/src/features/video/VideoWorkspace.tsx)
-- Re-architect layout into resizable flex container with draggable resize handle and collapse button.
-- Add `timeupdate` sync and smooth auto-scrolling to active transcript card.
-- Add user scroll detection: display floating **"↓ Resume Auto-Scroll"** button when user scrolls manually.
-- Add keyboard shortcuts event listener (`Space`, `←`, `→`, `M`, `F`).
-- Add playback speed selector toolbar (`0.75x`, `1x`, `1.25x`, `1.5x`, `2x`).
-- Add text search filter input inside transcript panel header.
+- Render right panel tabs: `[📝 Transcript]` vs `[💬 AI Assistant]` (with side-by-side pin option on wide screens).
+- Pass `videoRef.current.currentTime` as `current_timestamp` when sending query.
+- Add **"💬 Ask AI About Selection"** action button to transcript cards when text is selected.
+
+---
+
+### Automated Tests & Verification (`backend/tests/`)
+
+#### [NEW] [test_context_chat.py](file:///e:/repos/athenus/backend/tests/test_context_chat.py)
+- Add integration tests verifying:
+  - Backend extracts ±30s transcript segments matching `current_timestamp`.
+  - Response contains `context_provenance` and grounded citations.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-1. **Frontend Type Check**:
+1. **Context Chat Pytest Suite**:
+   ```bash
+   cd backend
+   python -m pytest tests/test_context_chat.py
+   python -m pytest
+   ```
+2. **Frontend Type Check**:
    ```bash
    cd frontend
    npx tsc --noEmit
    ```
-2. **Backend Pytest Suite**:
-   ```bash
-   cd backend
-   python -m pytest
-   ```
 
-### Manual Testing Guide (Step-by-Step UI Verification)
-1. **State Restoration Across App Restarts**:
-   - Play a video to `14:52` at `1.5x` speed with transcript width set to `400px`.
-   - Refresh browser or restart application.
-   - *Expected Result*: App resumes the exact video at `14:52`, at `1.5x` playback speed, with transcript panel width at `400px`.
-2. **Grounded Citation Navigation**:
-   - In **Chat**, click a citation badge (`⏱ 01:15`).
-   - *Expected Result*: App navigates to **Video** workspace, seeks video to `01:15`, auto-scrolls transcript to matching segment, and highlights segment card in gold.
-3. **Transcript Synchronization & Scroll Resume**:
-   - Press play on video $\rightarrow$ transcript highlights in real-time and auto-scrolls.
-   - Scroll transcript manually $\rightarrow$ auto-scroll pauses and **"↓ Resume Auto-Scroll"** button appears. Clicking it re-engages auto-follow.
-4. **Resizable Layout & Keyboard Controls**:
-   - Drag divider handle or press `Space` (Play/Pause) / `Left/Right` (±5s).
-   - *Expected Result*: Panel resizes smoothly and video controls respond instantly to keyboard hotkeys.
+### Manual Testing Guide
+1. Open **Video** (`view-video`) and play a video to timestamp `12:34`.
+2. Click **💬 AI Assistant** tab in Video Workspace.
+3. Type *"Can you explain this concept?"* or click prompt chip **💡 Explain what was just said**.
+4. *Expected Result*: Backend extracts transcript around 12:34. AI answer includes context provenance badge (`📹 Lecture 3 | ⏱ 12:04–13:04`) and grounded citations.
+5. Click **Full Chat View ↗**.
+6. *Expected Result*: Main **Chat** (`view-chat`) opens displaying the complete conversation thread intact.

@@ -36,6 +36,8 @@ class ChatQueryRequest(BaseModel):
     query: str
     workspace_id: str = "default"
     media_id: Optional[str] = None
+    current_timestamp: Optional[float] = None
+    selected_text: Optional[str] = None
 
 class CitationDTO(BaseModel):
     chunk_id: Optional[str] = None
@@ -47,6 +49,7 @@ class ChatQueryResponse(BaseModel):
     query: str
     answer: str
     citations: List[CitationDTO]
+    context_provenance: Optional[Dict[str, Any]] = None
 
 class ChatMessageDTO(BaseModel):
     id: str
@@ -105,7 +108,9 @@ async def query_chat(
         result = await manager.query_workspace(
             query=request.query,
             workspace_id=request.workspace_id,
-            media_id=request.media_id
+            media_id=request.media_id,
+            current_timestamp=request.current_timestamp,
+            selected_text=request.selected_text
         )
 
         citations_list = [
@@ -124,7 +129,8 @@ async def query_chat(
         return ChatQueryResponse(
             query=result["query"],
             answer=result["answer"],
-            citations=citations_list
+            citations=citations_list,
+            context_provenance=result.get("context_provenance")
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

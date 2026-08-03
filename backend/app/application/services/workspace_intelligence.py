@@ -31,9 +31,22 @@ class WorkspaceIntelligenceManager:
         self.memory_manager = MemoryManager()
         self.context_builder = ContextBuilder()
 
-    async def query_workspace(self, query: str, workspace_id: str, media_id: Optional[str] = None) -> Dict[str, Any]:
-        # 1. Multi-Stage Retrieval
-        retrieval_ctx = await self.retriever.execute_retrieval(query, workspace_id, media_id)
+    async def query_workspace(
+        self,
+        query: str,
+        workspace_id: str,
+        media_id: Optional[str] = None,
+        current_timestamp: Optional[float] = None,
+        selected_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        # 1. Multi-Stage Retrieval with timestamp & selected text context
+        retrieval_ctx = await self.retriever.execute_retrieval(
+            query=query,
+            workspace_id=workspace_id,
+            media_id=media_id,
+            current_timestamp=current_timestamp,
+            selected_text=selected_text
+        )
         
         # 2. Text Generation via AI Service Bus
         text_capability = self.ai_service_bus.get_text_capability()
@@ -58,5 +71,6 @@ class WorkspaceIntelligenceManager:
                     "text": c.get("text")
                 }
                 for c in retrieval_ctx.retrieved_chunks
-            ]
+            ],
+            "context_provenance": retrieval_ctx.context_provenance
         }

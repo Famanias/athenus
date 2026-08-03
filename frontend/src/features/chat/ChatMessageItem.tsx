@@ -44,11 +44,10 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
       {/* Message Content Bubble */}
       <div
-        className={`p-4 rounded border text-xs leading-relaxed ${
-          isUser
+        className={`p-4 rounded border text-xs leading-relaxed ${isUser
             ? 'bg-surface-container-high border-outline-variant text-on-surface'
             : 'bg-surface-container border-outline-variant text-on-surface space-y-3'
-        }`}
+          }`}
       >
         <p className="whitespace-pre-wrap">{message.content}</p>
 
@@ -56,7 +55,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
         {message.citations && message.citations.length > 0 && (
           <div className="pt-2 flex flex-wrap gap-2 border-t border-outline-variant/40">
             <span className="text-[10px] text-on-surface-variant font-mono flex items-center gap-1">
-              <span>🎯</span> Grounded Citations:
+              Citations:
             </span>
             {message.citations.map((cit, idx) => {
               const startStr = cit.startTime || '00:00';

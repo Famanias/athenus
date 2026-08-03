@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useVideo } from './useVideo';
+import { EmbeddedChatWidget } from './EmbeddedChatWidget';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
 
@@ -25,11 +26,15 @@ export const VideoWorkspace: React.FC = () => {
 
   const { activeMediaId, setActiveView } = useAppStore();
 
+  // Active right panel tab ('transcript' | 'chat')
+  const [activeRightTab, setActiveRightTab] = useState<'transcript' | 'chat'>('transcript');
+  const [selectedTranscriptText, setSelectedTranscriptText] = useState<string>('');
+
   // Layout states (width & collapse)
   const [transcriptWidth, setTranscriptWidth] = useState<number>(() => {
-    if (typeof window === 'undefined') return 360;
+    if (typeof window === 'undefined') return 380;
     const saved = localStorage.getItem('athenus_transcript_width');
-    return saved ? parseInt(saved, 10) : 360;
+    return saved ? parseInt(saved, 10) : 380;
   });
 
   const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
@@ -61,7 +66,7 @@ export const VideoWorkspace: React.FC = () => {
       if (!isDragging || !containerRef.current) return;
       const containerRect = containerRef.current.getBoundingClientRect();
       const newWidth = containerRect.right - e.clientX;
-      if (newWidth >= 220 && newWidth <= 600) {
+      if (newWidth >= 260 && newWidth <= 650) {
         setTranscriptWidth(newWidth);
       }
     };
@@ -82,13 +87,13 @@ export const VideoWorkspace: React.FC = () => {
 
   // Auto-scroll transcript panel to active segment unless user scrolled manually
   useEffect(() => {
-    if (!userScrolled && activeSegmentIndex >= 0 && segmentRefs.current[activeSegmentIndex]) {
+    if (activeRightTab === 'transcript' && !userScrolled && activeSegmentIndex >= 0 && segmentRefs.current[activeSegmentIndex]) {
       segmentRefs.current[activeSegmentIndex]?.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
       });
     }
-  }, [activeSegmentIndex, userScrolled]);
+  }, [activeSegmentIndex, userScrolled, activeRightTab]);
 
   // Detect manual user scrolling inside transcript container
   const handleTranscriptScroll = () => {
@@ -109,7 +114,6 @@ export const VideoWorkspace: React.FC = () => {
   // Keyboard controls listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore key events when user is typing in inputs or textareas
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
         return;
@@ -153,6 +157,15 @@ export const VideoWorkspace: React.FC = () => {
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
   };
+
+  const handleAskAboutSegment = (segmentText: string, startSecs: number) => {
+    seekToSeconds(startSecs);
+    setSelectedTranscriptText(segmentText);
+    setActiveRightTab('chat');
+  };
+
+  // Current video playback seconds
+  const currentVideoSeconds = videoRef.current?.currentTime || 0;
 
   // Empty state when no media asset is selected
   if (!activeMediaId && segments.length === 0) {
@@ -234,22 +247,43 @@ export const VideoWorkspace: React.FC = () => {
               </select>
             </div>
 
-            <Button
-              variant="secondary"
-              size="sm"
-              icon="chat"
-              onClick={() => setActiveView('view-chat')}
-            >
-              Ask AI
-            </Button>
+            {/* Right Panel Tab Switcher */}
+            <div className="flex bg-surface-container border border-outline-variant rounded p-0.5 font-mono text-[11px]">
+              <button
+                onClick={() => {
+                  setActiveRightTab('transcript');
+                  if (isCollapsed) setIsCollapsed(false);
+                }}
+                className={`px-2.5 py-1 rounded transition-colors ${
+                  activeRightTab === 'transcript' && !isCollapsed
+                    ? 'bg-secondary text-on-secondary font-bold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                📝 Transcript
+              </button>
+              <button
+                onClick={() => {
+                  setActiveRightTab('chat');
+                  if (isCollapsed) setIsCollapsed(false);
+                }}
+                className={`px-2.5 py-1 rounded transition-colors ${
+                  activeRightTab === 'chat' && !isCollapsed
+                    ? 'bg-secondary text-on-secondary font-bold'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                💬 AI Assistant
+              </button>
+            </div>
 
             {/* Panel Collapse Toggle */}
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              title={isCollapsed ? 'Expand Transcript Panel' : 'Collapse Transcript Panel'}
+              title={isCollapsed ? 'Expand Side Panel' : 'Collapse Side Panel'}
               className="p-1.5 rounded bg-surface-container border border-outline-variant text-on-surface-variant hover:text-on-surface text-xs font-mono"
             >
-              {isCollapsed ? '◀ Transcript' : '▶ Hide'}
+              {isCollapsed ? '◀ Panel' : '▶ Hide'}
             </button>
           </div>
         </div>
@@ -265,95 +299,116 @@ export const VideoWorkspace: React.FC = () => {
         />
       )}
 
-      {/* Synchronized Transcript Side Panel */}
+      {/* Side Panel (Transcript Sync or Embedded AI Chat Widget) */}
       {!isCollapsed && (
         <div
           style={{ width: `${transcriptWidth}px` }}
-          className="flex flex-col bg-surface-container-lowest shrink-0 min-w-[220px] max-w-[600px] h-full overflow-hidden"
+          className="flex flex-col bg-surface-container-lowest shrink-0 min-w-[260px] max-w-[650px] h-full overflow-hidden"
         >
-          {/* Transcript Panel Header & Search Filter */}
-          <div className="p-3 border-b border-outline-variant bg-surface-container-low space-y-2 shrink-0">
-            <div className="flex justify-between items-center">
-              <span className="font-mono text-xs font-bold text-secondary uppercase tracking-wider flex items-center gap-1.5">
-                <span>📝</span> Transcript Sync
-              </span>
-              <button
-                onClick={handleCopyTranscript}
-                className="text-[10px] text-on-surface-variant hover:text-secondary font-mono flex items-center gap-1"
-              >
-                {copySuccess ? '✓ Copied' : '📋 Copy Text'}
-              </button>
-            </div>
-
-            {/* Filter Input */}
-            <input
-              type="text"
-              placeholder="Search transcript text or 01:15..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className="w-full bg-surface-container border border-outline-variant rounded p-1.5 text-xs text-on-surface focus:border-secondary focus:outline-none font-mono"
+          {activeRightTab === 'chat' ? (
+            <EmbeddedChatWidget
+              currentTimestampSeconds={currentVideoSeconds}
+              selectedTranscriptText={selectedTranscriptText}
+              onClearSelectedText={() => setSelectedTranscriptText('')}
             />
-          </div>
-
-          {/* Transcript List Scroll Area */}
-          <div
-            ref={scrollContainerRef}
-            onScroll={handleTranscriptScroll}
-            className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar text-xs leading-relaxed relative"
-          >
-            {loading && (
-              <div className="p-8 text-center text-xs text-on-surface-variant font-mono">
-                Loading transcript...
-              </div>
-            )}
-
-            {!loading && segments.length === 0 && (
-              <div className="p-6 border border-dashed border-outline-variant rounded bg-surface-container-low text-center space-y-2">
-                <span className="text-xl block">📄</span>
-                <p className="text-xs text-on-surface-variant">No transcript segments available for this asset.</p>
-              </div>
-            )}
-
-            {!loading && filteredSegments.map((seg) => {
-              const originalIndex = segments.findIndex((s) => s.id === seg.id);
-              const isActive = originalIndex === activeSegmentIndex;
-
-              return (
-                <div
-                  key={seg.id}
-                  ref={(el) => {
-                    if (originalIndex >= 0) segmentRefs.current[originalIndex] = el;
-                  }}
-                  onClick={() => seekToSeconds(seg.start_seconds)}
-                  className={`p-3 rounded border transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-secondary/15 border-l-4 border-secondary border-secondary/40 text-on-surface shadow-md scale-[1.01]'
-                      : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container text-on-surface-variant'
-                  }`}
-                >
-                  <div className="flex justify-between items-center mb-1">
-                    <span className={`font-mono text-[11px] font-bold ${isActive ? 'text-secondary' : 'text-on-surface-variant'}`}>
-                      ⏱ {seg.timestamp}
-                    </span>
-                    <span className="text-[10px] font-mono text-on-surface-variant/60">
-                      {seg.speaker}
-                    </span>
-                  </div>
-                  <p className="text-xs leading-relaxed">{seg.text}</p>
+          ) : (
+            <div className="flex flex-col h-full overflow-hidden">
+              {/* Transcript Panel Header & Search Filter */}
+              <div className="p-3 border-b border-outline-variant bg-surface-container-low space-y-2 shrink-0">
+                <div className="flex justify-between items-center">
+                  <span className="font-mono text-xs font-bold text-secondary uppercase tracking-wider flex items-center gap-1.5">
+                    <span>📝</span> Transcript Sync
+                  </span>
+                  <button
+                    onClick={handleCopyTranscript}
+                    className="text-[10px] text-on-surface-variant hover:text-secondary font-mono flex items-center gap-1"
+                  >
+                    {copySuccess ? '✓ Copied' : '📋 Copy Text'}
+                  </button>
                 </div>
-              );
-            })}
-          </div>
 
-          {/* Floating Resume Auto-Scroll Button */}
-          {userScrolled && (
-            <div className="p-2 bg-surface-container-low border-t border-outline-variant flex justify-center shrink-0">
-              <button
-                onClick={handleResumeAutoScroll}
-                className="px-3 py-1 bg-secondary text-on-secondary text-xs font-bold rounded-full shadow-lg hover:brightness-110 flex items-center gap-1"
+                {/* Filter Input */}
+                <input
+                  type="text"
+                  placeholder="Search transcript text or 01:15..."
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  className="w-full bg-surface-container border border-outline-variant rounded p-1.5 text-xs text-on-surface focus:border-secondary focus:outline-none font-mono"
+                />
+              </div>
+
+              {/* Transcript List Scroll Area */}
+              <div
+                ref={scrollContainerRef}
+                onScroll={handleTranscriptScroll}
+                className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar text-xs leading-relaxed relative"
               >
-                ↓ Resume Auto-Scroll
-              </button>
+                {loading && (
+                  <div className="p-8 text-center text-xs text-on-surface-variant font-mono">
+                    Loading transcript...
+                  </div>
+                )}
+
+                {!loading && segments.length === 0 && (
+                  <div className="p-6 border border-dashed border-outline-variant rounded bg-surface-container-low text-center space-y-2">
+                    <span className="text-xl block">📄</span>
+                    <p className="text-xs text-on-surface-variant">No transcript segments available for this asset.</p>
+                  </div>
+                )}
+
+                {!loading && filteredSegments.map((seg) => {
+                  const originalIndex = segments.findIndex((s) => s.id === seg.id);
+                  const isActive = originalIndex === activeSegmentIndex;
+
+                  return (
+                    <div
+                      key={seg.id}
+                      ref={(el) => {
+                        if (originalIndex >= 0) segmentRefs.current[originalIndex] = el;
+                      }}
+                      className={`p-3 rounded border transition-all ${
+                        isActive
+                          ? 'bg-secondary/15 border-l-4 border-secondary border-secondary/40 text-on-surface shadow-md scale-[1.01]'
+                          : 'bg-surface-container-low/60 border-outline-variant/30 hover:bg-surface-container text-on-surface-variant'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <button
+                          onClick={() => seekToSeconds(seg.start_seconds)}
+                          className={`font-mono text-[11px] font-bold hover:underline ${isActive ? 'text-secondary' : 'text-on-surface-variant'}`}
+                        >
+                          ⏱ {seg.timestamp}
+                        </button>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-on-surface-variant/60">
+                            {seg.speaker}
+                          </span>
+                          <button
+                            onClick={() => handleAskAboutSegment(seg.text, seg.start_seconds)}
+                            title="Ask AI about this segment"
+                            className="px-1.5 py-0.5 rounded bg-surface-container hover:bg-secondary/20 hover:text-secondary text-[10px] font-mono text-on-surface-variant transition-colors"
+                          >
+                            💬 Ask AI
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs leading-relaxed select-text">{seg.text}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Floating Resume Auto-Scroll Button */}
+              {userScrolled && (
+                <div className="p-2 bg-surface-container-low border-t border-outline-variant flex justify-center shrink-0">
+                  <button
+                    onClick={handleResumeAutoScroll}
+                    className="px-3 py-1 bg-secondary text-on-secondary text-xs font-bold rounded-full shadow-lg hover:brightness-110 flex items-center gap-1"
+                  >
+                    ↓ Resume Auto-Scroll
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

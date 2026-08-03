@@ -56,7 +56,7 @@ export function useChat() {
   }, [activeWorkspaceId]);
 
 
-  const sendMessage = async (queryText?: string) => {
+  const sendMessage = async (queryText?: string, currentTimestamp?: number, selectedText?: string) => {
     const query = queryText ?? inputQuery;
     if (!query.trim() || isGenerating) return;
 
@@ -72,7 +72,7 @@ export function useChat() {
     setGenerating(true);
 
     try {
-      const data = await sendChatQuery(query, activeWorkspaceId, activeMediaId ?? undefined);
+      const data = await sendChatQuery(query, activeWorkspaceId, activeMediaId ?? undefined, currentTimestamp, selectedText);
       setBackendUnavailable(false);
 
       const mappedCitations = mapBackendCitations(data.citations, activeMediaId ?? '', 'Lecture Segment');

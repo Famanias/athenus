@@ -8,10 +8,19 @@ export interface BackendCitationDTO {
   text: string;
 }
 
+export interface ContextProvenanceDTO {
+  media_title?: string;
+  timestamp?: string;
+  timestamp_range?: string;
+  segment_count?: number;
+  selected_text?: string;
+}
+
 export interface BackendChatResponse {
   query: string;
   answer: string;
   citations: BackendCitationDTO[];
+  context_provenance?: ContextProvenanceDTO;
 }
 
 export function formatSecondsToTimestamp(seconds: number): string {
@@ -52,7 +61,9 @@ export interface BackendChatMessageDTO {
 export async function sendChatQuery(
   query: string,
   workspaceId = 'default',
-  mediaId?: string
+  mediaId?: string,
+  currentTimestamp?: number,
+  selectedText?: string
 ): Promise<BackendChatResponse> {
   return apiClient<BackendChatResponse>('/api/v1/chat/query', {
     method: 'POST',
@@ -60,6 +71,8 @@ export async function sendChatQuery(
       query,
       workspace_id: workspaceId,
       media_id: mediaId,
+      current_timestamp: currentTimestamp,
+      selected_text: selectedText,
     }),
   });
 }
