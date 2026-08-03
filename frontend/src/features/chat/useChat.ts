@@ -3,9 +3,9 @@
 // State lives in the store (survives view unmount/remount).
 // This hook owns only the async sendMessage workflow — no local useState.
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { sendChatQuery, getChatHistory, mapBackendCitations } from '@/services/chatService';
+import { sendChatQuery, getChatHistory, clearChatHistory, mapBackendCitations } from '@/services/chatService';
 import type { ChatMessage, Citation, AgentLog } from './types';
 
 // Re-export types so consumers don't need to import from two places.
@@ -26,10 +26,12 @@ export function useChat() {
   const updateInput          = useAppStore((s) => s.updateInput);
   const setGenerating        = useAppStore((s) => s.setGenerating);
   const setBackendUnavailable = useAppStore((s) => s.setBackendUnavailable);
-  const clearConversation    = useAppStore((s) => s.clearConversation);
+  const storeClearConversation = useAppStore((s) => s.clearConversation);
 
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const activeMediaId     = useAppStore((s) => s.activeMediaId);
+
+  const hasLoadedHistoryRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     async function loadHistory() {
@@ -44,16 +46,34 @@ export function useChat() {
             citations: h.citations ? mapBackendCitations(h.citations) : undefined,
           }));
           replaceMessages(formatted);
+          const lastAsst = formatted.filter((m) => m.sender === 'assistant').pop();
+          if (lastAsst && lastAsst.citations) {
+            addEvidence(lastAsst.citations);
+          } else {
+            addEvidence([]);
+          }
         }
       } catch {
         // Backend unavailable or empty history
+      } finally {
+        hasLoadedHistoryRef.current[activeWorkspaceId] = true;
       }
     }
 
-    if (messages.length <= 1) {
+    if (!hasLoadedHistoryRef.current[activeWorkspaceId]) {
       loadHistory();
     }
   }, [activeWorkspaceId]);
+
+  const handleClearConversation = useCallback(async () => {
+    try {
+      await clearChatHistory(activeWorkspaceId);
+    } catch {
+      // Backend unavailable or error clearing history
+    }
+    storeClearConversation();
+    hasLoadedHistoryRef.current[activeWorkspaceId] = true;
+  }, [activeWorkspaceId, storeClearConversation]);
 
 
   const sendMessage = async (queryText?: string, currentTimestamp?: number, selectedText?: string) => {
@@ -86,9 +106,7 @@ export function useChat() {
       };
 
       addMessage(assistantMsg);
-      if (mappedCitations.length > 0) {
-        addEvidence(mappedCitations);
-      }
+      addEvidence(mappedCitations);
     } catch {
       setBackendUnavailable(true);
 
@@ -114,6 +132,6 @@ export function useChat() {
     sendMessage,
     isGenerating,
     isBackendUnavailable,
-    clearConversation,
+    clearConversation: handleClearConversation,
   };
 }

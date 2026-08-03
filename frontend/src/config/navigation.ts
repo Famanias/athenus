@@ -19,8 +19,6 @@ export const NAVIGATION_CONFIG: NavCategory[] = [
     title: 'Wisdom',
     items: [
       { id: 'view-chat', label: 'Chat', icon: 'forum', badge: 'Active', badgeType: 'active' },
-      { id: 'view-ask', label: 'Ask & Explain Concepts', icon: 'psychology' },
-      { id: 'view-insights', label: 'AI Synthesis Insights', icon: 'auto_awesome' },
     ],
   },
   {

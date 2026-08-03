@@ -10,10 +10,10 @@ export interface PipelineStage {
 }
 
 const INITIAL_STAGES: PipelineStage[] = [
-  { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'pending', progress: 0 },
-  { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'pending', progress: 0 },
-  { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'pending', progress: 0 },
-  { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'pending', progress: 0 },
+  { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'pending', progress: 0 },
+  { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'pending', progress: 0 },
+  { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
+  { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
 ];
 
 // Maps backend stage ids to the frontend pipeline stage index.
@@ -38,10 +38,10 @@ export function useIngestion() {
 
     // Reset stages
     setStages([
-      { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'processing', progress: 50 },
-      { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'pending', progress: 0 },
-      { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'pending', progress: 0 },
-      { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'pending', progress: 0 },
+      { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'processing', progress: 50 },
+      { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'pending', progress: 0 },
+      { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
+      { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
     ]);
 
     try {
@@ -78,10 +78,10 @@ export function useIngestion() {
 
           if (status === 'completed' || current_stage === 'completed') {
             setStages([
-              { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'completed', progress: 100 },
-              { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'completed', progress: 100 },
-              { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'completed', progress: 100 },
-              { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'completed', progress: 100 },
+              { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
+              { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
+              { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'completed', progress: 100 },
+              { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'completed', progress: 100 },
             ]);
             setIsUploading(false);
             eventSource.close();
@@ -91,31 +91,31 @@ export function useIngestion() {
           // Dynamic stage progression
           if (current_stage === 'audio_extraction') {
             setStages([
-              { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'processing', progress: overall_progress || 50 },
-              { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'pending', progress: 0 },
-              { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'pending', progress: 0 },
-              { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'pending', progress: 0 },
+              { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'processing', progress: overall_progress || 50 },
+              { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'pending', progress: 0 },
+              { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
+              { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
             ]);
           } else if (current_stage === 'transcription') {
             setStages([
-              { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'completed', progress: 100 },
-              { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'processing', progress: overall_progress || 60 },
-              { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'pending', progress: 0 },
-              { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'pending', progress: 0 },
+              { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
+              { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'processing', progress: overall_progress || 60 },
+              { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
+              { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
             ]);
           } else if (current_stage === 'chunking') {
             setStages([
-              { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'completed', progress: 100 },
-              { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'completed', progress: 100 },
-              { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'processing', progress: overall_progress || 75 },
-              { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'pending', progress: 0 },
+              { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
+              { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
+              { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'processing', progress: overall_progress || 75 },
+              { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
             ]);
           } else if (current_stage === 'vector_indexing') {
             setStages([
-              { id: 'stg_1', name: '1. FFmpeg Audio Extraction (16kHz Mono WAV)', status: 'completed', progress: 100 },
-              { id: 'stg_2', name: '2. Faster-Whisper Speech Recognition', status: 'completed', progress: 100 },
-              { id: 'stg_3', name: '3. Semantic Chunker (~250 Word Windows)', status: 'completed', progress: 100 },
-              { id: 'stg_4', name: '4. BGE Embedding & Qdrant Vector Upsert', status: 'processing', progress: overall_progress || 90 },
+              { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
+              { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
+              { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'completed', progress: 100 },
+              { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'processing', progress: overall_progress || 90 },
             ]);
           }
         } catch (_e) {

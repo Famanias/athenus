@@ -3,10 +3,7 @@ from fastapi.testclient import TestClient
 from app.infrastructure.db.session import init_db, engine
 from app.infrastructure.db.models import (
     MediaItemTable,
-    TranscriptSegmentTable,
     ChatMessageTable,
-    ProcessingLogTable,
-    KnowledgeConceptTable,
     WorkspaceTable,
 )
 from app.application.events.progress_store import progress_store
@@ -23,13 +20,21 @@ def test_system_clear_data_factory_reset():
     init_db()
     client = TestClient(app)
 
+    uploads_dir = os.path.join(".", "data", "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
+    dummy_file = os.path.join(uploads_dir, "test_purge.mp4")
+    with open(dummy_file, "w") as f:
+        f.write("dummy video binary content")
+
+    assert os.path.exists(dummy_file)
+
     # 1. Populate database records
     with Session(engine) as session:
         m_item = MediaItemTable(
             id="med_purge_1",
             workspace_id="default",
             title="Test Video to Delete",
-            file_path="./data/uploads/test_purge.mp4"
+            file_path=dummy_file
         )
         session.add(m_item)
         c_msg = ChatMessageTable(
@@ -41,15 +46,6 @@ def test_system_clear_data_factory_reset():
         )
         session.add(c_msg)
         session.commit()
-
-    # Create dummy upload file
-    uploads_dir = os.path.join(".", "data", "uploads")
-    os.makedirs(uploads_dir, exist_ok=True)
-    dummy_file = os.path.join(uploads_dir, "test_purge.mp4")
-    with open(dummy_file, "w") as f:
-        f.write("dummy video binary content")
-
-    assert os.path.exists(dummy_file)
 
     # Populate progress store
     progress_store.record_stage_progress("med_purge_1", "upload", 100, "Uploaded", "completed")

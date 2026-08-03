@@ -87,7 +87,7 @@ export const UploadDropzone: React.FC = () => {
                 <span className="text-rose-400 font-mono font-semibold">✕ Failed</span>
               )}
               {stg.status === 'pending' && (
-                <span className="text-on-surface-variant/50 font-mono">⏳ Pending</span>
+                <span className="text-on-surface-variant/50 font-mono">N/A</span>
               )}
             </div>
           ))}

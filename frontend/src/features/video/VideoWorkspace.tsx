@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { PersistentMediaPlayer } from './PersistentMediaPlayer';
 import { useVideo } from './useVideo';
 import { EmbeddedChatWidget } from './EmbeddedChatWidget';
 import { Button } from '@/components/ui/Button';

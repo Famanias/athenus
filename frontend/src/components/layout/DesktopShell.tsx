@@ -19,11 +19,13 @@ import { KnowledgeGraphCanvas } from '@/features/graph/KnowledgeGraphCanvas';
 import { UploadDropzone } from '@/features/ingestion/UploadDropzone';
 import { SystemSettings } from '@/features/settings/SystemSettings';
 
+import { PersistentMediaPlayer } from '@/features/video/PersistentMediaPlayer';
+
 export const DesktopShell: React.FC = () => {
   const { activeView } = useAppStore();
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="flex h-screen w-screen overflow-hidden bg-background text-on-background">
       {/* Categorized Navigation Sidebar */}
       <Sidebar />
 
@@ -34,8 +36,12 @@ export const DesktopShell: React.FC = () => {
 
         {/* Dynamic View Canvas */}
         <MainPanel>
+          {/* Persistent Video Workspace Container (guarantees single authoritative video player DOM node) */}
+          <div className={`flex-1 flex flex-col h-full w-full ${activeView === 'view-video' ? '' : 'hidden'}`}>
+            <VideoWorkspace />
+          </div>
+
           {activeView === 'view-dashboard' && <LibraryGrid />}
-          {activeView === 'view-video' && <VideoWorkspace />}
           {activeView === 'view-chat' && <ChatWorkspace />}
           {activeView === 'view-flashcards' && <FlashcardGrid />}
           {activeView === 'view-quiz' && <QuizStudio />}

@@ -1,3 +1,4 @@
+import uuid
 from fastapi.testclient import TestClient
 from app.infrastructure.db.session import init_db, engine
 from app.infrastructure.db.models import MediaItemTable, TranscriptSegmentTable
@@ -13,11 +14,12 @@ def test_context_aware_chat_query():
     init_db()
     client = TestClient(app)
 
+    unique_suffix = uuid.uuid4().hex[:6]
+    media_id = f"med_ctx_test_{unique_suffix}"
+    workspace_id = "default"
+
     # 1. Populate test media item and transcript segments in SQLite
     with Session(engine) as session:
-        media_id = "med_ctx_test_1"
-        workspace_id = "default"
-
         m_item = MediaItemTable(
             id=media_id,
             workspace_id=workspace_id,
@@ -56,7 +58,7 @@ def test_context_aware_chat_query():
         json={
             "query": "Can you explain why we multiply by the derivative here?",
             "workspace_id": "default",
-            "media_id": "med_ctx_test_1",
+            "media_id": media_id,
             "current_timestamp": 754.0,
             "selected_text": "multiply the error vector by the derivative"
         }

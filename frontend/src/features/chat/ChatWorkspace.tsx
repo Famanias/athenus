@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useChat } from './useChat';
 import { ChatMessageItem } from './ChatMessageItem';
 import { RetrievedEvidencePanel } from './RetrievedEvidencePanel';
@@ -11,8 +11,16 @@ export const ChatWorkspace: React.FC = () => {
     useChat();
   const threadEndRef = useRef<HTMLDivElement | null>(null);
 
+  // Active focused assistant message for inspection in RetrievedEvidencePanel
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+
+  // Auto-scroll to bottom on new message and update selectedMessageId to latest assistant response
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const lastAsst = messages.filter((m) => m.sender === 'assistant').pop();
+    if (lastAsst) {
+      setSelectedMessageId(lastAsst.id);
+    }
   }, [messages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -21,6 +29,14 @@ export const ChatWorkspace: React.FC = () => {
       sendMessage();
     }
   };
+
+  // Determine active evidence to display in RetrievedEvidencePanel:
+  // 1. If a message is selected, use its citations (if any).
+  // 2. Otherwise, fall back to global state evidence or empty array.
+  const selectedMessage = messages.find((m) => m.id === selectedMessageId && m.sender === 'assistant');
+  const activeEvidence = selectedMessage
+    ? (selectedMessage.citations || [])
+    : evidence;
 
   return (
     <div className="flex-1 flex w-full h-full overflow-hidden">
@@ -41,7 +57,10 @@ export const ChatWorkspace: React.FC = () => {
               variant="secondary"
               size="sm"
               icon="delete"
-              onClick={clearConversation}
+              onClick={() => {
+                clearConversation();
+                setSelectedMessageId(null);
+              }}
               disabled={isGenerating}
             >
               Clear Chat
@@ -52,7 +71,12 @@ export const ChatWorkspace: React.FC = () => {
         {/* Message Thread List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
           {messages.map((msg) => (
-            <ChatMessageItem key={msg.id} message={msg} />
+            <ChatMessageItem
+              key={msg.id}
+              message={msg}
+              isSelected={msg.id === selectedMessageId}
+              onSelectMessage={(id) => setSelectedMessageId(id)}
+            />
           ))}
           <div ref={threadEndRef} />
         </div>
@@ -78,8 +102,8 @@ export const ChatWorkspace: React.FC = () => {
         </div>
       </div>
 
-      {/* Right Context Evidence Panel */}
-      <RetrievedEvidencePanel evidence={evidence} agentLogs={agentLogs} />
+      {/* Right Context Evidence Panel (binds to active assistant message evidence) */}
+      <RetrievedEvidencePanel evidence={activeEvidence} agentLogs={agentLogs} />
     </div>
   );
 };

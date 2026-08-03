@@ -80,17 +80,28 @@ class SystemResetService:
                     raise HTTPException(status_code=500, detail=f"Failed to reset SQLite database: {str(e)}")
 
             # 4. Delete Uploaded Video/Audio Files from Disk
-            uploads_dir = os.path.join(".", "data", "uploads")
-            if os.path.exists(uploads_dir):
-                try:
-                    for filename in os.listdir(uploads_dir):
-                        file_path = os.path.join(uploads_dir, filename)
-                        if os.path.isfile(file_path) or os.path.islink(file_path):
-                            os.unlink(file_path)
-                        elif os.path.isdir(file_path):
-                            shutil.rmtree(file_path)
-                except Exception:
-                    pass
+            possible_dirs = {
+                os.path.abspath(os.path.join(".", "data", "uploads")),
+                os.path.abspath(os.path.join("..", "data", "uploads")),
+                os.path.join(".", "data", "uploads"),
+            }
+            for uploads_dir in possible_dirs:
+                if os.path.exists(uploads_dir):
+                    try:
+                        for filename in os.listdir(uploads_dir):
+                            file_path = os.path.join(uploads_dir, filename)
+                            if os.path.isfile(file_path) or os.path.islink(file_path):
+                                try:
+                                    os.unlink(file_path)
+                                except Exception:
+                                    pass
+                            elif os.path.isdir(file_path):
+                                try:
+                                    shutil.rmtree(file_path)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
 
             # 5. Re-create Clean Default Workspace in SQLite
             self.workspace_service._workspaces.clear()

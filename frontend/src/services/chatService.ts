@@ -81,3 +81,9 @@ export async function getChatHistory(workspaceId = 'default'): Promise<BackendCh
   return apiClient<BackendChatMessageDTO[]>(`/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`);
 }
 
+export async function clearChatHistory(workspaceId = 'default'): Promise<{ status: string; deleted_count: number }> {
+  return apiClient<{ status: string; deleted_count: number }>(`/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`, {
+    method: 'DELETE',
+  });
+}
+

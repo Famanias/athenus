@@ -1,70 +1,68 @@
-# Implementation Plan — Picture-in-Picture & Multiple Video Playback Bug Fix
+# Implementation Plan — Per-Message Grounded Citations Architecture Fix
 
-Diagnose and permanently resolve the issue where opening a video in Picture-in-Picture (PiP) mode and subsequently closing the PiP window or clicking "Back to Tab" causes multiple copies of the same video to play simultaneously with overlapping audio.
-
----
-
-## User Review Required
-
-> [!IMPORTANT]
-> **Key Architecture Decisions & Enhancements Incorporated:**
-> 1. **Stage 1 — Diagnostic Lifecycle Investigation**:
->    - Add diagnostic logging to `useVideo.ts` and `VideoWorkspace.tsx` to record:
->      - Count of `<video>` elements in the DOM (`document.getElementsByTagName('video').length`).
->      - Component mount/unmount timestamps.
->      - Active `videoRef` instance ID.
->      - PiP events (`enterpictureinpicture`, `leavepictureinpicture`).
->    - Verify the exact mechanism creating duplicate playback before applying code changes.
-> 2. **Elimination of DOM Scanning Hacks**:
->    - Removed all arbitrary DOM-wide scanning (`document.querySelectorAll('video')`).
->    - Ensures clean lifecycle control so duplicate players cannot be instantiated by design.
-> 3. **Seamless Playback State Preservation**:
->    - When exiting PiP or clicking "Back to Tab", preserve `currentTime`, `playbackRate`, `volume`, and `muted` state so transitions back to the workspace are smooth and uninterrupted.
-> 4. **PiP Lifecycle Synchronization**:
->    - Bind `enterpictureinpicture` and `leavepictureinpicture` event listeners to sync `isPipActive` state and clean up media resources on unmount.
+Fix the issue where previously retrieved citations persist across subsequent responses or display stale evidence from prior turns. Ensure that every assistant response maintains its own independent citation set grounded strictly in the retrieval results for that specific question.
 
 ---
 
-## Stage 1 — Diagnostic Investigation Workflow
+## 🔍 Investigation Findings & Root Cause Analysis
 
-```text
-  Mount VideoWorkspace
-        │
-        ▼
-  Log Component Instance ID & Video Element Count
-        │
-        ▼
-  Trigger Picture-in-Picture (enterpictureinpicture)
-        │
-        ▼
-  Log PiP Window Active & Reference Identity
-        │
-        ▼
-  Close PiP / Click "Back to Tab" / Switch View Tab
-        │
-        ▼
-  Log Unmount vs Remount Lifecycle & Active Audio Media Count
-```
+### 1. How Citations Are Stored
+- **Backend Database (`backend/app/infrastructure/db/models.py`)**: `ChatMessageTable` includes a `citations_json` column. Each assistant message row stores its own JSON array of citations (`citations_json`).
+- **Frontend State (`frontend/src/store/chatSlice.ts`)**:
+  - Individual messages inside `messages: ChatMessage[]` contain a `citations?: Citation[]` array.
+  - The Zustand `chat` state also retains a top-level `evidence: Citation[]` array intended for the right-hand `RetrievedEvidencePanel`.
+
+### 2. Why Stale Citations Persisted Across Responses (Root Causes Identified)
+1. **Guarded State Update Bug in `useChat.ts`**:
+   Line 89 of `useChat.ts` previously checked:
+   ```typescript
+   if (mappedCitations.length > 0) {
+     addEvidence(mappedCitations);
+   }
+   ```
+   If a follow-up response returned an empty citations array (or 0 retrieved chunks), `addEvidence` was skipped. Consequently, `state.chat.evidence` was never updated to `[]` and retained the stale citations from the previous question!
+2. **Missing Active Message Citation Binding in UI**:
+   The right-hand `RetrievedEvidencePanel` rendered `state.chat.evidence` globally rather than deriving evidence from the currently selected or active assistant message. When scrolling up to read earlier responses, the panel did not reflect the specific citations for that earlier turn.
+3. **History Re-Hydration Gap**:
+   `loadHistory()` populated `messages` from SQLite but did not update the side panel's active evidence to match the latest message in history.
 
 ---
 
-## Stage 2 — Proposed Changes
+## 🛠️ Proposed Architectural Fix
 
-### Frontend Video Subsystem (`frontend/src/features/video/`)
+### 1. Always Update / Clear Evidence in `useChat.ts`
+Remove the `mappedCitations.length > 0` guard so every turn (and history load) explicitly sets `addEvidence(mappedCitations)`. If a response returns 0 citations, `evidence` resets to `[]`.
 
-#### [MODIFY] [useVideo.ts](file:///e:/repos/athenus/frontend/src/features/video/useVideo.ts)
-- Add diagnostic lifecycle logging (`componentId`, mount/unmount timestamps, DOM video count).
-- Add `isPipActive: boolean` state.
-- Add unmount cleanup effect:
-  - Check `document.pictureInPictureElement === videoEl`.
-  - Exit PiP cleanly if active.
-  - Save current `currentTime` and `playbackRate` to `localStorage` before pausing.
-  - Remove `src` attribute and call `load()` to release browser media decoders.
-- Bind `enterpictureinpicture` and `leavepictureinpicture` event listeners.
+### 2. Message Selection & Active Citation Binding (`ChatWorkspace.tsx`)
+- Introduce `selectedMessageId` state in `ChatWorkspace.tsx` (defaulting to the latest assistant message).
+- Allow users to click any assistant message card to inspect its specific evidence in `RetrievedEvidencePanel`.
+- Dynamically derive the panel's active evidence:
+  ```typescript
+  const selectedMessage = messages.find((m) => m.id === selectedMessageId);
+  const displayedEvidence = selectedMessage?.citations ?? (latestAssistantMsg?.citations || []);
+  ```
 
-#### [MODIFY] [VideoWorkspace.tsx](file:///e:/repos/athenus/frontend/src/features/video/VideoWorkspace.tsx)
-- Expose PiP toggle button in video control bar.
-- Re-hydrate `currentTime` and `playbackRate` seamlessly when restoring from PiP.
+### 3. Clear Evidence on Conversation Reset & Workspace Switch
+Ensure `clearConversation()` resets `evidence: []` and clearing chat history in SQLite resets all citation states cleanly.
+
+---
+
+## Proposed Changes
+
+### Frontend Chat Subsystem (`frontend/src/features/chat/`)
+
+#### [MODIFY] [useChat.ts](file:///e:/repos/athenus/frontend/src/features/chat/useChat.ts)
+- Remove `mappedCitations.length > 0` guard in `sendMessage` so `addEvidence(mappedCitations)` runs unconditionally.
+- Update `loadHistory()` to set `addEvidence` to the latest assistant message's citations.
+
+#### [MODIFY] [ChatWorkspace.tsx](file:///e:/repos/athenus/frontend/src/features/chat/ChatWorkspace.tsx)
+- Add `selectedMessageId` state.
+- Pass `selectedMessageId` and `onSelectMessage` to `ChatMessageItem`.
+- Compute active message evidence and pass to `RetrievedEvidencePanel`.
+
+#### [MODIFY] [ChatMessageItem.tsx](file:///e:/repos/athenus/frontend/src/features/chat/ChatMessageItem.tsx)
+- Add `isSelected?: boolean` styling (e.g. subtle ring/border highlight).
+- Add `onClick` selector handler on assistant messages.
 
 ---
 
@@ -83,14 +81,11 @@ Diagnose and permanently resolve the issue where opening a video in Picture-in-P
    ```
 
 ### Manual QA Testing Guide
-1. **Stage 1 Diagnostic Logging Verification**:
-   - Open browser developer console $\rightarrow$ navigate to **Video** workspace.
-   - Observe log output: `[useVideo] Mounted instance #1 | DOM Video Count: 1`.
-2. **PiP Entry & Exit**:
-   - Click PiP button $\rightarrow$ observe log: `[useVideo] Enter PiP`.
-   - Close PiP window $\rightarrow$ observe log: `[useVideo] Leave PiP`. Verify **single audio stream** and seamless playback continuation.
-3. **"Back to Tab" Navigation**:
-   - Enter PiP $\rightarrow$ switch to **Chat** tab $\rightarrow$ click "Back to Tab" in floating PiP window.
-   - Observe log: `[useVideo] Unmount instance #1 | Exit PiP` followed by `[useVideo] Mounted instance #2`. Verify **zero duplicate audio**.
-4. **Consecutive PiP Toggles**:
-   - Enter and exit PiP mode 5 consecutive times $\rightarrow$ verify DOM video count remains 1 and no memory leaks occur.
+1. **Per-Message Citation Isolation**:
+   - Ask Question 1: *"Summarize Lecture 1"* $\rightarrow$ Observe citations for Lecture 1 (e.g., `02:15`, `05:42`).
+   - Ask Question 2: *"What is gradient descent?"* $\rightarrow$ Observe NEW citations for Question 2 (e.g., `18:44`, `19:12`). Question 1 citations must NOT be repeated on Question 2.
+2. **Message Selection in History**:
+   - Click on Question 1's assistant bubble $\rightarrow$ Right panel updates to show Question 1's evidence.
+   - Click on Question 2's assistant bubble $\rightarrow$ Right panel updates to show Question 2's evidence.
+3. **Empty Citation Response Handling**:
+   - Ask a general question (e.g. *"What is 2 + 2?"*) $\rightarrow$ Assistant responds without citations, right panel updates to show `0 Sources`.

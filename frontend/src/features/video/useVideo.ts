@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getTranscript, getMediaUrl, BackendTranscriptSegmentDTO } from '@/services/mediaService';
 import { formatSecondsToTimestamp } from '@/services/chatService';
+import { persistentVideoRef } from './PersistentMediaPlayer';
 
 export interface TranscriptSegment {
   id: string;
@@ -31,41 +32,11 @@ export function useVideo() {
   const [mediaSrc, setMediaSrc] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPipActive, setIsPipActive] = useState<boolean>(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Persistent reference pointing to the single authoritative HTMLVideoElement in PersistentMediaPlayer
+  const videoRef = persistentVideoRef;
 
   const mediaUrl = activeMediaId ? getMediaUrl(activeMediaId) : '';
-
-  // Stage 1 Diagnostic & Stage 2 Unmount Cleanup Lifecycle
-  useEffect(() => {
-    const instanceId = Math.random().toString(36).substring(2, 7);
-    if (typeof window !== 'undefined') {
-      const vCount = document.getElementsByTagName('video').length;
-      console.log(`[useVideo:#${instanceId}] Mounted hook instance | Total DOM Video Count: ${vCount}`);
-    }
-
-    return () => {
-      const videoEl = videoRef.current;
-      console.log(`[useVideo:#${instanceId}] Unmounting hook instance...`);
-
-      if (videoEl) {
-        // Exit Picture-in-Picture if active on this video element
-        if (typeof document !== 'undefined' && document.pictureInPictureElement === videoEl) {
-          console.log(`[useVideo:#${instanceId}] Exiting Picture-in-Picture during unmount`);
-          document.exitPictureInPicture().catch(() => {});
-        }
-
-        // Pause playback and release media decoders
-        videoEl.pause();
-        videoEl.removeAttribute('src');
-        videoEl.load();
-      }
-
-      if (typeof window !== 'undefined') {
-        const remainingCount = document.getElementsByTagName('video').length;
-        console.log(`[useVideo:#${instanceId}] Cleaned up | Remaining DOM Video Count: ${remainingCount}`);
-      }
-    };
-  }, []);
 
   // Fetch transcript segments on activeMediaId change
   useEffect(() => {
@@ -108,24 +79,7 @@ export function useVideo() {
     fetchTranscript();
   }, [activeMediaId, mediaUrl]);
 
-  // Handle external target seek (e.g. grounded citation click)
-  useEffect(() => {
-    if (targetSeekSeconds !== null && videoRef.current) {
-      videoRef.current.currentTime = targetSeekSeconds;
-      videoRef.current.play().catch(() => {});
-      setCurrentTime(formatSecondsToTimestamp(targetSeekSeconds));
-      setTargetSeekSeconds(null);
-    }
-  }, [targetSeekSeconds, setTargetSeekSeconds, setCurrentTime]);
-
-  // Update playback rate when store playbackSpeed changes
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = playbackSpeed;
-    }
-  }, [playbackSpeed]);
-
-  // Bind Picture-in-Picture lifecycle event listeners
+  // Bind Picture-in-Picture lifecycle event listeners to the persistent video element
   useEffect(() => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
@@ -143,6 +97,11 @@ export function useVideo() {
       }
     };
 
+    // Sync initial PiP state
+    if (typeof document !== 'undefined' && document.pictureInPictureElement === videoEl) {
+      setIsPipActive(true);
+    }
+
     videoEl.addEventListener('enterpictureinpicture', handleEnterPip);
     videoEl.addEventListener('leavepictureinpicture', handleLeavePip);
 
@@ -152,18 +111,19 @@ export function useVideo() {
     };
   }, [videoRef.current]);
 
-  // Restore playback position on video loaded metadata if no external target seek
+  // Handle loaded metadata position restore
   const handleLoadedMetadata = () => {
-    if (!videoRef.current) return;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
 
-    videoRef.current.playbackRate = playbackSpeed;
+    videoEl.playbackRate = playbackSpeed;
 
     if (targetSeekSeconds === null && activeMediaId) {
       const savedPos = localStorage.getItem(`athenus_playback_pos_${activeMediaId}`);
       if (savedPos) {
         const secs = parseFloat(savedPos);
-        if (!isNaN(secs) && secs > 0 && secs < videoRef.current.duration) {
-          videoRef.current.currentTime = secs;
+        if (!isNaN(secs) && secs > 0 && secs < videoEl.duration) {
+          videoEl.currentTime = secs;
           setCurrentTime(formatSecondsToTimestamp(secs));
         }
       }
@@ -172,16 +132,15 @@ export function useVideo() {
 
   // Video time update event listener
   const handleTimeUpdate = () => {
-    if (!videoRef.current) return;
-    const currentSecs = videoRef.current.currentTime;
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+    const currentSecs = videoEl.currentTime;
     setCurrentTime(formatSecondsToTimestamp(currentSecs));
 
-    // Persist position in localStorage
     if (activeMediaId && currentSecs > 0) {
       localStorage.setItem(`athenus_playback_pos_${activeMediaId}`, currentSecs.toString());
     }
 
-    // Determine active transcript segment
     if (segments.length > 0) {
       const foundIdx = segments.findIndex(
         (seg) => currentSecs >= seg.start_seconds && currentSecs < seg.end_seconds

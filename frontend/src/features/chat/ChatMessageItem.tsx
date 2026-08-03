@@ -6,13 +6,20 @@ import { useAppStore } from '@/store/useAppStore';
 
 interface ChatMessageItemProps {
   message: ChatMessage;
+  isSelected?: boolean;
+  onSelectMessage?: (id: string) => void;
 }
 
-export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => {
+export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({
+  message,
+  isSelected,
+  onSelectMessage,
+}) => {
   const { setCurrentTime, setActiveView, setActiveMediaId, setTargetSeekSeconds } = useAppStore();
   const isUser = message.sender === 'user';
 
-  const handleCitationClick = (startTime?: string, mediaId?: string) => {
+  const handleCitationClick = (e: React.MouseEvent, startTime?: string, mediaId?: string) => {
+    e.stopPropagation();
     if (mediaId) {
       setActiveMediaId(mediaId);
     }
@@ -44,10 +51,14 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
 
       {/* Message Content Bubble */}
       <div
-        className={`p-4 rounded border text-xs leading-relaxed ${isUser
+        onClick={() => !isUser && onSelectMessage && onSelectMessage(message.id)}
+        className={`p-4 rounded border text-xs leading-relaxed transition-all ${
+          isUser
             ? 'bg-surface-container-high border-outline-variant text-on-surface'
-            : 'bg-surface-container border-outline-variant text-on-surface space-y-3'
-          }`}
+            : `bg-surface-container border-outline-variant text-on-surface space-y-3 cursor-pointer ${
+                isSelected ? 'ring-2 ring-secondary border-secondary/60 shadow-md' : 'hover:border-secondary/40'
+              }`
+        }`}
       >
         <p className="whitespace-pre-wrap">{message.content}</p>
 
@@ -67,7 +78,7 @@ export const ChatMessageItem: React.FC<ChatMessageItemProps> = ({ message }) => 
                 <button
                   key={idx}
                   title={tooltipText}
-                  onClick={() => handleCitationClick(cit.startTime, cit.mediaId)}
+                  onClick={(e) => handleCitationClick(e, cit.startTime, cit.mediaId)}
                   className="px-2.5 py-1 rounded bg-secondary/15 border border-secondary/40 text-secondary text-[11px] font-mono hover:bg-secondary/30 transition-all cursor-pointer flex items-center gap-1 shadow-sm hover:scale-[1.02]"
                 >
                   ⏱ {startStr}{endStr}{titleStr}
