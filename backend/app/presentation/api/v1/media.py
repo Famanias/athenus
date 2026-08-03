@@ -153,3 +153,50 @@ async def stream_media_processing_events(media_id: str):
             unsubscribe()
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+class ProcessingLogDTO(BaseModel):
+    id: int
+    media_id: str
+    workspace_id: str
+    stage: str
+    status: str
+    progress: int
+    message: Optional[str] = None
+    error_message: Optional[str] = None
+    timestamp: str
+
+@router.get("/media/{media_id}/history", response_model=List[ProcessingLogDTO])
+def get_media_processing_history(media_id: str):
+    """Fetch complete timestamped ingestion processing log history for a media asset."""
+    from app.infrastructure.db.models import ProcessingLogTable
+    from app.infrastructure.db.session import engine
+    try:
+        from sqlmodel import Session, select
+    except ImportError:
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+
+    if not engine or not Session or not select:
+        return []
+
+    try:
+        with Session(engine) as session:
+            statement = select(ProcessingLogTable).where(ProcessingLogTable.media_id == media_id).order_by(ProcessingLogTable.created_at)
+            records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()
+            return [
+                ProcessingLogDTO(
+                    id=r.id or 0,
+                    media_id=r.media_id,
+                    workspace_id=r.workspace_id,
+                    stage=r.stage,
+                    status=r.status,
+                    progress=r.progress,
+                    message=r.message,
+                    error_message=r.error_message,
+                    timestamp=r.created_at.isoformat() if r.created_at else ""
+                )
+                for r in records
+            ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

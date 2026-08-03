@@ -1,6 +1,13 @@
 import asyncio
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
+from app.infrastructure.db.session import engine
+
+try:
+    from sqlmodel import Session
+except ImportError:
+    from sqlalchemy.orm import Session
+
 
 class ProgressStore:
     """Central store tracking media ingestion snapshots and broadcasting SSE updates."""
@@ -18,7 +25,7 @@ class ProgressStore:
         status: str = "processing",
         error: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Record or update stage progress and emit snapshot event."""
+        """Record or update stage progress, persist audit log to SQLite, and emit snapshot event."""
         existing = self._snapshots.get(media_id, {})
         stage_history = existing.get("stage_history", {})
         stage_history[stage] = {
@@ -40,6 +47,27 @@ class ProgressStore:
         }
 
         self._snapshots[media_id] = snapshot
+
+        # Persist audit record to SQLite ProcessingLogTable
+        if engine and Session:
+            try:
+                from app.infrastructure.db.models import MediaItemTable, ProcessingLogTable
+                with Session(engine) as session:
+                    db_media = session.get(MediaItemTable, media_id)
+                    workspace_id = db_media.workspace_id if db_media else "default"
+                    log_entry = ProcessingLogTable(
+                        media_id=media_id,
+                        workspace_id=workspace_id,
+                        stage=stage,
+                        status=status,
+                        progress=progress,
+                        message=message,
+                        error_message=error
+                    )
+                    session.add(log_entry)
+                    session.commit()
+            except Exception:
+                pass
 
         # Notify listeners synchronously/asynchronously
         for listener in list(self._listeners):

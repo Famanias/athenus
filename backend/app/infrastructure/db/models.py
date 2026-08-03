@@ -65,6 +65,18 @@ try:
         citations_json: Optional[str] = None
         created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    class ProcessingLogTable(SQLModel, table=True):
+        __tablename__ = "processing_logs"
+        id: Optional[int] = Field(default=None, primary_key=True)
+        media_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        stage: str
+        status: str = "processing"
+        progress: int = 0
+        message: Optional[str] = None
+        error_message: Optional[str] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
 except ImportError:
     from sqlalchemy import Column, String, Float, Integer, DateTime, Text
     from app.infrastructure.db.session import Base
@@ -129,3 +141,16 @@ except ImportError:
         content = Column(Text, nullable=False)
         citations_json = Column(Text, nullable=True)
         created_at = Column(DateTime, default=datetime.utcnow)
+
+    class ProcessingLogTable(Base):
+        __tablename__ = "processing_logs"
+        id = Column(Integer, primary_key=True, autoincrement=True)
+        media_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        stage = Column(String, nullable=False)
+        status = Column(String, default="processing")
+        progress = Column(Integer, default=0)
+        message = Column(String, nullable=True)
+        error_message = Column(String, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
