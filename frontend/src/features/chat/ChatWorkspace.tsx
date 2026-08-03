@@ -7,7 +7,7 @@ import { RetrievedEvidencePanel } from './RetrievedEvidencePanel';
 import { Button } from '@/components/ui/Button';
 
 export const ChatWorkspace: React.FC = () => {
-  const { messages, evidence, agentLogs, inputQuery, setInputQuery, sendMessage, isGenerating } =
+  const { messages, evidence, agentLogs, inputQuery, setInputQuery, sendMessage, isGenerating, clearConversation } =
     useChat();
   const threadEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,9 +36,20 @@ export const ChatWorkspace: React.FC = () => {
               8-Stage Hybrid Retrieval grounded in active workspace context.
             </p>
           </div>
-          <span className="bg-surface-container-high px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono text-secondary">
-            Local LLM: llama3:8b
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="bg-surface-container-high px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono text-secondary">
+              Local LLM: llama3:8b
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon="delete"
+              onClick={clearConversation}
+              disabled={isGenerating}
+            >
+              Clear Chat
+            </Button>
+          </div>
         </div>
 
         {/* Message Thread List */}

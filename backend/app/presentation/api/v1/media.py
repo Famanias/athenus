@@ -8,7 +8,8 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.application.events.progress_store import progress_store
-from app.application.repositories.media_repository import InMemoryMediaRepository, MediaRepository
+from app.application.repositories.media_repository import MediaRepository
+from app.application.repositories.sqlite_media_repository import SqliteMediaRepository
 from app.core.config import settings
 from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
 from app.infrastructure.events.event_bus import DomainEvent, event_bus
@@ -16,7 +17,7 @@ from app.infrastructure.events.event_bus import DomainEvent, event_bus
 router = APIRouter()
 
 # Global repository instance
-media_repository: MediaRepository = InMemoryMediaRepository()
+media_repository: MediaRepository = SqliteMediaRepository()
 
 class MediaUploadResponse(BaseModel):
     media_id: str

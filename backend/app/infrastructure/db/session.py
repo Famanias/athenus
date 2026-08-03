@@ -8,6 +8,7 @@ try:
 
     def init_db() -> None:
         """Initialize database tables."""
+        import app.infrastructure.db.models  # noqa: F401
         SQLModel.metadata.create_all(engine)
 
     def get_session() -> Generator[Session, None, None]:

@@ -41,6 +41,14 @@ export function mapBackendCitations(
   }));
 }
 
+export interface BackendChatMessageDTO {
+  id: string;
+  sender: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  citations?: BackendCitationDTO[];
+}
+
 export async function sendChatQuery(
   query: string,
   workspaceId = 'default',
@@ -55,3 +63,8 @@ export async function sendChatQuery(
     }),
   });
 }
+
+export async function getChatHistory(workspaceId = 'default'): Promise<BackendChatMessageDTO[]> {
+  return apiClient<BackendChatMessageDTO[]>(`/api/v1/chat/history?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+

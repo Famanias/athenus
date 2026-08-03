@@ -3,8 +3,9 @@
 // State lives in the store (survives view unmount/remount).
 // This hook owns only the async sendMessage workflow — no local useState.
 
+import { useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { sendChatQuery, mapBackendCitations } from '@/services/chatService';
+import { sendChatQuery, getChatHistory, mapBackendCitations } from '@/services/chatService';
 import type { ChatMessage, Citation, AgentLog } from './types';
 
 // Re-export types so consumers don't need to import from two places.
@@ -20,6 +21,7 @@ export function useChat() {
   const isBackendUnavailable = useAppStore((s) => s.chat.backendUnavailable);
 
   const addMessage           = useAppStore((s) => s.addMessage);
+  const replaceMessages      = useAppStore((s) => s.replaceMessages);
   const addEvidence          = useAppStore((s) => s.addEvidence);
   const updateInput          = useAppStore((s) => s.updateInput);
   const setGenerating        = useAppStore((s) => s.setGenerating);
@@ -28,6 +30,31 @@ export function useChat() {
 
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const activeMediaId     = useAppStore((s) => s.activeMediaId);
+
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const history = await getChatHistory(activeWorkspaceId);
+        if (history && history.length > 0) {
+          const formatted: ChatMessage[] = history.map((h) => ({
+            id: h.id,
+            sender: h.sender,
+            content: h.content,
+            timestamp: h.timestamp,
+            citations: h.citations ? mapBackendCitations(h.citations) : undefined,
+          }));
+          replaceMessages(formatted);
+        }
+      } catch {
+        // Backend unavailable or empty history
+      }
+    }
+
+    if (messages.length <= 1) {
+      loadHistory();
+    }
+  }, [activeWorkspaceId]);
+
 
   const sendMessage = async (queryText?: string) => {
     const query = queryText ?? inputQuery;

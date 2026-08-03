@@ -1,8 +1,18 @@
+import json
+import uuid
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from app.domain.ai.service_bus import AIServiceBus
 from app.application.services.workspace_intelligence import WorkspaceIntelligenceManager
+from app.infrastructure.db.models import ChatSessionTable, ChatMessageTable
+from app.infrastructure.db.session import engine
+
+try:
+    from sqlmodel import Session, select
+except ImportError:
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -38,6 +48,54 @@ class ChatQueryResponse(BaseModel):
     answer: str
     citations: List[CitationDTO]
 
+class ChatMessageDTO(BaseModel):
+    id: str
+    sender: str
+    content: str
+    timestamp: str
+    citations: Optional[List[CitationDTO]] = None
+
+def _persist_chat_turn(workspace_id: str, user_query: str, assistant_answer: str, citations: List[CitationDTO]) -> None:
+    if not engine or not Session or not select:
+        return
+    try:
+        with Session(engine) as session:
+            session_statement = select(ChatSessionTable).where(ChatSessionTable.workspace_id == workspace_id).order_by(ChatSessionTable.created_at.desc())
+            active_session = session.scalars(session_statement).first() if hasattr(session, "scalars") else session.exec(session_statement).first()
+            if not active_session:
+                active_session = ChatSessionTable(
+                    id=f"sess_{uuid.uuid4().hex[:8]}",
+                    workspace_id=workspace_id,
+                    title="Active Learning Session"
+                )
+                session.add(active_session)
+                session.commit()
+
+            # Save user message
+            user_msg = ChatMessageTable(
+                id=f"user_{uuid.uuid4().hex[:8]}",
+                session_id=active_session.id,
+                workspace_id=workspace_id,
+                sender="user",
+                content=user_query
+            )
+            session.add(user_msg)
+
+            # Save assistant message
+            citations_json = json.dumps([c.model_dump() for c in citations]) if citations else None
+            asst_msg = ChatMessageTable(
+                id=f"asst_{uuid.uuid4().hex[:8]}",
+                session_id=active_session.id,
+                workspace_id=workspace_id,
+                sender="assistant",
+                content=assistant_answer,
+                citations_json=citations_json
+            )
+            session.add(asst_msg)
+            session.commit()
+    except Exception:
+        pass
+
 @router.post("/chat/query", response_model=ChatQueryResponse)
 async def query_chat(
     request: ChatQueryRequest,
@@ -49,18 +107,55 @@ async def query_chat(
             workspace_id=request.workspace_id,
             media_id=request.media_id
         )
+
+        citations_list = [
+            CitationDTO(
+                chunk_id=c.get("chunk_id"),
+                start_time=c.get("start_time", 0.0),
+                end_time=c.get("end_time", 0.0),
+                text=c.get("text", "")
+            )
+            for c in result.get("citations", [])
+        ]
+
+        # Persist conversation turn to SQLite
+        _persist_chat_turn(request.workspace_id, request.query, result["answer"], citations_list)
+
         return ChatQueryResponse(
             query=result["query"],
             answer=result["answer"],
-            citations=[
-                CitationDTO(
-                    chunk_id=c.get("chunk_id"),
-                    start_time=c.get("start_time", 0.0),
-                    end_time=c.get("end_time", 0.0),
-                    text=c.get("text", "")
-                )
-                for c in result.get("citations", [])
-            ]
+            citations=citations_list
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/chat/history", response_model=List[ChatMessageDTO])
+async def get_chat_history(workspace_id: str = "default"):
+    if not engine or not Session or not select:
+        return []
+    try:
+        with Session(engine) as session:
+            statement = select(ChatMessageTable).where(ChatMessageTable.workspace_id == workspace_id).order_by(ChatMessageTable.created_at)
+            records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()
+            history = []
+            for r in records:
+                citations = None
+                if r.citations_json:
+                    try:
+                        raw_cits = json.loads(r.citations_json)
+                        citations = [CitationDTO(**c) for c in raw_cits]
+                    except Exception:
+                        citations = None
+
+                history.append(
+                    ChatMessageDTO(
+                        id=r.id,
+                        sender=r.sender,
+                        content=r.content,
+                        timestamp=r.created_at.strftime("%H:%M") if r.created_at else "00:00",
+                        citations=citations
+                    )
+                )
+            return history
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
