@@ -28,3 +28,9 @@ export async function saveProviderSettings(
     body: JSON.stringify(payload),
   });
 }
+
+export async function clearAllData(): Promise<{ status: string; message: string }> {
+  return apiClient<{ status: string; message: string }>('/api/v1/system/clear-data', {
+    method: 'POST',
+  });
+}

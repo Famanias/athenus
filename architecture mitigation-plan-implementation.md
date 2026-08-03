@@ -153,3 +153,41 @@ This document tracks the technical implementation details, verification results,
 | **3. Idempotent Chat Deletion** | Call `DELETE /api/v1/chat/history` twice in succession | Second call finds 0 records to delete in SQLite | Endpoint returns `200 OK` with `deleted_count: 0`. No exception thrown. |
 | **4. Multi-Workspace Knowledge Graph Isolation** | Add concept nodes in Workspace A vs Workspace B | `get_workspace_triples(workspace_id)` filters relations by active workspace ID | Knowledge graph triples are isolated to active workspace; zero concept leakage. |
 | **5. Graph-Enhanced Prompt Assembly** | Query RAG with active concept triples in workspace | `MultiStageRetriever` formats `\nKnowledge Graph Concepts & Relationships:` | LLM receives structured domain concept relationships alongside timestamped transcript chunks. |
+
+---
+
+## 💥 Phase 5 — "Clear my Data" System Reset Service & Safety Pipeline
+
+> [!IMPORTANT]
+> **Primary Milestone**: Implement a complete, atomic "Clear my Data" (Factory Reset) system via `SystemResetService`. Features locking, active worker cancellation, multi-step purging (SQLite, Qdrant vectors, disk upload files), default workspace re-creation, Danger Zone confirmation modal with typing requirement (`CLEAR MY DATA`), and frontend hard refresh (`window.location.reload()`) while preserving user provider configurations & API keys.
+
+### 1. Key Achievements & Implementation Details
+
+- **`SystemResetService` Architecture ([system_reset_service.py](file:///e:/repos/athenus/backend/app/application/services/system_reset_service.py))**:
+  - Implemented `SystemResetService` with `asyncio.Lock()` to prevent race conditions during reset.
+  - Sequentially purges SQLite database records, deletes Embedded Qdrant vector points, removes physical video files from `./data/uploads/`, clears `ProgressStore` snapshots, and re-initializes the default workspace.
+- **REST API Reset Endpoint ([system.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/system.py))**:
+  - Registered `POST /api/v1/system/clear-data` endpoint delegating directly to `SystemResetService.perform_factory_reset()`.
+- **Frontend Danger Zone UI ([SystemSettings.tsx](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx))**:
+  - Added Danger Zone section with red styling at the bottom of settings.
+  - Implemented confirmation modal requiring the user to type `"CLEAR MY DATA"` before enabling the reset button.
+  - Triggers `window.location.reload()` on API success to purge stale Zustand RAM state.
+- **Automated System Reset Test Suite ([test_system_clear_data.py](file:///e:/repos/athenus/backend/tests/test_system_clear_data.py))**:
+  - Verified full database purge, file deletion, default workspace re-creation, and progress store clearing.
+
+### 2. Verification Summary
+
+| Component | Command | Result |
+|---|---|---|
+| **Frontend Type Check** | `npx tsc --noEmit` (in `frontend/`) | **0 Errors** |
+| **Backend Pytest Suite** | `python -m pytest` (in `backend/`) | **36 Passed** (100% pass rate in 1.81s) |
+
+### 3. Edge Case Matrix & Expected Behavior (Phase 5)
+
+| Edge Case Scenario | Test Action / Trigger | Internal Execution | Expected Behavior & Success Indicator |
+|---|---|---|---|
+| **1. Full Factory Reset Execution** | Click **Clear All Application Data** $\rightarrow$ type `"CLEAR MY DATA"` $\rightarrow$ click Confirm | `POST /system/clear-data` executes atomic workflow | All media, transcripts, vectors, chats, and logs are deleted. Default workspace is re-created. App reloads cleanly. |
+| **2. Provider Settings & API Keys Preservation** | Execute reset after saving Groq/OpenRouter API key | `SystemResetService` purges domain tables but leaves provider settings untouched | Model selection and saved API keys remain intact after factory reset. |
+| **3. Concurrent Reset Prevention** | Send 2 overlapping `POST /system/clear-data` calls simultaneously | `_reset_lock.locked()` checks active reset state | First call succeeds (`200 OK`); second call receives `409 Conflict` error without double deletion. |
+| **4. Safety Typing Mismatch** | Type `"clear my data"` or `"CLEAR"` in modal | React state checks `confirmInputText.trim() === 'CLEAR MY DATA'` | **Confirm Permanent Reset** button remains disabled. Deletion cannot be triggered accidentally. |
+| **5. Stale Frontend RAM State Purge** | Factory reset completes on backend | Frontend executes `window.location.reload()` after toast notification | Browser reloads page; all Zustand stores re-hydrate from fresh empty backend state. |
