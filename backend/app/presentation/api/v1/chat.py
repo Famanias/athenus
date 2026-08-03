@@ -95,6 +95,8 @@ def _persist_chat_turn(workspace_id: str, session_id: Optional[str], user_query:
                 )
                 session.add(target_session)
                 session.commit()
+            elif target_session.title in ["New Learning Session", "Chat Session"]:
+                target_session.title = user_query[:40] + "..." if len(user_query) > 40 else user_query
 
             # Save user message
             user_msg = ChatMessageTable(
