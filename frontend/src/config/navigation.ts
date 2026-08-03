@@ -29,7 +29,6 @@ export const NAVIGATION_CONFIG: NavCategory[] = [
     items: [
       { id: 'view-dashboard', label: 'Workspace Library', icon: 'grid_view' },
       { id: 'view-video', label: 'Video', icon: 'smart_display', badge: 'Active', badgeType: 'active' },
-      { id: 'view-transcript', label: 'Transcript Reader', icon: 'description', badge: 'Active', badgeType: 'active' },
       { id: 'view-graph', label: 'Blueprint', icon: 'hub', badge: 'v0.3', badgeType: 'soon' },
     ],
   },

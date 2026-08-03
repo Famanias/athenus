@@ -36,7 +36,6 @@ export const DesktopShell: React.FC = () => {
         <MainPanel>
           {activeView === 'view-dashboard' && <LibraryGrid />}
           {activeView === 'view-video' && <VideoWorkspace />}
-          {activeView === 'view-transcript' && <TranscriptReader />}
           {activeView === 'view-chat' && <ChatWorkspace />}
           {activeView === 'view-flashcards' && <FlashcardGrid />}
           {activeView === 'view-quiz' && <QuizStudio />}
@@ -45,7 +44,7 @@ export const DesktopShell: React.FC = () => {
           {activeView === 'view-settings' && <SystemSettings />}
 
           {/* Default fallback for unimplemented views */}
-          {!['view-dashboard', 'view-video', 'view-transcript', 'view-chat', 'view-flashcards', 'view-quiz', 'view-graph', 'view-ingestion', 'view-settings'].includes(activeView) && (
+          {!['view-dashboard', 'view-video', 'view-chat', 'view-flashcards', 'view-quiz', 'view-graph', 'view-ingestion', 'view-settings'].includes(activeView) && (
             <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-low border border-dashed border-outline-variant m-8 rounded-lg">
               <span className="text-5xl">🚧</span>
               <h3 className="font-carvist text-xl font-bold text-on-surface">

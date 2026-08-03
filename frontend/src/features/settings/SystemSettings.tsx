@@ -194,7 +194,7 @@ export const SystemSettings: React.FC = () => {
       <div className="p-6 bg-rose-950/20 border border-rose-500/40 rounded-lg space-y-4">
         <div>
           <h3 className="text-sm font-bold text-rose-400 font-mono uppercase flex items-center gap-2">
-            ⚠️ Factory Reset
+            ⚠️ DANGER ZONE - CLEAR DATA
           </h3>
           <p className="text-xs text-on-surface-variant mt-1">
             Permanently clear all uploaded videos, extracted transcripts, vector embeddings, chat histories, processing logs, and knowledge graphs. System settings and API keys will be preserved.

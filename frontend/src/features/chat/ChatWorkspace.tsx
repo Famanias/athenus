@@ -29,12 +29,9 @@ export const ChatWorkspace: React.FC = () => {
         {/* Chat Workspace Header */}
         <div className="p-4 border-b border-outline-variant bg-surface-container-low flex justify-between items-center shrink-0">
           <div>
-            <h2 className="font-bold text-sm text-on-surface flex items-center gap-2">
-              <span>🦉</span> AI Research Assistant Chat
-            </h2>
-            <p className="text-xs text-on-surface-variant/70">
-              8-Stage Hybrid Retrieval grounded in active workspace context.
-            </p>
+            <h1 className="font-bold text-md text-on-surface flex items-center gap-2">
+              Athenus Chat
+            </h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="bg-surface-container-high px-2.5 py-1 rounded border border-outline-variant text-[10px] font-mono text-secondary">

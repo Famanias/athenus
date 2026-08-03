@@ -1,117 +1,120 @@
-# Implementation Plan — "Clear my Data" System Reset Service & Safety Pipeline
+# Implementation Plan — Comprehensive UX/UI Improvements & Video Learning Experience
 
-Implement a robust, atomic, and safe "Clear my Data" (Factory Reset) system using a dedicated `SystemResetService`. This orchestrates active worker cancellation, locking, resource purging (SQLite, Qdrant, disk files), default workspace re-creation, and frontend hard-reloads while preserving user provider configurations.
+Implement grounded citation navigation with auto-seek and auto-scroll, consolidate redundant transcript reader views, build a resizable video/transcript layout, implement real-time video transcript synchronization with scroll-lock resume, add playback controls/keyboard shortcuts, and implement complete video playback state restoration across app restarts.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Key Architecture Decisions & Enhancements Incorporated:**
-> 1. **Dedicated Service Architecture (`SystemResetService`)**:
->    - Encapsulates reset logic inside `backend/app/application/services/system_reset_service.py`, keeping the FastAPI router in `system.py` thin and reusable.
-> 2. **Worker Cancellation & Synchronization Lock**:
->    - Uses a thread-safe `asyncio.Lock()` (`_reset_lock`) to prevent concurrent reset calls.
->    - Cancels active background ingestion workers first before touching storage, preventing write collisions or orphaned vectors/files.
-> 3. **Strict Order of Operations**:
->    ```text
->    Acquire Lock -> Cancel Active Ingestion Workers -> Delete Qdrant Vectors -> Delete SQLite Records -> Delete Uploaded Disk Files -> Re-create Default Workspace -> Clear Progress Caches -> Release Lock
->    ```
-> 4. **Explicit Resource Lifecycle Matrix**:
->    - **Purged**: Media Items, Transcripts, Chunks, Chat Sessions, Chat Messages, Ingestion Logs, Knowledge Graph Concepts & Relations, Qdrant Embeddings, Disk Upload Files.
->    - **Recreated**: Default Workspace (`Machine Learning & Deep Learning`).
->    - **Preserved (Not Wiped)**: System Settings (LLM/STT provider selections, CUDA GPU toggle, OpenRouter/Groq API keys) so model configuration remains intact.
-> 5. **High-Security Confirmation**:
->    - Confirmation modal requires typing the exact text: `"CLEAR MY DATA"` before enabling the destructive reset button.
-> 6. **Frontend Hard Refresh**:
->    - On success, the UI triggers `window.location.reload()` to purge all stale React/Zustand state from RAM.
+> **Key Design Decisions & Enhancements Incorporated:**
+> 1. **Video Learning State Restoration**:
+>    - Persists the following learning state parameters in `localStorage` across app restarts and tab closes:
+>      - `activeMediaId`: Last watched video asset.
+>      - `playbackSeconds`: Exact video timestamp resume position (e.g., `14:52`).
+>      - `playbackSpeed`: User preferred playback rate (`0.75x`, `1x`, `1.25x`, `1.5x`, `2x`).
+>      - `transcriptPanelWidth`: User preferred transcript panel width (e.g., `350px`).
+>      - `isTranscriptCollapsed`: Transcript panel open/collapsed toggle state.
+> 2. **Deep Grounded Citation Navigation**:
+>    - Clicking a citation badge in Chat automatically sets `activeMediaId` (switches video if necessary), seeks `<video>` to exact timestamp seconds, auto-scrolls transcript panel to the matching segment, and highlights the card with a gold-bordered pulse animation.
+> 3. **Consolidation of Redundant Transcript Reader (`view-transcript`)**:
+>    - *Rationale*: The `VideoWorkspace` already embeds the complete, synchronized transcript alongside the video player. Consolidating into `VideoWorkspace` eliminates duplicate tab clutter while preserving all transcript features (search, copy, seek, timestamp badges).
+> 4. **Resizable & Collapsible Video Workspace Layout**:
+>    - Replaces static 60/40 grid with a resizable divider handle.
+>    - Includes a one-click collapse/expand toggle button for distraction-free full video viewing.
+> 5. **Smart Video Transcript Sync & Scroll-Lock Protection**:
+>    - Tracks `timeupdate` on `<video>` to highlight current spoken segment.
+>    - Auto-scrolls active segment into view.
+>    - Detects manual user scroll in transcript container to temporarily pause auto-scrolling; presents a floating **"↓ Resume Sync"** button to re-engage auto-follow.
+> 6. **Keyboard Shortcuts & Playback Speed Controls**:
+>    - Add playback speed selector and keyboard shortcuts (`Space` = Play/Pause, `←/→` = ±5s, `M` = Mute, `F` = Fullscreen).
 
 ---
 
-## Resource Lifecycle Matrix
+## State Restoration Matrix
 
-| Resource | Action | Recreated? | Notes |
+| State Parameter | Storage Target | Default | Resumed Behavior |
 |---|---|---|---|
-| **Workspaces** | Deleted | **Yes** (Default Workspace) | Restores clean "Machine Learning & Deep Learning" workspace |
-| **Media Items** | Deleted | No | All uploaded lecture videos removed from SQLite |
-| **Transcript Chunks & Segments** | Deleted | No | All Whisper ASR text and RAG chunks purged |
-| **Chat Sessions & Messages** | Deleted | No | All user prompts and assistant answers purged |
-| **Ingestion Telemetry Logs** | Deleted | No | `processing_logs` table purged |
-| **Knowledge Graph (Nodes & Triples)** | Deleted | No | `knowledge_concepts` and `knowledge_relations` purged |
-| **Vector Embeddings (Qdrant)** | Deleted | No | All Qdrant collection points cleared |
-| **Uploaded Video Files (`./data/uploads`)** | Deleted | No | Physical files deleted from disk |
-| **System Settings & API Keys** | **Preserved** | N/A | Theme, LLM choice, API keys remain intact for instant reuse |
+| `activeMediaId` | `localStorage["athenus_active_media_id"]` | `null` | Automatically re-selects last watched video |
+| `playbackSeconds` | `localStorage["athenus_playback_pos_<mediaId>"]` | `0` | Auto-seeks `<video>` to exact resume timestamp (e.g. `14:52`) |
+| `playbackSpeed` | `localStorage["athenus_playback_speed"]` | `1.0` | Restores video `playbackRate` |
+| `transcriptPanelWidth` | `localStorage["athenus_transcript_width"]` | `350` | Restores transcript panel width in pixels |
+| `isTranscriptCollapsed` | `localStorage["athenus_transcript_collapsed"]` | `false` | Restores transcript panel open/collapsed state |
 
 ---
 
 ## Proposed Changes
 
-### Application Core & Service Layer (`backend/app/application/services/`)
+### Navigation & Routing (`frontend/src/`)
 
-#### [NEW] [system_reset_service.py](file:///e:/repos/athenus/backend/app/application/services/system_reset_service.py)
-- Create `SystemResetService` containing:
-  - `_reset_lock = asyncio.Lock()`
-  - `perform_factory_reset()` executing the ordered workflow:
-    1. Acquire `_reset_lock` (raises 409 if reset already in progress).
-    2. Cancel background ingestion workers / progress store active tasks.
-    3. Clear Qdrant collection points via `EmbeddedQdrantVectorStoreAdapter`.
-    4. Truncate/delete all SQLite records except settings.
-    5. Delete physical video files from `./data/uploads/`.
-    6. Re-create default workspace in SQLite.
-    7. Clear `ProgressStore` in-memory snapshot map.
-    8. Release `_reset_lock`.
+#### [MODIFY] [navigation.ts](file:///e:/repos/athenus/frontend/src/config/navigation.ts)
+- Remove `view-transcript` from `NAVIGATION_CONFIG` under Knowledge category.
+
+#### [MODIFY] [AppLayout.tsx](file:///e:/repos/athenus/frontend/src/components/layout/AppLayout.tsx)
+- Remove `view-transcript` rendering branch and route directly to `VideoWorkspace` (`view-video`).
 
 ---
 
-### Presentation & API Layer (`backend/app/presentation/api/v1/`)
+### Store & Citation State (`frontend/src/store/`)
 
-#### [NEW] [system.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/system.py)
-- Expose `POST /api/v1/system/clear-data` routing directly to `SystemResetService.perform_factory_reset()`.
+#### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
+- Add state restoration properties:
+  - `targetSeekSeconds: number | null`
+  - `playbackSpeed: number`
+  - `setTargetSeekSeconds(seconds: number | null)`
+  - `setPlaybackSpeed(speed: number)`
+  - Re-hydrate `activeMediaId` and settings from `localStorage` on initial mount.
 
-#### [MODIFY] [main.py](file:///e:/repos/athenus/backend/app/main.py)
-- Register `system.router` with `/api/v1` prefix.
-
----
-
-### Frontend Services & Danger Zone UI (`frontend/src/`)
-
-#### [MODIFY] [settingsService.ts](file:///e:/repos/athenus/frontend/src/services/settingsService.ts)
-- Add `clearAllData(): Promise<{ status: string; message: string }>` function.
-
-#### [MODIFY] [SystemSettings.tsx](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx)
-- Add red-bordered **Danger Zone** section at bottom of settings.
-- Add confirmation modal requiring the user to type `"CLEAR MY DATA"`.
-- On API success, display success toast and execute `window.location.reload()`.
+#### [MODIFY] [ChatMessageItem.tsx](file:///e:/repos/athenus/frontend/src/features/chat/ChatMessageItem.tsx)
+- Update `handleCitationClick`: set `activeMediaId` (if citation contains `mediaId`), set `targetSeekSeconds` (converted from `startTime`), set `currentTime`, and switch `activeView` to `view-video`.
+- Add hover tooltip displaying citation passage preview text (`cit.text`).
 
 ---
 
-### Verification & Test Suite (`backend/tests/`)
+### Video Workspace & Synchronization (`frontend/src/features/video/`)
 
-#### [NEW] [test_system_clear_data.py](file:///e:/repos/athenus/backend/tests/test_system_clear_data.py)
-- Add comprehensive test cases:
-  1. `test_full_factory_reset()`: Populate database, vectors, and disk files $\rightarrow$ trigger reset $\rightarrow$ assert zero orphaned records or files remain.
-  2. `test_system_settings_preserved()`: Verify LLM provider settings and API keys survive reset.
-  3. `test_concurrent_reset_lock()`: Assert overlapping reset calls return lock conflict.
+#### [MODIFY] [useVideo.ts](file:///e:/repos/athenus/frontend/src/features/video/useVideo.ts)
+- Update `useVideo` hook to:
+  - Restore last playback position (`athenus_playback_pos_<mediaId>`) on load.
+  - Continuously save `currentTime` seconds to `localStorage` during playback.
+  - Track active transcript segment based on `videoRef.current.currentTime` range (`seg.start_time <= currentTime < seg.end_time`).
+  - Listen to `targetSeekSeconds` store state and seek `<video>` automatically.
+
+#### [MODIFY] [VideoWorkspace.tsx](file:///e:/repos/athenus/frontend/src/features/video/VideoWorkspace.tsx)
+- Re-architect layout into resizable flex container with draggable resize handle and collapse button.
+- Add `timeupdate` sync and smooth auto-scrolling to active transcript card.
+- Add user scroll detection: display floating **"↓ Resume Auto-Scroll"** button when user scrolls manually.
+- Add keyboard shortcuts event listener (`Space`, `←`, `→`, `M`, `F`).
+- Add playback speed selector toolbar (`0.75x`, `1x`, `1.25x`, `1.5x`, `2x`).
+- Add text search filter input inside transcript panel header.
 
 ---
 
 ## Verification Plan
 
 ### Automated Tests
-1. **System Reset Pytest Suite**:
-   ```bash
-   cd backend
-   python -m pytest tests/test_system_clear_data.py
-   python -m pytest
-   ```
-2. **Frontend Type Check**:
+1. **Frontend Type Check**:
    ```bash
    cd frontend
    npx tsc --noEmit
    ```
+2. **Backend Pytest Suite**:
+   ```bash
+   cd backend
+   python -m pytest
+   ```
 
-### Manual Verification
-1. Upload a video in **Pipelines** (`view-ingestion`) and ask a question in **Chat** (`view-chat`).
-2. Navigate to **Settings** (`view-settings`) $\rightarrow$ scroll to **Danger Zone**.
-3. Click **Clear All Application Data** $\rightarrow$ type `"CLEAR MY DATA"` $\rightarrow$ click **Confirm Reset**.
-4. Observe successful reset toast, hard reload (`window.location.reload()`), and clean default state with saved API keys intact.
+### Manual Testing Guide (Step-by-Step UI Verification)
+1. **State Restoration Across App Restarts**:
+   - Play a video to `14:52` at `1.5x` speed with transcript width set to `400px`.
+   - Refresh browser or restart application.
+   - *Expected Result*: App resumes the exact video at `14:52`, at `1.5x` playback speed, with transcript panel width at `400px`.
+2. **Grounded Citation Navigation**:
+   - In **Chat**, click a citation badge (`⏱ 01:15`).
+   - *Expected Result*: App navigates to **Video** workspace, seeks video to `01:15`, auto-scrolls transcript to matching segment, and highlights segment card in gold.
+3. **Transcript Synchronization & Scroll Resume**:
+   - Press play on video $\rightarrow$ transcript highlights in real-time and auto-scrolls.
+   - Scroll transcript manually $\rightarrow$ auto-scroll pauses and **"↓ Resume Auto-Scroll"** button appears. Clicking it re-engages auto-follow.
+4. **Resizable Layout & Keyboard Controls**:
+   - Drag divider handle or press `Space` (Play/Pause) / `Left/Right` (±5s).
+   - *Expected Result*: Panel resizes smoothly and video controls respond instantly to keyboard hotkeys.
