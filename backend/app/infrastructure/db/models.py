@@ -10,6 +10,10 @@ try:
         name: str
         description: Optional[str] = None
         icon: Optional[str] = None
+        is_pinned: bool = False
+        is_archived: bool = False
+        settings_json: Optional[str] = None
+        last_accessed_at: datetime = Field(default_factory=datetime.utcnow)
         created_at: datetime = Field(default_factory=datetime.utcnow)
         updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -52,6 +56,11 @@ try:
         id: str = Field(primary_key=True)
         workspace_id: str = Field(index=True)
         title: str = "Chat Session"
+        is_pinned: bool = False
+        is_archived: bool = False
+        last_message_at: Optional[datetime] = None
+        message_count: int = 0
+        preview_text: Optional[str] = None
         created_at: datetime = Field(default_factory=datetime.utcnow)
         updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -104,6 +113,10 @@ except ImportError:
         name = Column(String, nullable=False)
         description = Column(String, nullable=True)
         icon = Column(String, nullable=True)
+        is_pinned = Column(Integer, default=0)
+        is_archived = Column(Integer, default=0)
+        settings_json = Column(String, nullable=True)
+        last_accessed_at = Column(DateTime, default=datetime.utcnow)
         created_at = Column(DateTime, default=datetime.utcnow)
         updated_at = Column(DateTime, default=datetime.utcnow)
 
@@ -146,6 +159,11 @@ except ImportError:
         id = Column(String, primary_key=True)
         workspace_id = Column(String, index=True, nullable=False)
         title = Column(String, default="Chat Session")
+        is_pinned = Column(Integer, default=0)
+        is_archived = Column(Integer, default=0)
+        last_message_at = Column(DateTime, nullable=True)
+        message_count = Column(Integer, default=0)
+        preview_text = Column(Text, nullable=True)
         created_at = Column(DateTime, default=datetime.utcnow)
         updated_at = Column(DateTime, default=datetime.utcnow)
 

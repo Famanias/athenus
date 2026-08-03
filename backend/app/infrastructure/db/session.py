@@ -6,10 +6,47 @@ try:
     connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
     engine = create_engine(settings.DATABASE_URL, echo=settings.DEBUG, connect_args=connect_args)
 
+    def _migrate_db_columns() -> None:
+        if not engine:
+            return
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(engine)
+            with engine.connect() as conn:
+                if inspector.has_table("workspaces"):
+                    cols = [c["name"] for c in inspector.get_columns("workspaces")]
+                    if "is_pinned" not in cols:
+                        conn.execute(text("ALTER TABLE workspaces ADD COLUMN is_pinned BOOLEAN DEFAULT 0"))
+                    if "is_archived" not in cols:
+                        conn.execute(text("ALTER TABLE workspaces ADD COLUMN is_archived BOOLEAN DEFAULT 0"))
+                    if "settings_json" not in cols:
+                        conn.execute(text("ALTER TABLE workspaces ADD COLUMN settings_json TEXT"))
+                    if "last_accessed_at" not in cols:
+                        conn.execute(text("ALTER TABLE workspaces ADD COLUMN last_accessed_at DATETIME"))
+
+                if inspector.has_table("chat_sessions"):
+                    cols = [c["name"] for c in inspector.get_columns("chat_sessions")]
+                    if "is_pinned" not in cols:
+                        conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN is_pinned BOOLEAN DEFAULT 0"))
+                    if "is_archived" not in cols:
+                        conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN is_archived BOOLEAN DEFAULT 0"))
+                    if "last_message_at" not in cols:
+                        conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN last_message_at DATETIME"))
+                    if "message_count" not in cols:
+                        conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN message_count INTEGER DEFAULT 0"))
+                    if "preview_text" not in cols:
+                        conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN preview_text TEXT"))
+                conn.commit()
+        except Exception as e:
+            print("MIGRATION ERROR:", e)
+
+    _migrate_db_columns()
+
     def init_db() -> None:
         """Initialize database tables."""
         import app.infrastructure.db.models  # noqa: F401
         SQLModel.metadata.create_all(engine)
+        _migrate_db_columns()
 
     def get_session() -> Generator[Session, None, None]:
         with Session(engine) as session:
