@@ -46,7 +46,7 @@ class OllamaTextGenAdapter(ITextGenerationCapability):
                 }
             }
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
+                async with httpx.AsyncClient(timeout=None) as client:
                     response = await client.post(url, json=payload)
                     if response.status_code == 200:
                         data = response.json()
@@ -74,7 +74,7 @@ class OllamaTextGenAdapter(ITextGenerationCapability):
             "stream": True,
         }
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream("POST", url, json=payload) as response:
                     if response.status_code == 200:
                         async for line in response.aiter_lines():
