@@ -71,6 +71,10 @@ This document presents a complete summary of the frontend development completed 
 * **`SessionList.tsx`**: Sidebar list displaying recent chat sessions with preview snippets (`preview_text`) and deletion controls.
 * **Lazy Chat State**: "+ New Chat" button initiates a clean in-memory draft; session record is created on turn 1 submit.
 
+### Phase H: Dockerized Web Mode & API Base URL Standardization
+* **Single API Base URL**: All API traffic now flows through `API_BASE_URL` from [`src/config/env.ts`](file:///e:/repos/athenus/frontend/src/config/env.ts) (reads `NEXT_PUBLIC_API_URL`, falls back to `http://localhost:8000`). Hardcoded `http://localhost:8000` fetches were removed from [`useGraph.ts`](file:///e:/repos/athenus/frontend/src/features/graph/useGraph.ts) and [`useFlashcards.ts`](file:///e:/repos/athenus/frontend/src/features/flashcards/useFlashcards.ts).
+* **Containerized Web Stack**: The frontend now runs containerized in development (`docker/frontend/Dockerfile.dev`, port 3000) alongside the FastAPI backend and Ollama; see [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) and [`docs/ONBOARDING.md`](ONBOARDING.md). Tauri desktop development continues to run `npm run tauri dev` natively against the containerized backend.
+
 ---
 
 ## 3. Verification & Build Integrity

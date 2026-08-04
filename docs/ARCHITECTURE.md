@@ -102,11 +102,56 @@ sequenceDiagram
 | **[ADR 0005](file:///e:/repos/athenus/docs/adr/0005-zero-dom-reparenting-video-player-and-per-message-citations.md)** | Zero DOM Re-parenting & Per-Message Citations | Implemented persistent CSS-hidden `VideoWorkspace` to prevent PiP video detachment, and stored citations per assistant response turn. |
 | **[ADR 0006](file:///e:/repos/athenus/docs/adr/0006-multi-workspace-and-multi-session-architecture.md)** | Multi-Workspace & Multi-Session Architecture | Implemented a two-tier domain hierarchy (Workspace $\rightarrow$ Chat Sessions), single backend context source of truth, lazy session creation, and 9-step workspace switching lifecycle. |
 | **[ADR 0007](file:///e:/repos/athenus/docs/adr/0007-sqlite-settings-persistence-and-local-ollama-scanner.md)** | SQLite Settings Persistence & Local Ollama Scanner | Stored all user system settings in SQLite `system_settings` table (`SettingsService`), rehydrated on startup, and implemented pure local filesystem scanner (`OllamaModelScanner`). |
+| **[ADR 0008](file:///e:/repos/athenus/docs/adr/0008-dockerized-development-architecture.md)** | Dockerized Development Architecture | Containerized the web stack (`docker-compose.yml` + GPU overlay + prod), kept Tauri native, single `.env` for native/container runtimes, GPU-aware Whisper settings. |
 
 
 ---
 
-## 6. Known Limitations & Technical Debt
+## 6. Dockerized Development Architecture (ADR 0008)
+
+Containerized **web development** and containerized **backend for desktop development**; the **Tauri desktop shell stays native** on the host (native OS webviews + Rust compilation).
+
+```mermaid
+graph TD
+    subgraph DOCKER["Docker (athenus-net bridge network)"]
+        FE["frontend<br/>Next.js dev :3000<br/>(docker/frontend/Dockerfile.dev)"]
+        BE["backend<br/>FastAPI :8000<br/>(docker/backend/Dockerfile.dev / .gpu)"]
+        OL["ollama<br/>:11434"]
+        BE -->|HTTP http://ollama:11434| OL
+        FE -->|HTTP http://backend:8000| BE
+    end
+
+    HOST_TAURI["Tauri Desktop Shell (native)"]
+    BROWSER["Browser (Web Mode)"]
+
+    BROWSER -->|http://localhost:3000| FE
+    BROWSER ---|http://localhost:8000/api/v1| BE
+    HOST_TAURI ---|http://localhost:8000/api/v1| BE
+    HOST_TAURI -. fallback .->|host.docker.internal:11434| HOST_OLLAMA["Host Ollama (optional)"]
+    BE -. fallback .-> HOST_OLLAMA
+
+    DB[("SQLite ./data/athenus.db")]
+    QD[("Embedded Qdrant ./data/qdrant")]
+    HFC[("hf-cache volume")]
+    OLDB[("ollama-data volume")]
+    BE --- DB
+    BE --- QD
+    BE --- HFC
+    OL --- OLDB
+```
+
+- **CPU default**: `docker compose up -d --build` → http://localhost:3000.
+- **GPU (NVIDIA Container Toolkit)**: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build` — an overlay file that upgrades the existing `backend`/`ollama` services (CUDA image + `device_requests`) rather than duplicating them.
+- **Desktop dev**: `docker compose up -d backend` then `cd frontend && npm run tauri dev`.
+- **Production**: `docker compose -f docker-compose.prod.yml up -d --build` (multi-stage images, nginx static export on :80, non-root backend, `--workers 1`).
+
+Key properties:
+- Source bind mounts (`./backend`, `./frontend`) preserve Uvicorn `--reload` and Next.js HMR.
+- `./data` is shared between web containers and the desktop shell (SQLite + Qdrant + uploads).
+- `WHISPER_DEVICE` / `WHISPER_COMPUTE_TYPE` settings gate Faster-Whisper CPU vs CUDA (`float16`).
+- Single `.env` serves both runtimes: native values in `.env.example`, container overrides in compose `environment:` blocks.
+
+## 7. Known Limitations & Technical Debt
 
 1. **ASR Execution Speed**: Faster-Whisper CPU execution for long 2-hour lecture videos can take several minutes.
 2. **Single-User Desktop Model**: SQLite single-writer model limits concurrency to single desktop user (intentional design choice for offline Knowledge OS).

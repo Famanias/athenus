@@ -46,11 +46,12 @@ Future knowledge sources:
 * **Phase 5 (v1.0)**: Agentic AI Suite (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`), Agent APIs (`/api/v1/agents`).
 * **Frontend Presentation Layer (Phases A-F Complete)**: Next.js + React + Tauri Desktop App (`npx tauri dev`) with Athena Theme (`#051424` & `#e9c349`), custom typography (`TT Carvist`, `Geist`, `JetBrains Mono`), Zustand state store, and 6 domain feature modules (`features/chat/`, `features/video/`, `features/transcript/`, `features/library/`, `features/flashcards/`, `features/quiz/`, `features/graph/`, `features/ingestion/`, `features/settings/`).
 * **Runtime Verification**: End-to-end integration verified. Native Tauri desktop app (`npx tauri dev`) communicates with FastAPI backend RAG query endpoint (`python app/main.py`).
-* **Automated Tests**: 50 of 50 unit and integration tests passing in `backend/tests/`.
+* **Automated Tests**: 56 of 56 unit and integration tests passing in `backend/tests/`.
 * **Clean UI & Real Data Pipeline**: All sample/mock data removed; clean empty states implemented across all 6 frontend feature modules (`features/library/`, `features/video/`, `features/transcript/`, `features/quiz/`, `features/flashcards/`, `features/graph/`).
 * **Event-Driven Pipeline & Single Progress Source**: Asynchronous video ingestion pipeline decoupled from HTTP layer using `MediaRepository`, application-layer event handlers (`media_event_handlers.py`), and snapshot replay via `ProgressStore`.
 * **SQLite System Settings Persistence**: `SystemSettings` table in SQLite (`./data/athenus.db`) managed via `SettingsService` and auto-rehydrated on application launch.
 * **Local Ollama Model Discovery**: Pure local filesystem model discovery (`OllamaModelScanner`) with dynamic dropdown selection in LLM settings.
+* **Dockerized Development Architecture**: Single-command web stack (`docker compose up -d --build` → http://localhost:3000) with containerized FastAPI backend, Next.js frontend, and Ollama; GPU acceleration via an overlay file (`docker-compose.gpu.yml`, NVIDIA Container Toolkit); Tauri desktop shell remains native against the containerized backend. See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) and [`docs/ONBOARDING.md`](ONBOARDING.md).
 
 ---
 
@@ -101,6 +102,7 @@ Supports three deployment modes:
 * **MediaRepository & ProgressStore Ingestion Pattern**: Decoupled HTTP layer using repository abstractions and domain-event snapshot streaming (`docs/adr/0005-event-driven-pipeline-and-progress-store.md`).
 * **Multi-Workspace & Multi-Session Architecture**: In-app workspace switching, lazy chat session creation, and explicit confirmation modals (`docs/adr/0006-multi-workspace-and-multi-session-architecture.md`).
 * **SQLite Settings Persistence & Local Ollama Model Scanner**: Persistent settings table in SQLite and pure filesystem scanner (`docs/adr/0007-sqlite-settings-persistence-and-local-ollama-scanner.md`).
-* **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0007`).
+* **Dockerized Development Architecture**: Containerized web stack (backend/frontend/Ollama), GPU overlay for NVIDIA acceleration, native Tauri desktop, single `.env` for native + container runtimes, GPU-aware Whisper settings (`docs/adr/0008-dockerized-development-architecture.md`).
+* **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0008`).
 * **First-Class AI Evaluation Subsystem**: Automated benchmark suite evaluating Retrieval Precision/Recall@K, Groundedness, Latency, and Token Cost.
 * **Machine Learning & Deep Learning Reviewer Guide**: Comprehensive architectural theory reference in `docs/ML_DL_ARCHITECTURE.md`.
