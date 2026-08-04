@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # Local Model Defaults
     DEFAULT_LLM_PROVIDER: str = "ollama"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_TIMEOUT: float = 3.0
     DEFAULT_LLM_MODEL: str = "llama3:8b"
 
     # Cloud Provider Model Defaults (single source of truth for catalog + adapters)
