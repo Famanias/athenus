@@ -7,7 +7,7 @@
     "distDir": "../frontend/out"
   },
   "package": {
-    "productName": "Athenus Knowledge OS",
+    "productName": "Athenus",
     "version": "0.1.0"
   },
   "tauri": {
@@ -49,7 +49,7 @@
     },
     "windows": [
       {
-        "title": "Athenus Knowledge OS",
+        "title": "Athenus",
         "width": 1280,
         "height": 800,
         "resizable": true,

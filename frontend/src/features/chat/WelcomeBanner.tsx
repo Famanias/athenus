@@ -22,18 +22,15 @@ export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({
         aria-hidden
         className="absolute w-56 h-56 sm:w-64 sm:h-64 rounded-full bg-secondary/15 blur-3xl pointer-events-none"
       />
-
       <img
         src={iconSrc}
         alt="Athenus"
-        className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 drop-shadow-lg"
+        className="relative w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 drop-shadow-lg"
       />
-
-      <h1 className="relative mt-6 sm:mt-8 font-carvist font-bold leading-tight text-[clamp(2.5rem,6vw,4.5rem)] bg-gradient-to-br from-amber-200 via-secondary to-secondary-container bg-clip-text text-transparent">
+      <h1 className="relative mt-1 sm:mt-2 font-carvist font-bold leading-tight text-[clamp(2.5rem,6vw,4.5rem)] bg-gradient-to-br from-amber-200 via-secondary to-secondary-container bg-clip-text text-transparent">
         {title}
       </h1>
-
-      <p className="relative mt-3 sm:mt-4 text-sm md:text-base text-on-surface-variant/80 tracking-wide">
+      <p className="relative italic text-sm md:text-base text-on-surface-variant/80 tracking-wide">
         {subtitle}
       </p>
 
