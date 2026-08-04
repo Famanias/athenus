@@ -1,17 +1,21 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from app.core.config import settings
 from app.domain.ai.model_registry import ModelRegistry
-
-router = APIRouter()
-model_registry = ModelRegistry()
-
 from app.domain.settings.settings_service import SettingsService
+
+from app.domain.ai.local_model_provider import ProviderStatusDTO, ModelCatalogDTO
+from app.application.registries.local_provider_registry import LocalModelProviderRegistry
+from app.infrastructure.adapters.ollama_provider import OllamaProviderAdapter
 
 router = APIRouter()
 model_registry = ModelRegistry()
 settings_service = SettingsService()
+
+local_provider_registry = LocalModelProviderRegistry()
+local_provider_registry.register(OllamaProviderAdapter())
 
 # In-memory transient API key store (kept out of persistent DB for security)
 _transient_api_key: str = ""
@@ -151,6 +155,31 @@ def patch_provider_settings(payload: ProviderSettingsPatchDTO):
         api_key=_transient_api_key
     )
 
+# --- Provider Registry Endpoints ---
+
+class LocalProviderItemDTO(BaseModel):
+    id: str
+    label: str
+
+@router.get("/settings/providers/local", response_model=List[LocalProviderItemDTO])
+def list_local_providers():
+    providers = local_provider_registry.list_providers()
+    return [LocalProviderItemDTO(id=p.provider_id, label=p.label) for p in providers]
+
+@router.get("/settings/providers/local/{provider_id}", response_model=ProviderStatusDTO)
+async def get_local_provider_status(provider_id: str):
+    provider = local_provider_registry.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Local provider '{provider_id}' not found.")
+    return await provider.get_status()
+
+@router.get("/settings/providers/local/{provider_id}/models", response_model=ModelCatalogDTO)
+async def get_local_provider_models(provider_id: str):
+    provider = local_provider_registry.get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Local provider '{provider_id}' not found.")
+    return await provider.list_models()
+
 # --- Provider & Model Catalog ---
 
 class CatalogModelDTO(BaseModel):
@@ -169,15 +198,28 @@ class ProviderCatalogResponse(BaseModel):
     active: CatalogSelectionDTO
     providers: List[CatalogProviderDTO] = []
 
+def _get_live_ollama_models() -> List[CatalogModelDTO]:
+    provider = local_provider_registry.get_provider("ollama")
+    if not provider:
+        return []
+    try:
+        catalog = asyncio.run(provider.list_models())
+        return [CatalogModelDTO(id=m.full_id) for m in catalog.models]
+    except Exception:
+        return []
+
 def _build_provider_catalog() -> ProviderCatalogResponse:
     db_rec = settings_service.get_settings()
-    ollama_res = _scan_and_build_response(db_rec.ollama_models_dir)
+    ollama_models = _get_live_ollama_models()
+    if not ollama_models:
+        ollama_res = _scan_and_build_response(db_rec.ollama_models_dir)
+        ollama_models = [CatalogModelDTO(id=m.full_id) for m in ollama_res.models]
 
     providers = [
         CatalogProviderDTO(
             id="ollama",
             label="Ollama (Local)",
-            models=[CatalogModelDTO(id=m.full_id) for m in ollama_res.models],
+            models=ollama_models,
         ),
         CatalogProviderDTO(
             id="groq",
@@ -316,4 +358,3 @@ def scan_ollama_models():
     if not db_rec.ollama_models_dir:
         raise HTTPException(status_code=400, detail="No Ollama models directory is currently configured.")
     return _scan_and_build_response(db_rec.ollama_models_dir)
-
