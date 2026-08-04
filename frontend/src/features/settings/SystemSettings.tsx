@@ -88,7 +88,10 @@ export const SystemSettings: React.FC = () => {
         setSelectedStt(data.default_stt);
         setGpuEnabled(data.gpu_acceleration);
         setApiKey(data.api_key || '');
-        setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration, data.selected_ollama_model || '');
+
+        const savedModel = data.selected_ollama_model || '';
+        setSelectedOllamaModel(savedModel);
+        setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration, savedModel);
 
         if (catalogRes) {
           setCatalogProviders(catalogRes.providers);
@@ -98,13 +101,6 @@ export const SystemSettings: React.FC = () => {
           setOllamaConfig(ollamaRes);
           if (ollamaRes.configured_dir) {
             setOllamaDir(ollamaRes.configured_dir);
-          }
-
-          const savedModel = data.selected_ollama_model;
-          if (savedModel && ollamaRes.models.some((m) => m.full_id === savedModel)) {
-            setSelectedOllamaModel(savedModel);
-          } else {
-            setSelectedOllamaModel('');
           }
         }
 
@@ -169,9 +165,8 @@ export const SystemSettings: React.FC = () => {
       setOllamaDir(res.configured_dir);
     }
     setSelectedOllamaModel((prev) => {
-      if (prev && res.models.some((m) => m.full_id === prev)) {
-        return prev;
-      }
+      if (prev) return prev;
+      if (res.models.length > 0) return res.models[0].full_id;
       return '';
     });
   };
@@ -340,7 +335,7 @@ export const SystemSettings: React.FC = () => {
             <label className="block text-xs font-bold text-on-surface mb-2 font-mono uppercase">
               Active Ollama Local Model
             </label>
-            {ollamaCatalogModels.length > 0 ? (
+            {ollamaCatalogModels.length > 0 || selectedOllamaModel ? (
               <select
                 value={selectedOllamaModel}
                 onChange={(e) => setSelectedOllamaModel(e.target.value)}
@@ -349,6 +344,11 @@ export const SystemSettings: React.FC = () => {
                 <option value="" disabled>
                   -- Select an Ollama Model --
                 </option>
+                {selectedOllamaModel && !ollamaCatalogModels.some((m) => m.id === selectedOllamaModel) && (
+                  <option key={selectedOllamaModel} value={selectedOllamaModel}>
+                    {selectedOllamaModel}
+                  </option>
+                )}
                 {ollamaCatalogModels.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.id}

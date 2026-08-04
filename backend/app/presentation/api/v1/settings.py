@@ -211,9 +211,14 @@ def _get_live_ollama_models() -> List[CatalogModelDTO]:
 def _build_provider_catalog() -> ProviderCatalogResponse:
     db_rec = settings_service.get_settings()
     ollama_models = _get_live_ollama_models()
-    if not ollama_models:
-        ollama_res = _scan_and_build_response(db_rec.ollama_models_dir)
-        ollama_models = [CatalogModelDTO(id=m.full_id) for m in ollama_res.models]
+
+    if db_rec.ollama_models_dir:
+        fs_res = _scan_and_build_response(db_rec.ollama_models_dir)
+        existing_ids = {m.id for m in ollama_models}
+        for fs_m in fs_res.models:
+            if fs_m.full_id not in existing_ids:
+                ollama_models.append(CatalogModelDTO(id=fs_m.full_id))
+                existing_ids.add(fs_m.full_id)
 
     providers = [
         CatalogProviderDTO(

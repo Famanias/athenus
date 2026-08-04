@@ -34,8 +34,8 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
       const state = useAppStore.getState();
       const nextProvider = res.active.provider;
       const nextModel =
-        res.active.provider === 'ollama' ? res.active.model ?? '' : state.selectedOllamaModel;
-      if (nextProvider !== state.llmProvider || nextModel !== state.selectedOllamaModel) {
+        res.active.provider === 'ollama' ? res.active.model || state.selectedOllamaModel : state.selectedOllamaModel;
+      if (nextProvider !== state.llmProvider || (nextModel && nextModel !== state.selectedOllamaModel)) {
         setProviderSettings(nextProvider, state.sttProvider, state.gpuAcceleration, nextModel);
       }
     } catch {
@@ -54,13 +54,12 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
   const isStaleOllamaModel =
     activeProvider?.id === 'ollama' &&
     !!selectedOllamaModel &&
+    ollamaModels.length > 0 &&
     !ollamaModels.some((m) => m.id === selectedOllamaModel);
 
   const modelValue =
     activeProvider?.id === 'ollama'
-      ? isStaleOllamaModel
-        ? ''
-        : selectedOllamaModel
+      ? selectedOllamaModel
       : activeProvider?.models[0]?.id ?? '';
 
   const handleProviderChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -143,18 +142,18 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
       <select
         value={modelValue}
         onChange={handleModelChange}
-        disabled={isSaving || activeProvider.models.length === 0}
+        disabled={isSaving || (activeProvider.models.length === 0 && !selectedOllamaModel)}
         className={selectClass}
         title="Active model"
       >
-        {isStaleOllamaModel && (
-          <option value="" disabled>
-            -- Select a valid model --
-          </option>
-        )}
-        {!isStaleOllamaModel && activeProvider.id === 'ollama' && !selectedOllamaModel && (
+        {!selectedOllamaModel && activeProvider.id === 'ollama' && (
           <option value="" disabled>
             -- Select a model --
+          </option>
+        )}
+        {selectedOllamaModel && !activeProvider.models.some((m) => m.id === selectedOllamaModel) && (
+          <option key={selectedOllamaModel} value={selectedOllamaModel}>
+            {selectedOllamaModel}
           </option>
         )}
         {activeProvider.models.map((m) => (
@@ -164,7 +163,7 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
         ))}
       </select>
       {isStaleOllamaModel && (
-        <span className="text-[10px] font-mono text-amber-300" title="Selected model is no longer available">
+        <span className="text-[10px] font-mono text-amber-300" title="Selected model is no longer available in catalog">
           ⚠
         </span>
       )}
