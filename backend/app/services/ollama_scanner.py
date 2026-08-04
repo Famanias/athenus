@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 import os
 from typing import List, Optional
-
-class DirectoryNotFoundError(Exception):
-    """Raised when the specified directory path does not exist on disk."""
-    pass
+from app.services.filesystem_service import (
+    DirectoryNotFoundError,
+    HostPathInaccessibleError,
+    FilesystemService,
+    filesystem_service as default_fs_service,
+)
 
 class InvalidOllamaDirectoryError(Exception):
     """Raised when the directory structure does not match a valid Ollama models directory."""
@@ -21,19 +23,16 @@ class DiscoveredModel:
 class OllamaModelScanner:
     """100% Filesystem-based scanner for local Ollama model directories."""
 
+    def __init__(self, fs_service: Optional[FilesystemService] = None) -> None:
+        self.fs_service = fs_service or default_fs_service
+
     def normalize_and_validate_path(self, raw_path: str) -> tuple[str, str]:
         """
         Normalizes candidate paths (.ollama, .ollama/models, .ollama/models/manifests)
         and validates existence and structural integrity.
         Returns tuple: (configured_dir, resolved_dir)
         """
-        if not raw_path or not raw_path.trim() if hasattr(raw_path, 'trim') else not raw_path.strip():
-            raise DirectoryNotFoundError("Models directory path cannot be empty.")
-
-        clean_path = os.path.abspath(raw_path.strip())
-
-        if not os.path.exists(clean_path) or not os.path.isdir(clean_path):
-            raise DirectoryNotFoundError(f"Directory '{clean_path}' does not exist on disk.")
+        clean_path = self.fs_service.validate_and_normalize_path(raw_path)
 
         # Forgiving path normalization: check candidate target subfolders
         resolved_path = clean_path

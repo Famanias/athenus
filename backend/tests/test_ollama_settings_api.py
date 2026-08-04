@@ -7,6 +7,8 @@ from app.main import app
 client = TestClient(app)
 
 def test_get_ollama_settings_default():
+    from app.domain.settings.settings_service import SettingsService
+    SettingsService().update_settings({"ollama_models_dir": None})
     response = client.get("/api/v1/settings/ollama")
     assert response.status_code == 200
     data = response.json()
