@@ -10,9 +10,13 @@ import {
   updateOllamaDirectory,
   scanOllamaModels,
   getProviderCatalog,
+  getLocalProviderStatus,
+  getLocalProviderModels,
   clearAllData,
   OllamaSettingsResponse,
   ProviderCatalogProviderDTO,
+  LocalProviderStatusDTO,
+  CatalogModelDTO,
 } from '@/services/settingsService';
 
 export const SystemSettings: React.FC = () => {
@@ -25,7 +29,12 @@ export const SystemSettings: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Ollama Model Sources State
+  // Live Ollama Daemon REST API State
+  const [ollamaStatus, setOllamaStatus] = useState<LocalProviderStatusDTO | null>(null);
+  const [liveOllamaModels, setLiveOllamaModels] = useState<CatalogModelDTO[]>([]);
+  const [isRefreshingDaemon, setIsRefreshingDaemon] = useState<boolean>(false);
+
+  // Offline Ollama Model Storage Directory State
   const [ollamaDir, setOllamaDir] = useState<string>('');
   const [ollamaConfig, setOllamaConfig] = useState<OllamaSettingsResponse | null>(null);
   const [catalogProviders, setCatalogProviders] = useState<ProviderCatalogProviderDTO[]>([]);
@@ -42,6 +51,28 @@ export const SystemSettings: React.FC = () => {
     if (p.includes('groq')) return 'groq';
     if (p.includes('openrouter')) return 'openrouter';
     return 'ollama';
+  };
+
+  const fetchOllamaDaemonInfo = async () => {
+    setIsRefreshingDaemon(true);
+    try {
+      const [status, catalog] = await Promise.all([
+        getLocalProviderStatus('ollama'),
+        getLocalProviderModels('ollama'),
+      ]);
+      setOllamaStatus(status);
+      setLiveOllamaModels(catalog.models);
+    } catch {
+      setOllamaStatus({
+        provider_id: 'ollama',
+        label: 'Ollama',
+        connected: false,
+        error: 'Unreachable at configured endpoint',
+      });
+      setLiveOllamaModels([]);
+    } finally {
+      setIsRefreshingDaemon(false);
+    }
   };
 
   useEffect(() => {
@@ -69,7 +100,6 @@ export const SystemSettings: React.FC = () => {
             setOllamaDir(ollamaRes.configured_dir);
           }
 
-          // Hydrate selected Ollama model if present in discovered models
           const savedModel = data.selected_ollama_model;
           if (savedModel && ollamaRes.models.some((m) => m.full_id === savedModel)) {
             setSelectedOllamaModel(savedModel);
@@ -77,6 +107,8 @@ export const SystemSettings: React.FC = () => {
             setSelectedOllamaModel('');
           }
         }
+
+        await fetchOllamaDaemonInfo();
       } catch (_err) {
         // Fall back to store values
       }
@@ -88,8 +120,9 @@ export const SystemSettings: React.FC = () => {
     try {
       const catalogRes = await getProviderCatalog();
       setCatalogProviders(catalogRes.providers);
+      await fetchOllamaDaemonInfo();
     } catch {
-      // Ignore refresh failures; existing catalog state remains usable
+      // Ignore refresh failures
     }
   };
 
@@ -135,7 +168,6 @@ export const SystemSettings: React.FC = () => {
     if (res.configured_dir) {
       setOllamaDir(res.configured_dir);
     }
-    // Preserve selection if model exists, otherwise prompt user
     setSelectedOllamaModel((prev) => {
       if (prev && res.models.some((m) => m.full_id === prev)) {
         return prev;
@@ -236,6 +268,14 @@ export const SystemSettings: React.FC = () => {
     }
   };
 
+  const formatSizeBytes = (bytes?: number) => {
+    if (!bytes) return '';
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb >= 1) return `${gb.toFixed(1)} GB`;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(0)} MB`;
+  };
+
   const isCloudProvider = selectedLlm === 'openrouter' || selectedLlm === 'groq';
   const ollamaCatalogModels = catalogProviders.find((p) => p.id === 'ollama')?.models ?? [];
 
@@ -263,7 +303,7 @@ export const SystemSettings: React.FC = () => {
           AI Models & Capability Bus Providers
         </h2>
         <p className="text-xs text-on-surface-variant mt-1">
-          Configure local vs cloud model routing, local model directories, and vector database indices.
+          Configure local vs cloud model routing, local model discovery, and vector database indices.
         </p>
       </div>
 
@@ -317,7 +357,7 @@ export const SystemSettings: React.FC = () => {
               </select>
             ) : (
               <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded text-xs text-amber-300">
-                ⚠️ No local Ollama models discovered. Configure your local models directory below to scan installed models.
+                ⚠️ No local Ollama models discovered. Connect your Ollama service or configure a storage directory below.
               </div>
             )}
           </div>
@@ -379,24 +419,116 @@ export const SystemSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* Model Sources Section */}
+      {/* Local AI Providers & Model Sources Section */}
       <div className="space-y-4">
         <div className="pb-2 border-b border-outline-variant/60">
           <h3 className="font-bold text-base text-on-surface font-carvist">
-            Model Sources
+            Local AI Providers & Model Storage
           </h3>
           <p className="text-xs text-on-surface-variant mt-0.5">
-            Configure local model storage directories and scan discovered models.
+            Monitor live local AI provider connections and inspect local model storage directories.
           </p>
         </div>
 
-        {/* Local Ollama Models Directory Card */}
+        {/* Ollama Service Daemon Connection & Diagnostic Card */}
+        <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-secondary text-sm">terminal</span>
+              <h4 className="font-bold text-xs text-on-surface font-mono uppercase">
+                Ollama Service Daemon (Live Connection)
+              </h4>
+            </div>
+
+            {/* Status Badge */}
+            {ollamaStatus && (
+              <span
+                className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
+                  ollamaStatus.connected
+                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                {ollamaStatus.connected
+                  ? `✓ Connected (${ollamaStatus.version ? `v${ollamaStatus.version}` : 'Online'})`
+                  : '✕ Offline'}
+              </span>
+            )}
+          </div>
+
+          {/* Endpoint Details & Refresh Button */}
+          <div className="flex items-center justify-between p-3 bg-surface-container/60 border border-outline-variant/40 rounded text-[11px] font-mono">
+            <div className="flex items-center gap-2 text-on-surface-variant truncate pr-2">
+              <span className="text-secondary font-semibold">Service Endpoint:</span>
+              <span className="truncate">{ollamaStatus?.base_url || 'http://localhost:11434'}</span>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={refreshCatalog}
+              disabled={isRefreshingDaemon}
+            >
+              {isRefreshingDaemon ? 'Refreshing...' : 'Refresh Models'}
+            </Button>
+          </div>
+
+          {/* Error message if disconnected */}
+          {ollamaStatus && !ollamaStatus.connected && ollamaStatus.error && (
+            <div className="p-3 bg-rose-950/40 border border-rose-500/30 rounded text-xs text-rose-300">
+              {ollamaStatus.error}
+            </div>
+          )}
+
+          {/* Live Discovered Models Grid */}
+          <div className="pt-2 border-t border-outline-variant/30 space-y-2">
+            <h5 className="text-[11px] font-mono text-secondary uppercase font-semibold">
+              Live Discovered Models ({liveOllamaModels.length})
+            </h5>
+
+            {liveOllamaModels.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1">
+                {liveOllamaModels.map((m) => (
+                  <div
+                    key={m.full_id}
+                    className="p-2.5 bg-surface-container border border-outline-variant rounded flex justify-between items-center text-xs"
+                  >
+                    <div className="flex items-center gap-2 truncate pr-2">
+                      <span className="material-symbols-outlined text-xs text-secondary shrink-0">
+                        smart_toy
+                      </span>
+                      <span className="font-bold text-on-surface truncate">{m.name}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px]">
+                      {m.size_bytes ? (
+                        <span className="text-on-surface-variant text-[9px]">
+                          {formatSizeBytes(m.size_bytes)}
+                        </span>
+                      ) : null}
+                      <span className="bg-secondary/15 text-secondary border border-secondary/30 px-1.5 py-0.5 rounded font-semibold">
+                        :{m.tag}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 text-center border border-dashed border-outline-variant/40 rounded text-xs text-on-surface-variant italic">
+                {ollamaStatus?.connected
+                  ? 'Ollama service is connected, but no models have been pulled yet.'
+                  : 'Start your local Ollama service daemon to discover installed models automatically.'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Offline Model Storage Directory Inspection Card */}
         <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-secondary text-sm">folder_managed</span>
               <h4 className="font-bold text-xs text-on-surface font-mono uppercase">
-                Local Ollama Models Directory
+                Model Storage (Offline Filesystem Inspection)
               </h4>
             </div>
 
@@ -410,7 +542,7 @@ export const SystemSettings: React.FC = () => {
                 }`}
               >
                 {ollamaConfig.valid
-                  ? `✓ Valid (${ollamaConfig.models_count} models discovered)`
+                  ? `✓ Valid (${ollamaConfig.models_count} models)`
                   : '✕ Invalid Directory'}
               </span>
             )}
@@ -425,7 +557,7 @@ export const SystemSettings: React.FC = () => {
                 type="text"
                 value={ollamaDir}
                 onChange={(e) => setOllamaDir(e.target.value)}
-                placeholder="e.g. C:\Users\YourName\.ollama\models"
+                placeholder="e.g. E:\ollama\models"
                 className="flex-1 bg-surface-container border border-outline-variant rounded px-3 py-2 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
               />
               <Button type="button" variant="secondary" size="sm" onClick={handleBrowseFolder}>
@@ -440,17 +572,6 @@ export const SystemSettings: React.FC = () => {
               >
                 {isSavingOllama ? 'Saving...' : 'Save'}
               </Button>
-              {ollamaConfig && ollamaConfig.valid && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleRefreshOllama}
-                  disabled={isScanningOllama}
-                >
-                  {isScanningOllama ? 'Scanning...' : 'Refresh'}
-                </Button>
-              )}
             </div>
           </div>
 
@@ -474,40 +595,6 @@ export const SystemSettings: React.FC = () => {
               {ollamaConfig.error}
             </div>
           )}
-
-          {/* Available Local Models Grid */}
-          <div className="pt-2 border-t border-outline-variant/30 space-y-2">
-            <h5 className="text-[11px] font-mono text-secondary uppercase font-semibold">
-              Available Local Models ({ollamaConfig?.models_count || 0})
-            </h5>
-
-            {ollamaConfig && ollamaConfig.models.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1">
-                {ollamaConfig.models.map((m) => (
-                  <div
-                    key={m.full_id}
-                    className="p-2.5 bg-surface-container border border-outline-variant rounded flex justify-between items-center text-xs"
-                  >
-                    <div className="flex items-center gap-2 truncate pr-2">
-                      <span className="material-symbols-outlined text-xs text-secondary shrink-0">
-                        smart_toy
-                      </span>
-                      <span className="font-bold text-on-surface truncate">{m.model_name}</span>
-                    </div>
-                    <span className="bg-secondary/15 text-secondary border border-secondary/30 px-2 py-0.5 rounded font-mono text-[10px] shrink-0 font-semibold">
-                      :{m.tag}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="p-4 text-center border border-dashed border-outline-variant/40 rounded text-xs text-on-surface-variant italic">
-                {ollamaConfig?.valid
-                  ? 'No Ollama models found in configured directory.'
-                  : 'Configure a valid Ollama models directory to discover local models.'}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 

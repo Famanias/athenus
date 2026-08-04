@@ -35,6 +35,29 @@ export interface OllamaSettingsResponse {
   error?: string;
 }
 
+export interface LocalProviderStatusDTO {
+  provider_id: string;
+  label: string;
+  connected: boolean;
+  version?: string;
+  base_url?: string;
+  error?: string;
+}
+
+export interface CatalogModelDTO {
+  full_id: string;
+  name: string;
+  tag: string;
+  provider_id: string;
+  size_bytes?: number;
+}
+
+export interface LocalModelCatalogDTO {
+  provider_id: string;
+  models: CatalogModelDTO[];
+  count: number;
+}
+
 export async function getProviderSettings(): Promise<ProviderSettingsResponse> {
   return apiClient<ProviderSettingsResponse>('/api/v1/settings/providers');
 }
@@ -79,6 +102,14 @@ export interface ProviderCatalogResponse {
 
 export async function getProviderCatalog(): Promise<ProviderCatalogResponse> {
   return apiClient<ProviderCatalogResponse>('/api/v1/settings/providers/catalog');
+}
+
+export async function getLocalProviderStatus(providerId: string): Promise<LocalProviderStatusDTO> {
+  return apiClient<LocalProviderStatusDTO>(`/api/v1/settings/providers/local/${providerId}`);
+}
+
+export async function getLocalProviderModels(providerId: string): Promise<LocalModelCatalogDTO> {
+  return apiClient<LocalModelCatalogDTO>(`/api/v1/settings/providers/local/${providerId}/models`);
 }
 
 export async function getOllamaSettings(): Promise<OllamaSettingsResponse> {
