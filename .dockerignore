@@ -1,0 +1,41 @@
+# Version control
+.git
+.gitignore
+
+# Environment & secrets (never build secrets into images)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.secret
+
+# Local data (bind-mounted at runtime, not baked into images)
+data/
+backend/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Backend caches & virtual envs
+backend/venv/
+backend/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+
+# Frontend build artifacts & dependencies
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/tsconfig.tsbuildinfo
+out/
+.next/
+
+# Rust / Tauri (built natively on host, not in web containers)
+src-tauri/
+frontend/src-tauri/
+**/target/
+
+# Docs
+docs/
+*.md

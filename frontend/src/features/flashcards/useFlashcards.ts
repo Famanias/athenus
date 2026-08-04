@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '@/config/env';
 
 export interface Flashcard {
   id: string;
@@ -18,7 +19,7 @@ export function useFlashcards() {
     async function fetchCards() {
       try {
         setLoading(true);
-        const res = await fetch('http://localhost:8000/api/v1/learning/flashcards');
+        const res = await fetch(`${API_BASE_URL}/api/v1/learning/flashcards`);
         if (res.ok) {
           const data = await res.json();
           if (data.flashcards && data.flashcards.length > 0) {

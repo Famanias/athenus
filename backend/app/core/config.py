@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     
     DEFAULT_STT_PROVIDER: str = "faster_whisper"
     WHISPER_MODEL_SIZE: str = "base"
+    WHISPER_DEVICE: str = "cpu"
+    WHISPER_COMPUTE_TYPE: str = "int8"
     
     DEFAULT_EMBEDDING_PROVIDER: str = "sentence_transformers"
     EMBEDDING_MODEL_NAME: str = "BAAI/bge-small-en-v1.5"

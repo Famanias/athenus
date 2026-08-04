@@ -1,0 +1,15 @@
+# Athenus Frontend — Development
+# Next.js dev server with HMR. Source is bind-mounted from ./frontend at runtime;
+# node_modules and .next are anonymous volumes in docker-compose.yml.
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY frontend/package*.json ./
+RUN npm install
+
+COPY frontend/ ./
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

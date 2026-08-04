@@ -19,7 +19,11 @@ class FasterWhisperSTTAdapter(ISpeechToTextCapability):
     def _transcribe_sync(self, request: SpeechToTextRequest) -> SpeechToTextResponse:
         try:
             from faster_whisper import WhisperModel
-            model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
+            model = WhisperModel(
+                self.model_size,
+                device=settings.WHISPER_DEVICE,
+                compute_type=settings.WHISPER_COMPUTE_TYPE,
+            )
             segments, info = model.transcribe(request.audio_file_path, beam_size=5)
             
             segment_dtos = []

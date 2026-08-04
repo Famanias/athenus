@@ -1,0 +1,35 @@
+# Athenus — GPU Override (NVIDIA Container Toolkit)
+# Merge with the base compose file. Requirements:
+#   - NVIDIA GPU drivers installed on host
+#   - NVIDIA Container Toolkit configured for the Docker engine
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# This is an overlay, not a standalone file: it upgrades the existing
+# `backend` and `ollama` services to use GPU acceleration and a CUDA backend
+# image, avoiding duplicate services / port collisions.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile.gpu
+    environment:
+      WHISPER_DEVICE: "cuda"
+      WHISPER_COMPUTE_TYPE: "float16"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

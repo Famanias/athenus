@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '@/config/env';
 
 export interface GraphNode {
   id: string;
@@ -18,7 +19,7 @@ export function useGraph() {
     async function fetchGraph() {
       try {
         setLoading(true);
-        const res = await fetch('http://localhost:8000/api/v1/graph/prerequisites');
+        const res = await fetch(`${API_BASE_URL}/api/v1/graph/prerequisites`);
         if (res.ok) {
           const data = await res.json();
           if (data.nodes && data.nodes.length > 0) {

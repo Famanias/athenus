@@ -33,17 +33,34 @@
 
 > Athenus is a local-first desktop app. Everything — transcription, embeddings, vector search, and chat — runs on your machine with zero API cost. Native installs, GPU/ASR notes, and configuration live in the [setup guide](docs/DEPLOYMENT.md).
 
+### Docker (Web Mode) — single command
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/). No manual Python/Node install needed.
+
+```bash
+git clone https://github.com/Famanias/athenus.git
+cd athenus
+
+# Optional: copy env template once (scripts do this automatically)
+./scripts/setup.ps1        # Windows (PowerShell); macOS/Linux: ./scripts/setup.sh
+
+# Start the full CPU stack (backend :8000, frontend :3000, Ollama :11434)
+./scripts/dev.ps1          # or: ./scripts/dev.sh | docker compose up -d --build
+```
+
+Open http://localhost:3000. NVIDIA GPU users with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) can instead run `./scripts/dev.ps1 --gpu` (GPU profile for Faster-Whisper + Ollama).
+
+### Native (Desktop / Tauri) Quick Start
+
 ```bash
 git clone https://github.com/Famanias/athenus.git
 cd athenus
 cp .env.example .env
 
-# Terminal 1 — Backend engine (FastAPI on :8000)
-cd backend
-python -m venv venv
-.\venv\Scripts\activate    # macOS/Linux: source venv/bin/activate
-pip install -r requirements.txt
-python app/main.py
+# Start the Dockerized backend (reuse the same DB for desktop testing), or run natively:
+docker compose up -d backend
+# ...or natively:
+#   cd backend && python -m venv venv && pip install -r requirements.txt && python app/main.py
 
 # Terminal 2 — Desktop application (Tauri + Next.js)
 cd frontend

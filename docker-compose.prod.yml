@@ -1,0 +1,73 @@
+# Athenus — Production Stack (self-hosted server, no GUI)
+# Usage: docker compose -f docker-compose.prod.yml up -d --build
+# Web app served on http://localhost (nginx, static Next.js export).
+name: athenus-prod
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    container_name: athenus-prod-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: "sqlite:////app/data/athenus.db"
+      QDRANT_PATH: "/app/data/qdrant"
+      UPLOADS_DIR: "/app/data/uploads"
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      WHISPER_DEVICE: "cpu"
+      WHISPER_COMPUTE_TYPE: "int8"
+    volumes:
+      - ./data:/app/data
+      - hf-cache:/root/.cache/huggingface
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      - ollama
+    networks:
+      - athenus-net
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "http://localhost:8000"
+    container_name: athenus-prod-frontend
+    restart: unless-stopped
+    ports:
+      - "${PORT_FRONTEND:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - athenus-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: athenus-prod-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - athenus-net
+
+networks:
+  athenus-net:
+    driver: bridge
+
+volumes:
+  hf-cache:
+  ollama-data:
