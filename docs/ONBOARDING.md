@@ -43,9 +43,8 @@ Open **http://localhost:3000** in your browser.
 > plain `docker compose` commands — the scripts only auto-create `.env` and call
 > the same compose commands.
 
-### First-use model downloads
-- **Ollama**: the backend targets the containerized Ollama (`http://ollama:11434`).
-  The first LLM chat auto-pulls the default model (`llama3:8b`, several GB — takes minutes).
+### First-use model downloads & Live Model Discovery
+- **Live Ollama REST API Discovery**: The backend uses `LocalModelProviderRegistry` and `OllamaProviderAdapter` to query `GET http://ollama:11434/api/tags`. Installed models automatically populate in UI dropdowns across all runtime environments—no manual folder mounts or path configuration needed.
 - **BGE + Whisper**: downloaded into the named `hf-cache` volume on first
   transcription/embedding, then reused across restarts.
 
@@ -95,7 +94,20 @@ The desktop app reaches the API at `http://localhost:8000` and shares the same
 
 ---
 
-## 5. Sanity Checks After First Boot
+## 5. Local Model Providers & Settings Diagnostic Panel
+
+In **Settings → Model Sources**, Athenus provides clean, decoupled diagnostic panels:
+
+1. **Ollama Service Daemon (Live Connection)**:
+   - Queries REST health (`/api/version`) and installed models (`/api/tags`).
+   - Displays real-time status badge (`✓ Connected` / `✕ Offline`), active endpoint URL (`http://localhost:11434` or `http://ollama:11434`), and model sizes.
+   - Includes a manual **[ Refresh Models ]** button for instant sync.
+2. **Model Storage (Offline Filesystem Inspection)**:
+   - Allows native host directory inspection (e.g. `E:\ollama\models`) without interfering with live REST API model discovery.
+
+---
+
+## 6. Sanity Checks After First Boot
 
 ```bash
 docker compose ps                        # backend should report "healthy"
@@ -113,13 +125,14 @@ docker compose down -v      # stop AND delete named volumes (models re-download)
 
 ---
 
-## 6. Environment Configuration
+## 7. Environment Configuration
 
 - **`.env.example` keeps native defaults** (`./data/...`, `http://localhost:11434`) so
   native (non-Docker) development keeps working.
 - Container-specific values (`/app/data/...`, `OLLAMA_BASE_URL=http://ollama:11434`)
   are injected by `docker-compose.yml`'s `environment:` block — do **not** rewrite
   `.env.example` to container paths.
+- **Configurable Ollama Timeout**: set `OLLAMA_TIMEOUT=3.0` in `.env` for slower or remote daemon connections.
 - **Port collisions**: override `PORT_FRONTEND`, `PORT_BACKEND`, `PORT_OLLAMA` in `.env`.
   If you move the backend port, also update `NEXT_PUBLIC_API_URL` in `docker-compose.yml`.
 - **Host Ollama passthrough**: set `OLLAMA_BASE_URL=http://host.docker.internal:11434`
@@ -127,22 +140,23 @@ docker compose down -v      # stop AND delete named volumes (models re-download)
 
 ---
 
-## 7. Common Troubleshooting
+## 8. Common Troubleshooting
 
 | Symptom | Cause / Fix |
 | :--- | :--- |
 | `env file .env not found` | Run `cp .env.example .env` (or a `scripts/setup.*` script) first. |
 | Backend stays `unhealthy` | First boot loads models/schema slowly — wait, then check `docker compose logs backend`. |
-| Port already in use | Set `PORT_*` overrides in `.env` (Section 6). |
+| Port already in use | Set `PORT_*` overrides in `.env` (Section 7). |
 | GPU container fails to start | NVIDIA Container Toolkit not installed/configured — see Section 3; fall back to CPU mode. |
-| Chat returns offline-fallback text | Ollama still pulling `llama3:8b` or unreachable — check `docker compose logs ollama`. |
+| Chat returns offline-fallback text | Ollama still pulling `llama3:8b` or unreachable — check Ollama status in Settings diagnostic panel or `docker compose logs ollama`. |
+| Unmounted host folder error in Docker | Containerized backend cannot reach host drive paths directly. Use live REST discovery (`GET /api/tags`) or mount directory in `docker-compose.yml`. |
 | `scripts/dev.ps1` blocked | `powershell -ExecutionPolicy Bypass -File scripts/dev.ps1`, or use compose commands directly. |
 
 ---
 
-## 8. Next Steps
+## 9. Next Steps
 
 - Full deployment documentation: [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)
 - Architecture context: [`docs/CONTEXT.md`](CONTEXT.md)
-- Implementation plan (Dockerization source): [`implementation_plan.md`](../implementation_plan.md)
+- Implementation plan: [`implementation_plan.md`](../implementation_plan.md)
 - Backend test suite (native): `cd backend && python -m pytest tests`
