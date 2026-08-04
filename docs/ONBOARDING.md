@@ -116,12 +116,20 @@ curl -I http://localhost:3000             # HTTP 200
 docker compose logs -f backend            # follow ingestion/transcription progress
 ```
 
-### Stopping / resetting
+### 6. Docker Lifecycle Operations (Restart, Stop, Rebuild & Fresh Uninstall)
 
-```bash
-docker compose down         # stop; keeps ./data and model volumes
-docker compose down -v      # stop AND delete named volumes (models re-download)
-```
+| Operation | Command | Description |
+| :--- | :--- | :--- |
+| **Restart All Services** | `docker compose restart` | Restarts all running containers gracefully. |
+| **Restart Single Service** | `docker compose restart backend`<br>`docker compose restart frontend`<br>`docker compose restart ollama` | Restarts a specific container service. |
+| **Rebuild & Update Code** | `docker compose up -d --build` | Recompiles and updates code changes across services. |
+| **Rebuild Single Service** | `docker compose up -d --build frontend` | Rebuilds only the frontend container (e.g. after UI edits). |
+| **Stop All Services** | `docker compose stop` | Halts containers without removing networks or data volumes. |
+| **Stop Single Service** | `docker compose stop frontend` | Stops frontend container (useful to free port 3000 for `npx tauri dev`). |
+| **Take Down Stack** | `docker compose down` | Stops containers and removes network bridges (preserves `./data` and volumes). |
+| **Fresh Uninstall & Volume Reset** | `docker compose down -v` | Stops stack and **deletes named volumes** (database, model cache, transcripts). |
+| **Complete Fresh Purge** | `docker compose down -v --rmi all --remove-orphans` | Deletes all containers, volumes, networks, and built Docker images. |
+| **Docker System Cleanup** | `docker system prune -a --volumes` | Removes all unused containers, images, and cached build layers. |
 
 ---
 
