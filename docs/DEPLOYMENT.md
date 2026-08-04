@@ -68,6 +68,20 @@ npm run tauri dev
 ```
 Both the web container and the native desktop shell share `./data/` (SQLite + Qdrant + uploads) via the host bind mount.
 
+### Local Model Storage & Docker Bind Mounts
+- **Platform Runtime Detection (`RuntimeService`)**: The backend automatically detects its execution environment (`NATIVE`, `DOCKER`, `TAURI`, `WEB`).
+- **Native Desktop Mode**: The backend runs directly on host OS with full filesystem access to custom model paths (e.g. `E:\ollama\models`).
+- **Docker Container Mode**: Unmounted host paths return friendly environment guidance explaining container boundaries.
+- **Optional Docker Host Bind Mount**: To allow a Docker containerized backend to scan a custom host directory (e.g., `E:\ollama\models`), add an optional bind mount under `services.backend.volumes` in `docker-compose.yml`:
+  ```yaml
+  volumes:
+    - ./backend:/app
+    - ./data:/app/data
+    - hf-cache:/root/.cache/huggingface
+    # Optional host model directory bind mount:
+    # - E:\ollama\models:/mnt/ollama
+  ```
+
 ### Environment configuration
 - `.env.example` keeps **native** defaults (`./data/...`, `http://localhost:11434`) so native dev keeps working.
 - `docker-compose.yml` overrides container paths (`/app/data/...`) and `OLLAMA_BASE_URL=http://ollama:11434` via its `environment:` block — do **not** rewrite `.env.example` to container paths.

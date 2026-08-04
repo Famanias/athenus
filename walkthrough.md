@@ -123,4 +123,20 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ### Known Notes
 
-- One pre-existing backend test (`test_get_ollama_settings_default`) can flake when the shared local `backend/data/athenus.db` carries stale persisted Ollama settings between full-suite runs — unrelated to Docker changes; a clean DB yields 56/56.
+- One pre-existing backend test (`test_get_ollama_settings_default`) carried stale persisted Ollama settings from previous runs — fixed via clean DB fixture resets in `tests/test_ollama_settings_api.py` (64/64 passing).
+
+---
+
+## 🛠️ Milestone 1 — Docker Directory Detection Regression Fix
+
+Resolved the Linux Docker container path resolution bug where host Windows drive paths (`E:\ollama\models`) were mangled into relative paths under container working directory (`/app/E:\ollama\models`).
+
+### Implemented Fixes
+1. **Platform Runtime Detection (`RuntimeService`)**: Created [`backend/app/core/runtime.py`](file:///e:/repos/athenus/backend/app/core/runtime.py) supporting `NATIVE`, `DOCKER`, `TAURI`, and `WEB` environments (`is_docker`, `is_native`, `can_access_host_filesystem`).
+2. **Decoupled Filesystem Service (`FilesystemService`)**: Created [`backend/app/services/filesystem_service.py`](file:///e:/repos/athenus/backend/app/services/filesystem_service.py) to validate paths and container boundaries. Detects unmounted host Windows drive syntax (`E:\...`) under Docker and returns friendly, non-technical guidance.
+3. **Single-Responsibility Scanner (`OllamaModelScanner`)**: Refactored [`backend/app/services/ollama_scanner.py`](file:///e:/repos/athenus/backend/app/services/ollama_scanner.py) to delegate path normalization to `FilesystemService`.
+4. **Comprehensive Unit Tests**:
+   - `tests/test_runtime_service.py` (4/4 passed)
+   - `tests/test_filesystem_service.py` (4/4 passed)
+   - Full backend test suite (`python -m pytest tests`): **64/64 passed**.
+

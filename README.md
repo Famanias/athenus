@@ -9,6 +9,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
+  <a href="docs/ONBOARDING.md">Onboarding</a> ·
   <a href="docs/DEPLOYMENT.md">Setup Guide</a> ·
   <a href="docs/CONTRIBUTING.md">Contributing</a> ·
   <a href="docs/ROADMAP.md">Roadmap</a>
@@ -62,11 +63,12 @@ docker compose up -d backend
 # ...or natively:
 #   cd backend && python -m venv venv && pip install -r requirements.txt && python app/main.py
 
-# Terminal 2 — Desktop application (Tauri + Next.js)
+# Optional if you want the Desktop application (Tauri + Next.js)
 cd frontend
 npm install
 npx tauri dev
 ```
+
 
 ## Features
 
