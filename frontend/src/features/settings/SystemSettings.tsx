@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
 import {
@@ -19,6 +19,8 @@ import {
   CatalogModelDTO,
 } from '@/services/settingsService';
 
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
 export const SystemSettings: React.FC = () => {
   const { llmProvider, sttProvider, gpuAcceleration, selectedOllamaModel: storeOllamaModel, setProviderSettings, setActiveMediaId } = useAppStore();
   const [selectedLlm, setSelectedLlm] = useState<string>(llmProvider);
@@ -26,8 +28,10 @@ export const SystemSettings: React.FC = () => {
   const [selectedStt, setSelectedStt] = useState<string>(sttProvider);
   const [gpuEnabled, setGpuEnabled] = useState<boolean>(gpuAcceleration);
   const [apiKey, setApiKey] = useState<string>('');
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Autosave Status & Error Tracking
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
   // Diagnostic metrics & refresh tracking
   const [lastCheckedTime, setLastCheckedTime] = useState<string>('');
@@ -43,13 +47,29 @@ export const SystemSettings: React.FC = () => {
   const [ollamaDir, setOllamaDir] = useState<string>('');
   const [ollamaConfig, setOllamaConfig] = useState<OllamaSettingsResponse | null>(null);
   const [catalogProviders, setCatalogProviders] = useState<ProviderCatalogProviderDTO[]>([]);
-  const [isSavingOllamaDir, setIsSavingOllamaDir] = useState<boolean>(false);
   const [isScanningOllama, setIsScanningOllama] = useState<boolean>(false);
 
   // Danger Zone Reset state
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
   const [confirmInputText, setConfirmInputText] = useState<string>('');
   const [isResetting, setIsResetting] = useState<boolean>(false);
+
+  // Refs for tracking baseline saved values and preventing hydration race conditions
+  const isHydratedRef = useRef<boolean>(false);
+  const saveRequestIdRef = useRef<number>(0);
+  const dirSaveRequestIdRef = useRef<number>(0);
+
+  const apiKeyDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const dirDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const lastSavedRef = useRef({
+    llm: '',
+    ollamaModel: '',
+    stt: '',
+    gpu: false,
+    apiKey: '',
+    dir: '',
+  });
 
   const normalizeLlmProvider = (providerStr: string): string => {
     const p = (providerStr || '').toLowerCase();
@@ -123,22 +143,38 @@ export const SystemSettings: React.FC = () => {
         setSelectedOllamaModel(backendSavedModel);
         setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration, backendSavedModel);
 
+        let savedDir = '';
+        if (ollamaRes) {
+          setOllamaConfig(ollamaRes);
+          if (ollamaRes.configured_dir) {
+            savedDir = ollamaRes.configured_dir;
+            setOllamaDir(savedDir);
+          }
+        }
+
         if (catalogRes) {
           setCatalogProviders(catalogRes.providers);
         }
 
-        if (ollamaRes) {
-          setOllamaConfig(ollamaRes);
-          if (ollamaRes.configured_dir) {
-            setOllamaDir(ollamaRes.configured_dir);
-          }
-        }
+        // Establish baseline of confirmed saved values to prevent spurious autosaves
+        lastSavedRef.current = {
+          llm: normLlm,
+          ollamaModel: backendSavedModel,
+          stt: data.default_stt,
+          gpu: data.gpu_acceleration,
+          apiKey: data.api_key || '',
+          dir: savedDir,
+        };
 
         await fetchOllamaDaemonInfo();
       } catch (_err) {
         // Fall back to store / cached state if backend is booting
       } finally {
         setIsInitialLoading(false);
+        // Enable autosave ONLY after initial hydration finishes completely
+        setTimeout(() => {
+          isHydratedRef.current = true;
+        }, 150);
       }
     }
 
@@ -162,100 +198,192 @@ export const SystemSettings: React.FC = () => {
     };
   }, [refreshCatalog]);
 
-  // Confirmed-Save Handler: Lock inputs -> PATCH Backend -> On 200 OK Sync Store & Cache
-  const handleSave = async () => {
-    setIsSaving(true);
-    setToastMessage(null);
+  // Core Provider Autosave Execution Function
+  const executeProviderAutosave = useCallback(
+    async (targetState: {
+      llm: string;
+      ollamaModel: string;
+      stt: string;
+      gpu: boolean;
+      apiKey: string;
+    }) => {
+      if (!isHydratedRef.current) return;
 
-    try {
-      const updated = await patchProviderSettings({
-        default_llm: selectedLlm,
-        selected_ollama_model: selectedLlm === 'ollama' ? selectedOllamaModel : undefined,
-        default_stt: selectedStt,
-        gpu_acceleration: gpuEnabled,
-        api_key: apiKey,
-      });
+      const baseline = lastSavedRef.current;
+      const modelToSave = targetState.llm === 'ollama' ? targetState.ollamaModel : undefined;
 
-      const confirmedModel = updated.selected_ollama_model || (selectedLlm === 'ollama' ? selectedOllamaModel : '');
-      
-      // Update Zustand runtime store & localStorage cache ONLY after backend HTTP 200 confirmation
-      setProviderSettings(
-        updated.default_llm,
-        updated.default_stt,
-        updated.gpu_acceleration,
-        confirmedModel
-      );
+      // Diff check: prevent redundant API requests if values match baseline
+      const hasChanged =
+        targetState.llm !== baseline.llm ||
+        targetState.stt !== baseline.stt ||
+        targetState.gpu !== baseline.gpu ||
+        targetState.apiKey !== baseline.apiKey ||
+        (targetState.llm === 'ollama' && targetState.ollamaModel !== baseline.ollamaModel);
 
-      const modelDetail =
-        selectedLlm === 'ollama' && confirmedModel
-          ? ` (${confirmedModel})`
-          : '';
-      setToastMessage({
-        type: 'success',
-        text: `✓ ${selectedLlm.toUpperCase()}${modelDetail} Configuration saved successfully!`,
-      });
-      refreshCatalog();
-    } catch (err: any) {
-      setToastMessage({
-        type: 'error',
-        text: `✕ Failed to save settings: ${err.message || 'Backend unreachable'}`,
-      });
-    } finally {
-      setIsSaving(false);
-    }
+      if (!hasChanged) return;
+
+      const requestId = ++saveRequestIdRef.current;
+      setSaveStatus('saving');
+      setSaveErrorMessage(null);
+
+      try {
+        const updated = await patchProviderSettings({
+          default_llm: targetState.llm,
+          selected_ollama_model: modelToSave,
+          default_stt: targetState.stt,
+          gpu_acceleration: targetState.gpu,
+          api_key: targetState.apiKey,
+        });
+
+        // Ignore stale response if a newer request was dispatched concurrently
+        if (requestId !== saveRequestIdRef.current) return;
+
+        const confirmedModel =
+          updated.selected_ollama_model ||
+          (targetState.llm === 'ollama' ? targetState.ollamaModel : '');
+
+        // Confirmed Save: Update Zustand store & localStorage cache ONLY after backend HTTP 200 confirmation
+        setProviderSettings(
+          updated.default_llm,
+          updated.default_stt,
+          updated.gpu_acceleration,
+          confirmedModel
+        );
+
+        // Update baseline
+        lastSavedRef.current = {
+          ...lastSavedRef.current,
+          llm: updated.default_llm,
+          ollamaModel: confirmedModel,
+          stt: updated.default_stt,
+          gpu: updated.gpu_acceleration,
+          apiKey: targetState.apiKey,
+        };
+
+        setSaveStatus('saved');
+        refreshCatalog();
+      } catch (err: any) {
+        if (requestId !== saveRequestIdRef.current) return;
+        setSaveStatus('error');
+        setSaveErrorMessage(err.message || 'Failed to persist settings to backend');
+      }
+    },
+    [setProviderSettings, refreshCatalog]
+  );
+
+  // Core Directory Path Autosave Execution Function
+  const executeDirectoryAutosave = useCallback(
+    async (targetDir: string) => {
+      if (!isHydratedRef.current) return;
+      const cleanDir = targetDir.trim();
+
+      // Diff check: only save if directory path changed
+      if (cleanDir === lastSavedRef.current.dir) return;
+
+      const requestId = ++dirSaveRequestIdRef.current;
+      setSaveStatus('saving');
+      setSaveErrorMessage(null);
+
+      try {
+        const res = await updateOllamaDirectory(cleanDir);
+
+        if (requestId !== dirSaveRequestIdRef.current) return;
+
+        setOllamaConfig(res);
+        if (res.configured_dir) {
+          setOllamaDir(res.configured_dir);
+        }
+
+        lastSavedRef.current = {
+          ...lastSavedRef.current,
+          dir: cleanDir,
+        };
+
+        setSaveStatus('saved');
+        refreshCatalog();
+      } catch (err: any) {
+        if (requestId !== dirSaveRequestIdRef.current) return;
+        setSaveStatus('error');
+        setSaveErrorMessage(err.message || 'Failed to save local model storage directory');
+      }
+    },
+    [refreshCatalog]
+  );
+
+  // Discrete Control Change Handlers (Immediate Autosave)
+  const handleLlmChange = (newLlm: string) => {
+    setSelectedLlm(newLlm);
+    executeProviderAutosave({
+      llm: newLlm,
+      ollamaModel: selectedOllamaModel,
+      stt: selectedStt,
+      gpu: gpuEnabled,
+      apiKey,
+    });
   };
 
-  const syncOllamaModelSelection = (res: OllamaSettingsResponse) => {
-    setOllamaConfig(res);
-    if (res.configured_dir) {
-      setOllamaDir(res.configured_dir);
-    }
+  const handleOllamaModelChange = (newModel: string) => {
+    setSelectedOllamaModel(newModel);
+    executeProviderAutosave({
+      llm: selectedLlm,
+      ollamaModel: newModel,
+      stt: selectedStt,
+      gpu: gpuEnabled,
+      apiKey,
+    });
   };
 
-  const handleSaveOllamaDir = async () => {
-    if (!ollamaDir.trim() || isSavingOllamaDir) return;
-    setIsSavingOllamaDir(true);
-    setToastMessage(null);
-
-    try {
-      const res = await updateOllamaDirectory(ollamaDir.trim());
-      syncOllamaModelSelection(res);
-      refreshCatalog();
-      setToastMessage({
-        type: 'success',
-        text: `✓ Local model storage directory saved! (${res.models_count} models discovered)`,
-      });
-    } catch (err: any) {
-      setToastMessage({
-        type: 'error',
-        text: `✕ Failed to save Ollama directory: ${err.message || 'Invalid path'}`,
-      });
-    } finally {
-      setIsSavingOllamaDir(false);
-    }
+  const handleSttChange = (newStt: string) => {
+    setSelectedStt(newStt);
+    executeProviderAutosave({
+      llm: selectedLlm,
+      ollamaModel: selectedOllamaModel,
+      stt: newStt,
+      gpu: gpuEnabled,
+      apiKey,
+    });
   };
 
-  const handleRefreshOllamaDir = async () => {
-    if (isScanningOllama) return;
-    setIsScanningOllama(true);
-    setToastMessage(null);
+  const handleGpuToggle = (newGpu: boolean) => {
+    setGpuEnabled(newGpu);
+    executeProviderAutosave({
+      llm: selectedLlm,
+      ollamaModel: selectedOllamaModel,
+      stt: selectedStt,
+      gpu: newGpu,
+      apiKey,
+    });
+  };
 
-    try {
-      const res = await scanOllamaModels();
-      syncOllamaModelSelection(res);
-      refreshCatalog();
-      setToastMessage({
-        type: 'success',
-        text: `✓ Local storage rescan complete! (${res.models_count} offline models discovered)`,
-      });
-    } catch (err: any) {
-      setToastMessage({
-        type: 'error',
-        text: `✕ Rescan failed: ${err.message || 'Error scanning directory'}`,
-      });
-    } finally {
-      setIsScanningOllama(false);
+  // Text Input Handlers (Debounced Autosave)
+  const handleApiKeyChange = (newKey: string) => {
+    setApiKey(newKey);
+
+    if (apiKeyDebounceTimerRef.current) {
+      clearTimeout(apiKeyDebounceTimerRef.current);
     }
+
+    apiKeyDebounceTimerRef.current = setTimeout(() => {
+      executeProviderAutosave({
+        llm: selectedLlm,
+        ollamaModel: selectedOllamaModel,
+        stt: selectedStt,
+        gpu: gpuEnabled,
+        apiKey: newKey,
+      });
+    }, 600);
+  };
+
+  const handleOllamaDirChange = (newDir: string) => {
+    setOllamaDir(newDir);
+
+    if (dirDebounceTimerRef.current) {
+      clearTimeout(dirDebounceTimerRef.current);
+    }
+
+    dirDebounceTimerRef.current = setTimeout(() => {
+      executeDirectoryAutosave(newDir);
+    }, 750);
   };
 
   const handleBrowseFolder = async () => {
@@ -264,16 +392,44 @@ export const SystemSettings: React.FC = () => {
       const selected = await dialog.open({ directory: true, multiple: false });
       if (typeof selected === 'string') {
         setOllamaDir(selected);
+        executeDirectoryAutosave(selected);
       }
     } catch {
       // Browser fallback (manual paste)
     }
   };
 
+  const handleRetrySave = () => {
+    executeProviderAutosave({
+      llm: selectedLlm,
+      ollamaModel: selectedOllamaModel,
+      stt: selectedStt,
+      gpu: gpuEnabled,
+      apiKey,
+    });
+    if (ollamaDir.trim() !== lastSavedRef.current.dir) {
+      executeDirectoryAutosave(ollamaDir);
+    }
+  };
+
+  const handleRefreshOllamaDir = async () => {
+    if (isScanningOllama) return;
+    setIsScanningOllama(true);
+
+    try {
+      const res = await scanOllamaModels();
+      setOllamaConfig(res);
+      refreshCatalog();
+    } catch (_err) {
+      // Ignore scan error
+    } finally {
+      setIsScanningOllama(false);
+    }
+  };
+
   const handleExecuteReset = async () => {
     if (confirmInputText.trim() !== 'CLEAR MY DATA') return;
     setIsResetting(true);
-    setToastMessage(null);
 
     try {
       await clearAllData();
@@ -285,20 +441,13 @@ export const SystemSettings: React.FC = () => {
           .forEach((k) => localStorage.removeItem(k));
       }
 
-      setToastMessage({
-        type: 'success',
-        text: '✓ All application data, transcripts, and vector indices cleared successfully! Reloading...',
-      });
       setIsResetModalOpen(false);
       setConfirmInputText('');
       setTimeout(() => {
         window.location.reload();
       }, 1000);
-    } catch (err: any) {
-      setToastMessage({
-        type: 'error',
-        text: `✕ Factory reset failed: ${err.message || 'Server error'}`,
-      });
+    } catch (_err) {
+      // Ignore
     } finally {
       setIsResetting(false);
     }
@@ -329,22 +478,6 @@ export const SystemSettings: React.FC = () => {
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-4xl mx-auto space-y-6 w-full">
-      {/* Toast Notification Banner */}
-      {toastMessage && (
-        <div
-          className={`p-3.5 rounded-lg border text-xs flex justify-between items-center transition-all ${
-            toastMessage.type === 'success'
-              ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300'
-              : 'bg-rose-950/70 border-rose-500/40 text-rose-300'
-          }`}
-        >
-          <span className="font-medium">{toastMessage.text}</span>
-          <button onClick={() => setToastMessage(null)} className="text-on-surface-variant hover:text-on-surface ml-2">
-            ✕
-          </button>
-        </div>
-      )}
-
       {/* Header & Top Live Status Summary Banner */}
       <div className="space-y-4 pb-4 border-b border-outline-variant">
         <div className="flex justify-between items-start">
@@ -357,7 +490,33 @@ export const SystemSettings: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* Live Autosave Status Indicator */}
+            {saveStatus === 'saving' && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-indigo-950/70 border border-indigo-500/40 text-indigo-300 rounded-full text-xs font-mono font-medium animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-indigo-400 border-2 border-indigo-200"></span>
+                <span>Saving...</span>
+              </div>
+            )}
+
+            {saveStatus === 'saved' && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 rounded-full text-xs font-mono font-medium">
+                <span>✓ All changes saved</span>
+              </div>
+            )}
+
+            {saveStatus === 'error' && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-rose-950/70 border border-rose-500/40 text-rose-300 rounded-full text-xs font-mono font-medium">
+                <span>⚠️ {saveErrorMessage || 'Failed to save'}</span>
+                <button
+                  onClick={handleRetrySave}
+                  className="underline hover:text-white font-bold ml-1 font-sans cursor-pointer"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
             <span className="text-[10px] font-mono px-2.5 py-1 rounded-full border border-secondary/40 bg-secondary/10 text-secondary font-semibold">
               {isNativeHost ? '💻 Native Host' : '🐳 Docker Container'}
             </span>
@@ -414,7 +573,7 @@ export const SystemSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* 1. AI Provider Configuration Card (Editable - Confirmed Save) */}
+      {/* 1. AI Provider Configuration Card (Auto-Saving Enabled) */}
       <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-5">
         <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
           <div className="flex items-center gap-2">
@@ -423,7 +582,10 @@ export const SystemSettings: React.FC = () => {
               AI Provider Routing Configuration
             </h3>
           </div>
-          <span className="text-[10px] font-mono text-on-surface-variant">Confirmed Save Enabled</span>
+          <span className="text-[10px] font-mono text-emerald-400 font-semibold flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Autosave Active
+          </span>
         </div>
 
         <div className="space-y-4">
@@ -433,9 +595,8 @@ export const SystemSettings: React.FC = () => {
             </label>
             <select
               value={selectedLlm}
-              onChange={(e) => setSelectedLlm(e.target.value)}
-              disabled={isSaving}
-              className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none disabled:opacity-60"
+              onChange={(e) => handleLlmChange(e.target.value)}
+              className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none"
             >
               {catalogProviders.length > 0 ? (
                 catalogProviders.map((p) => (
@@ -461,9 +622,8 @@ export const SystemSettings: React.FC = () => {
               </label>
               <select
                 value={selectedOllamaModel}
-                onChange={(e) => setSelectedOllamaModel(e.target.value)}
-                disabled={isSaving}
-                className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none disabled:opacity-60"
+                onChange={(e) => handleOllamaModelChange(e.target.value)}
+                className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
               >
                 <option value="" disabled>
                   -- Select an Ollama Model --
@@ -511,12 +671,11 @@ export const SystemSettings: React.FC = () => {
                 type="password"
                 placeholder={`Enter your ${selectedLlm.toUpperCase()} API Key (e.g. sk-or-v1-...)`}
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                disabled={isSaving}
-                className="w-full bg-surface-container-low border border-outline-variant rounded p-2.5 text-xs text-on-surface font-mono focus:border-secondary focus:outline-none disabled:opacity-60"
+                onChange={(e) => handleApiKeyChange(e.target.value)}
+                className="w-full bg-surface-container-low border border-outline-variant rounded p-2.5 text-xs text-on-surface font-mono focus:border-secondary focus:outline-none"
               />
               <p className="text-[11px] text-on-surface-variant">
-                Key is stored securely in memory for dynamic cloud provider routing.
+                Key is stored securely in memory for dynamic cloud provider routing. Saves automatically as you type.
               </p>
             </div>
           )}
@@ -527,19 +686,12 @@ export const SystemSettings: React.FC = () => {
             </label>
             <select
               value={selectedStt}
-              onChange={(e) => setSelectedStt(e.target.value)}
-              disabled={isSaving}
-              className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none disabled:opacity-60"
+              onChange={(e) => handleSttChange(e.target.value)}
+              className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none"
             >
               <option value="faster-whisper">Faster-Whisper (Local CTranslate2 Engine)</option>
             </select>
           </div>
-        </div>
-
-        <div className="pt-4 border-t border-outline-variant/40 flex justify-end">
-          <Button variant="primary" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? 'Saving Configuration...' : 'Save Configuration'}
-          </Button>
         </div>
       </div>
 
@@ -713,7 +865,7 @@ export const SystemSettings: React.FC = () => {
         </div>
 
         <p className="text-xs text-on-surface-variant">
-          Inspect and configure physical host model directory paths (e.g. <code className="font-mono text-secondary">E:\ollama\models</code>) for native offline manifest scanning.
+          Inspect and configure physical host model directory paths (e.g. <code className="font-mono text-secondary">E:\ollama\models</code>) for native offline manifest scanning. Saves automatically.
         </p>
 
         <div className="space-y-2">
@@ -724,21 +876,12 @@ export const SystemSettings: React.FC = () => {
             <input
               type="text"
               value={ollamaDir}
-              onChange={(e) => setOllamaDir(e.target.value)}
+              onChange={(e) => handleOllamaDirChange(e.target.value)}
               placeholder="e.g. E:\ollama\models"
               className="flex-1 bg-surface-container border border-outline-variant rounded px-3 py-2 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
             />
             <Button type="button" variant="secondary" size="sm" onClick={handleBrowseFolder}>
               Browse
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={handleSaveOllamaDir}
-              disabled={isSavingOllamaDir || !ollamaDir.trim()}
-            >
-              {isSavingOllamaDir ? 'Saving...' : 'Save Path'}
             </Button>
           </div>
         </div>
@@ -808,7 +951,7 @@ export const SystemSettings: React.FC = () => {
           <input
             type="checkbox"
             checked={gpuEnabled}
-            onChange={(e) => setGpuEnabled(e.target.checked)}
+            onChange={(e) => handleGpuToggle(e.target.checked)}
             className="rounded accent-secondary w-4 h-4"
           />
         </div>

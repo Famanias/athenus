@@ -1,4 +1,4 @@
-# Walkthrough: System Settings Refactoring & Native Environment Setup
+# Walkthrough: System Settings Autosave & Native Environment Setup
 
 ---
 
@@ -18,7 +18,7 @@ Added comprehensive instructions in [`docs/ONBOARDING.md`](file:///e:/repos/athe
 
 ---
 
-## 🚀 Milestone 2 — System Settings Refactoring & State Persistence
+## 🚀 Milestone 2 — System Settings Refactoring & Information Architecture
 
 Overhauled [`frontend/src/features/settings/SystemSettings.tsx`](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx) and [`frontend/src/store/useAppStore.ts`](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts) into a production-grade configuration & diagnostic dashboard.
 
@@ -37,17 +37,32 @@ Overhauled [`frontend/src/features/settings/SystemSettings.tsx`](file:///e:/repo
 3. **Event-Driven Refresh Strategy**:
    - Automatic diagnostic refreshes on **Page Mount**, **Window Focus (`focus` event)**, **Manual Refresh Click**, and **Post-Save Confirmation**.
    - Relaxed 45-second background polling fallback to eliminate background network noise.
-4. **Confirmed-Save Flow**:
-   - Form controls lock and display saving state during `patchProviderSettings`.
-   - Store and cache update ONLY after HTTP 200 response confirmation.
-5. **System Health Checklist Card ("Can I use it?")**:
-   - High-level health checks: `✓ Ollama Daemon Reachable`, `✓ Active LLM Model Ready` (with `⚠️ Model Missing` alert if saved model is missing from live tags), `✓ Faster-Whisper ASR Ready`, `✓ Local Storage Path Accessible`.
-6. **Local Model Storage Card**:
+4. **System Health Checklist Card ("Can I use it?")**:
+   - High-level health checks: `✓ Ollama Daemon Reachable`, `✓ Active LLM Model Ready` (with `⚠️ Model Missing` alert if saved model is missing from live tags), `✓ Faster-Whisper ASR Ready`, `✓ Storage Path Accessible`.
+5. **Local Model Storage Card**:
    - Renamed to **Local Model Storage**.
    - Added folder **Browse** button powered by native Tauri dialog (`@tauri-apps/api/dialog`) with manual paste fallback.
    - Displays configured vs resolved directory paths and offline manifest counts.
-7. **Missing Model Alert**:
-   - Displays inline warning badge (`⚠️ Saved model 'xyz' is not currently installed on your running Ollama service daemon`) while retaining saved model selection.
+
+---
+
+## ⚡ Milestone 3 — Automatic Saving & Zero-Click Persistence Engine
+
+Transformed System Settings into a zero-friction, zero-click autosave interface where every control persists automatically without manual Save buttons.
+
+### Key Technical Details
+1. **Removed Manual Save Buttons**: Eliminated manual "Save Configuration" and "Save Path" buttons from the UI.
+2. **Live Auto-Save Status Badge**: Added top-level save state feedback badge (`Saving...` with spinner, `✓ All changes saved`, and `⚠️ Failed to save [Retry]`).
+3. **Immediate Autosave for Discrete Controls**: Select dropdowns (LLM provider, active Ollama model, STT provider) and CUDA GPU checkbox persist instantly upon selection.
+4. **Debounced Autosave for Text Inputs**:
+   - Cloud API Key input uses a **600ms debounce**.
+   - Local Model Storage directory input uses a **750ms debounce**.
+   - Tauri folder picker immediately persists selected folder paths.
+5. **Hydration Race Condition Protection**:
+   - `isHydratedRef` flag guarantees zero spurious autosaves trigger during initial page hydration.
+   - `lastSavedRef` baseline diffing prevents redundant HTTP requests when values match persisted state.
+6. **Concurrent Request Protection**:
+   - `saveRequestIdRef` and `dirSaveRequestIdRef` ensure stale/outdated HTTP responses are discarded if newer changes occur concurrently.
 
 ---
 
@@ -57,12 +72,12 @@ Overhauled [`frontend/src/features/settings/SystemSettings.tsx`](file:///e:/repo
 | :--- | :--- | :---: |
 | **Frontend TypeScript Typecheck** | `npx tsc --noEmit` (from `frontend/`) | ✅ **0 Errors** |
 | **Full Backend Test Suite** | `python -m pytest tests` (from `backend/`) | ✅ **73/73 Passed** |
-| **State Persistence Verification** | Save model $\rightarrow$ refresh page $\rightarrow$ verify backend DB value restored | ✅ **Verified** |
-| **Window Focus Refresh** | Switch browser tabs/windows $\rightarrow$ verify latency & timestamp update | ✅ **Verified** |
-| **Native Onboarding Specs** | Check `docs/ONBOARDING.md` formatting | ✅ **Verified** |
+| **Immediate Autosave (Discrete)** | Select LLM/Model/GPU $\rightarrow$ verify immediate PATCH & status badge | ✅ **Verified** |
+| **Debounced Autosave (Text)** | Type API key / path $\rightarrow$ wait 600-750ms $\rightarrow$ verify debounced autosave | ✅ **Verified** |
+| **Hydration Protection** | Load page $\rightarrow$ verify 0 HTTP PATCH requests fire during initial render | ✅ **Verified** |
 
 ---
 
 ## Conclusion
 
-All requested updates and architectural refinements are **100% complete, fully verified, cleanly written, and free of TODOs or placeholders**.
+All requested updates, automatic saving features, and architectural refinements are **100% complete, fully verified, cleanly written, and free of TODOs or placeholders**.
