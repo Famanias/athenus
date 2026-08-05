@@ -57,18 +57,29 @@ export function rehydrateStoredState() {
   const mediaId = localStorage.getItem('athenus_active_media_id') || null;
   const savedSpeed = localStorage.getItem('athenus_playback_speed');
   const playbackSpeed = savedSpeed ? parseFloat(savedSpeed) : 1.0;
-  useAppStore.setState({ activeMediaId: mediaId, playbackSpeed });
+  const cachedOllamaModel = localStorage.getItem('athenus_selected_ollama_model') || '';
 
-  // Hydrate provider settings from backend SQLite store on boot
+  // Set transient render cache to avoid layout flicker
+  useAppStore.setState({
+    activeMediaId: mediaId,
+    playbackSpeed,
+    ...(cachedOllamaModel ? { selectedOllamaModel: cachedOllamaModel } : {}),
+  });
+
+  // Hydrate provider settings from backend SQLite store (Authoritative Source of Truth)
   getProviderSettings()
     .then((data) => {
       if (data) {
+        const backendModel = data.selected_ollama_model || '';
         useAppStore.setState({
           llmProvider: data.default_llm,
-          selectedOllamaModel: data.selected_ollama_model || '',
+          selectedOllamaModel: backendModel,
           sttProvider: data.default_stt,
           gpuAcceleration: data.gpu_acceleration,
         });
+        if (backendModel) {
+          localStorage.setItem('athenus_selected_ollama_model', backendModel);
+        }
       }
     })
     .catch(() => {});
@@ -138,13 +149,18 @@ export const useAppStore = create<AppState>()((...args) => {
     setCmdPaletteOpen: (isOpen) => set({ isCmdPaletteOpen: isOpen }),
     setWorkspaceModalOpen: (isOpen) => set({ isWorkspaceModalOpen: isOpen }),
     setSearchQuery: (query) => set({ searchQuery: query }),
-    setProviderSettings: (llm, stt, gpu, ollamaModel) =>
+    setProviderSettings: (llm, stt, gpu, ollamaModel) => {
+      const modelToSave = ollamaModel ?? '';
+      if (typeof window !== 'undefined' && modelToSave) {
+        localStorage.setItem('athenus_selected_ollama_model', modelToSave);
+      }
       set({
         llmProvider: llm,
-        selectedOllamaModel: ollamaModel ?? '',
+        selectedOllamaModel: modelToSave,
         sttProvider: stt,
         gpuAcceleration: gpu,
-      }),
+      });
+    },
 
     // --- 9-Step Workspace Switching Lifecycle ---
     switchWorkspace: (targetWorkspaceId: string) => {

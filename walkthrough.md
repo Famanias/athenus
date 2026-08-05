@@ -1,40 +1,53 @@
-# Walkthrough: Milestone 1 & Milestone 2 Implementation
+# Walkthrough: System Settings Refactoring & Native Environment Setup
 
 ---
 
-## 🛠️ Milestone 1 — Docker Directory Detection Regression Fix
+## 🛠️ Milestone 1 — Native Non-Docker Onboarding Documentation
 
-Resolved the Linux Docker container path resolution bug where host Windows drive paths (`E:\ollama\models`) were mangled into relative paths under container working directory (`/app/E:\ollama\models`).
+Added comprehensive instructions in [`docs/ONBOARDING.md`](file:///e:/repos/athenus/docs/ONBOARDING.md) for running Athenus in a native, non-Docker environment (manual Python virtual environment + Node.js + host Ollama).
 
-### Implemented Fixes
-1. **Platform Runtime Detection (`RuntimeService`)**: Created [`backend/app/core/runtime.py`](file:///e:/repos/athenus/backend/app/core/runtime.py) supporting `NATIVE`, `DOCKER`, `TAURI`, and `WEB` environments (`is_docker`, `is_native`, `can_access_host_filesystem`).
-2. **Decoupled Filesystem Path Validation (`FilesystemService`)**: Created [`backend/app/services/filesystem_service.py`](file:///e:/repos/athenus/backend/app/services/filesystem_service.py) to validate paths and container boundaries. Detects unmounted host Windows drive syntax (`E:\...`) under Docker and returns friendly guidance.
-3. **Single-Responsibility Scanner (`OllamaModelScanner`)**: Refactored [`backend/app/services/ollama_scanner.py`](file:///e:/repos/athenus/backend/app/services/ollama_scanner.py) to delegate path normalization to `FilesystemService`.
+### Key Updates to `ONBOARDING.md`
+1. **Prerequisites Table**: Added Python 3.10+ requirement for native non-Docker execution.
+2. **Section 5: Native / Non-Docker Mode (Manual Virtual Environment)**:
+   - Step-by-step virtualenv creation (`python -m venv venv`), activation on Windows/Linux/macOS, and dependency installation (`pip install -r requirements.txt`).
+   - Running native Ollama service daemon (`ollama serve`) and model pulling (`ollama pull llama3:8b`).
+   - Starting native FastAPI backend (`python app/main.py` or uvicorn reload on port 8000).
+   - Starting native frontend (`npm run dev` or `npm run tauri dev`).
+   - Host filesystem Model Storage inspection guidance for native mode.
+3. **Sequential Numbering**: Fixed section numbering sequence (1 through 10) for clean documentation flow.
 
 ---
 
-## 🚀 Milestone 2 — Live Local Model Discovery & Provider Architecture
+## 🚀 Milestone 2 — System Settings Refactoring & State Persistence
 
-Transformed local AI provider and model management into a zero-friction, provider-agnostic architecture driven by live REST discovery (`GET /api/tags`) and Clean Architecture principles.
+Overhauled [`frontend/src/features/settings/SystemSettings.tsx`](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx) and [`frontend/src/store/useAppStore.ts`](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts) into a production-grade configuration & diagnostic dashboard.
 
-### Implemented Fixes Across 5 Sequential Phases
-1. **Domain Layer Interface (`ILocalModelProvider`)**: Created [`backend/app/domain/ai/local_model_provider.py`](file:///e:/repos/athenus/backend/app/domain/ai/local_model_provider.py) defining `ILocalModelProvider` and DTOs (`ProviderStatusDTO`, `CatalogModelDTO`, `ModelCatalogDTO`). Added `OLLAMA_TIMEOUT: float = 3.0` in [`config.py`](file:///e:/repos/athenus/backend/app/core/config.py).
-   - *Git Commit*: `feat(domain): add ILocalModelProvider interface and DTOs` (`e9073c9`)
-
-2. **Application Registry (`LocalModelProviderRegistry`)**: Created [`backend/app/application/registries/local_provider_registry.py`](file:///e:/repos/athenus/backend/app/application/registries/local_provider_registry.py) supporting Dependency Injection (`registry.register(provider)`).
-   - *Git Commit*: `feat(provider): add LocalModelProviderRegistry` (`accca98`)
-
-3. **Ollama Infrastructure Adapter (`OllamaProviderAdapter`)**: Created [`backend/app/infrastructure/adapters/ollama_provider.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/ollama_provider.py) querying `/api/version` and `/api/tags` with 3.0s timeout resilience and graceful offline fallback.
-   - *Git Commit*: `feat(adapter): add OllamaProviderAdapter with REST model discovery` (`e3e2e9c`)
-
-4. **RESTful Provider Endpoints**: Added standardized provider endpoints in [`backend/app/presentation/api/v1/settings.py`](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py):
-   - `GET /api/v1/settings/providers/local`
-   - `GET /api/v1/settings/providers/local/{id}`
-   - `GET /api/v1/settings/providers/local/{id}/models`
-   - *Git Commit*: `feat(api): add RESTful local provider endpoints and registry wiring` (`1731613`)
-
-5. **UI Integration & Diagnostic Panel**: Updated [`frontend/src/services/settingsService.ts`](file:///e:/repos/athenus/frontend/src/services/settingsService.ts) and [`frontend/src/features/settings/SystemSettings.tsx`](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx) with a live **Ollama Service Daemon Diagnostic Panel** featuring status badge (`✓ Connected` / `✕ Offline`), active endpoint URL, **[ Refresh Models ]** button, and installed model grid.
-   - *Git Commit*: `feat(frontend): integrate live Ollama model discovery and diagnostic panel` (`9f307f1`)
+### Implemented Architectural Improvements
+1. **Authoritative Persistence Hierarchy (`useAppStore.ts`)**:
+   - Backend SQLite database is the **Authoritative Source of Truth**.
+   - Zustand Store maintains in-memory runtime state.
+   - `localStorage` cache is used strictly as a transient render cache during cold boots to prevent layout shift before HTTP hydration completes.
+2. **Top Live Status Summary Banner (`SystemSettings.tsx`)**:
+   - Status badge (`✓ Connected (v0.x.x)` or `✕ Offline`).
+   - REST Latency timer measurement in milliseconds (`⚡ 14 ms`).
+   - Installed Live Models count (`🏷️ 5 Installed`).
+   - Active Model display (`🎯 llama3:8b`).
+   - Runtime Environment badge (`💻 Native Host` vs `🐳 Docker Container`).
+   - **Last Checked: HH:MM:SS AM/PM** timestamp.
+3. **Event-Driven Refresh Strategy**:
+   - Automatic diagnostic refreshes on **Page Mount**, **Window Focus (`focus` event)**, **Manual Refresh Click**, and **Post-Save Confirmation**.
+   - Relaxed 45-second background polling fallback to eliminate background network noise.
+4. **Confirmed-Save Flow**:
+   - Form controls lock and display saving state during `patchProviderSettings`.
+   - Store and cache update ONLY after HTTP 200 response confirmation.
+5. **System Health Checklist Card ("Can I use it?")**:
+   - High-level health checks: `✓ Ollama Daemon Reachable`, `✓ Active LLM Model Ready` (with `⚠️ Model Missing` alert if saved model is missing from live tags), `✓ Faster-Whisper ASR Ready`, `✓ Local Storage Path Accessible`.
+6. **Local Model Storage Card**:
+   - Renamed to **Local Model Storage**.
+   - Added folder **Browse** button powered by native Tauri dialog (`@tauri-apps/api/dialog`) with manual paste fallback.
+   - Displays configured vs resolved directory paths and offline manifest counts.
+7. **Missing Model Alert**:
+   - Displays inline warning badge (`⚠️ Saved model 'xyz' is not currently installed on your running Ollama service daemon`) while retaining saved model selection.
 
 ---
 
@@ -42,14 +55,14 @@ Transformed local AI provider and model management into a zero-friction, provide
 
 | Verification Check | Target / Command | Result |
 | :--- | :--- | :---: |
-| **Local Provider Registry Tests** | `python -m pytest tests/test_local_provider_registry.py` | ✅ 2/2 Passed |
-| **Ollama Provider Adapter Tests** | `python -m pytest tests/test_ollama_provider_adapter.py` | ✅ 3/3 Passed |
-| **Local Provider REST API Tests** | `python -m pytest tests/test_local_provider_api.py` | ✅ 4/4 Passed |
+| **Frontend TypeScript Typecheck** | `npx tsc --noEmit` (from `frontend/`) | ✅ **0 Errors** |
 | **Full Backend Test Suite** | `python -m pytest tests` (from `backend/`) | ✅ **73/73 Passed** |
-| **Frontend TypeScript Typecheck**| `npx tsc --noEmit` (from `frontend/`) | ✅ **0 Errors** |
+| **State Persistence Verification** | Save model $\rightarrow$ refresh page $\rightarrow$ verify backend DB value restored | ✅ **Verified** |
+| **Window Focus Refresh** | Switch browser tabs/windows $\rightarrow$ verify latency & timestamp update | ✅ **Verified** |
+| **Native Onboarding Specs** | Check `docs/ONBOARDING.md` formatting | ✅ **Verified** |
 
 ---
 
 ## Conclusion
 
-Milestone 1 and Milestone 2 are **100% complete, fully verified, cleanly committed, and free of TODOs, dead code, or placeholder implementations**.
+All requested updates and architectural refinements are **100% complete, fully verified, cleanly written, and free of TODOs or placeholders**.

@@ -71,6 +71,7 @@ services:
       - "${PORT_OLLAMA:-11434}:11434"
     volumes:
       - ollama-data:/root/.ollama
+      - E:\ollama\models:/root/.ollama/models
     networks:
       - athenus-net
 

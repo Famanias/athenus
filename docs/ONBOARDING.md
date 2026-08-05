@@ -2,7 +2,7 @@
 
 # Athenus — Developer Onboarding Guide
 
-Fresh-clone setup for all three development modes: **Web (Docker)**, **Web (GPU)**, and **Desktop (Tauri)**.
+Fresh-clone setup for all development modes: **Web (Docker)**, **Web (GPU)**, **Desktop (Tauri)**, and **Native Non-Docker (Virtualenv)**.
 
 ---
 
@@ -11,12 +11,13 @@ Fresh-clone setup for all three development modes: **Web (Docker)**, **Web (GPU)
 | Tool | Required for | Notes |
 | :--- | :--- | :--- |
 | **Git** | Everything | |
-| **Docker Desktop** (or Docker Engine + Compose v2) | Web / GPU / containerized backend | Windows: use the **WSL2** backend. |
-| **Node.js 20+** | Desktop (Tauri) / native frontend | Only needed for the native Tauri path. |
+| **Docker Desktop** (or Docker Engine + Compose v2) | Web / GPU / containerized backend | Windows: use the **WSL2** backend. Optional for native mode. |
+| **Python 3.10+** | Native Non-Docker backend | Required for manual virtualenv execution without Docker. |
+| **Node.js 20+** | Desktop (Tauri) / native frontend | Required for native web dev and desktop shell. |
 | **Rust toolchain** | Desktop (Tauri) | Plus platform webview: WebView2 (Windows), WebKitGTK (Linux), WKWebView (macOS). |
 | **NVIDIA GPU + [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)** | GPU mode only | Optional; skip for CPU. |
 
-No Python install is needed for any Dockerized workflow.
+No Python install is needed for Dockerized workflows. For native host execution, Python 3.10+ and virtual environment tools are required.
 
 ---
 
@@ -94,7 +95,76 @@ The desktop app reaches the API at `http://localhost:8000` and shares the same
 
 ---
 
-## 5. Local Model Providers & Settings Diagnostic Panel
+## 5. Native / Non-Docker Mode (Manual Virtual Environment)
+
+For developers running directly on the host OS without Docker containers:
+
+### Step 1: Backend Virtual Environment Setup
+```bash
+# Navigate to the backend directory
+cd backend
+
+# Create a Python virtual environment
+python -m venv venv
+
+# Activate the virtual environment:
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# Windows (cmd):
+.\venv\Scripts\activate.bat
+# Linux / macOS:
+source venv/bin/activate
+
+# Upgrade pip and install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Step 2: Environment Configuration
+```bash
+# Return to project root (if needed) and copy .env template
+cp .env.example .env
+```
+
+### Step 3: Run Native Ollama Service
+```bash
+# Ensure Ollama service is installed and running on default port 11434 (https://ollama.com)
+ollama serve
+
+# Pull a default LLM model (e.g. llama3:8b)
+ollama pull llama3:8b
+```
+
+### Step 4: Start Backend Server
+```bash
+# From the backend directory with venv activated:
+python app/main.py
+# Or via uvicorn directly:
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+The FastAPI backend will start at `http://localhost:8000` with interactive docs at `http://localhost:8000/docs`.
+
+### Step 5: Start Frontend Server
+```bash
+# In a separate terminal, navigate to frontend
+cd frontend
+
+# Install dependencies
+npm install
+
+# Option A: Web Mode (Next.js Dev Server)
+npm run dev
+
+# Option B: Desktop Mode (Tauri Shell)
+npm run tauri dev
+```
+
+### Step 6: Native Model Storage Inspection
+In native mode, the backend has direct host filesystem access. You can configure and inspect host model storage directories (e.g., `E:\ollama\models` or `~/.ollama/models`) in **Settings → AI Models & Capability Bus Providers → Model Storage**.
+
+---
+
+## 6. Local Model Providers & Settings Diagnostic Panel
 
 In **Settings → Model Sources**, Athenus provides clean, decoupled diagnostic panels:
 
@@ -107,7 +177,7 @@ In **Settings → Model Sources**, Athenus provides clean, decoupled diagnostic 
 
 ---
 
-## 6. Sanity Checks After First Boot
+## 7. Sanity Checks & Lifecycle Operations
 
 ```bash
 docker compose ps                        # backend should report "healthy"
@@ -116,7 +186,7 @@ curl -I http://localhost:3000             # HTTP 200
 docker compose logs -f backend            # follow ingestion/transcription progress
 ```
 
-### 6. Docker Lifecycle Operations (Restart, Stop, Rebuild & Fresh Uninstall)
+### Docker Lifecycle Operations
 
 | Operation | Command | Description |
 | :--- | :--- | :--- |
@@ -133,7 +203,7 @@ docker compose logs -f backend            # follow ingestion/transcription progr
 
 ---
 
-## 7. Environment Configuration
+## 8. Environment Configuration
 
 - **`.env.example` keeps native defaults** (`./data/...`, `http://localhost:11434`) so
   native (non-Docker) development keeps working.
@@ -148,13 +218,13 @@ docker compose logs -f backend            # follow ingestion/transcription progr
 
 ---
 
-## 8. Common Troubleshooting
+## 9. Common Troubleshooting
 
 | Symptom | Cause / Fix |
 | :--- | :--- |
 | `env file .env not found` | Run `cp .env.example .env` (or a `scripts/setup.*` script) first. |
 | Backend stays `unhealthy` | First boot loads models/schema slowly — wait, then check `docker compose logs backend`. |
-| Port already in use | Set `PORT_*` overrides in `.env` (Section 7). |
+| Port already in use | Set `PORT_*` overrides in `.env` (Section 8). |
 | GPU container fails to start | NVIDIA Container Toolkit not installed/configured — see Section 3; fall back to CPU mode. |
 | Chat returns offline-fallback text | Ollama still pulling `llama3:8b` or unreachable — check Ollama status in Settings diagnostic panel or `docker compose logs ollama`. |
 | Unmounted host folder error in Docker | Containerized backend cannot reach host drive paths directly. Use live REST discovery (`GET /api/tags`) or mount directory in `docker-compose.yml`. |
@@ -162,9 +232,9 @@ docker compose logs -f backend            # follow ingestion/transcription progr
 
 ---
 
-## 9. Next Steps
+## 10. Next Steps
 
 - Full deployment documentation: [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)
 - Architecture context: [`docs/CONTEXT.md`](CONTEXT.md)
-- Implementation plan: [`implementation_plan.md`](../implementation_plan.md)
 - Backend test suite (native): `cd backend && python -m pytest tests`
+
