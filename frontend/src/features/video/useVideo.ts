@@ -16,7 +16,9 @@ export interface TranscriptSegment {
 
 export function useVideo() {
   const {
+    activeWorkspaceId,
     activeMediaId,
+    setActiveMediaId,
     currentTime,
     setCurrentTime,
     targetSeekSeconds,
@@ -36,7 +38,7 @@ export function useVideo() {
   // Persistent reference pointing to the single authoritative HTMLVideoElement in PersistentMediaPlayer
   const videoRef = persistentVideoRef;
 
-  const mediaUrl = activeMediaId ? getMediaUrl(activeMediaId) : '';
+  const mediaUrl = activeMediaId ? getMediaUrl(activeMediaId, activeWorkspaceId) : '';
 
   const fetchTranscript = useCallback(async () => {
     if (!activeMediaId) {
@@ -50,7 +52,7 @@ export function useVideo() {
 
     try {
       setLoading(true);
-      const data = await getTranscript(activeMediaId);
+      const data = await getTranscript(activeMediaId, activeWorkspaceId);
       if (data && data.segments && data.segments.length > 0) {
         const mapped: TranscriptSegment[] = data.segments.map((seg: BackendTranscriptSegmentDTO, idx: number) => ({
           id: `seg_${idx}`,
@@ -67,12 +69,15 @@ export function useVideo() {
         setHasTranscript(false);
       }
     } catch (_err) {
+      // If asset does not belong to this workspace, reset state
       setSegments([]);
       setHasTranscript(false);
+      setMediaSrc('');
+      setActiveMediaId(null);
     } finally {
       setLoading(false);
     }
-  }, [activeMediaId, mediaUrl]);
+  }, [activeMediaId, activeWorkspaceId, mediaUrl, setActiveMediaId]);
 
   // Fetch transcript segments on activeMediaId change
   useEffect(() => {

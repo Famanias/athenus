@@ -21,8 +21,9 @@ export interface MediaUploadDTO {
   status: string;
 }
 
-export async function getTranscript(mediaId: string): Promise<BackendTranscriptDTO> {
-  return apiClient<BackendTranscriptDTO>(`/api/v1/media/${mediaId}/transcript`);
+export async function getTranscript(mediaId: string, workspaceId?: string): Promise<BackendTranscriptDTO> {
+  const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+  return apiClient<BackendTranscriptDTO>(`/api/v1/media/${encodeURIComponent(mediaId)}/transcript${query}`);
 }
 
 export async function uploadMedia(file: File, workspaceId = 'default'): Promise<MediaUploadDTO> {
@@ -37,9 +38,10 @@ export async function uploadMedia(file: File, workspaceId = 'default'): Promise<
 }
 
 export function createMediaProcessingStream(mediaId: string): EventSource {
-  return new EventSource(`${API_BASE_URL}/api/v1/media/${mediaId}/stream`);
+  return new EventSource(`${API_BASE_URL}/api/v1/media/${encodeURIComponent(mediaId)}/stream`);
 }
 
-export function getMediaUrl(mediaId: string): string {
-  return `${API_BASE_URL}/api/v1/media/${mediaId}/file`;
+export function getMediaUrl(mediaId: string, workspaceId?: string): string {
+  const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
+  return `${API_BASE_URL}/api/v1/media/${encodeURIComponent(mediaId)}/file${query}`;
 }

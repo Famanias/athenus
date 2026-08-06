@@ -169,16 +169,21 @@ export const useAppStore = create<AppState>()((...args) => {
       state.setGenerating(false);
       // 2. Clear transient input state
       state.updateInput('');
-      // 3. Update global context
+      // 3. Clear transient media selection for workspace isolation
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('athenus_active_media_id');
+      }
+      // 4. Update global context
       set({
         activeWorkspaceId: targetWorkspaceId,
+        activeMediaId: null,
         context: {
           workspaceId: targetWorkspaceId,
           sessionId: null,
           mediaId: null,
         },
       });
-      // 4. Mark as lazy draft session until history loads
+      // 5. Mark as lazy draft session until history loads
       state.setActiveSessionId(null, true);
       state.setConversationLoading(false);
     },

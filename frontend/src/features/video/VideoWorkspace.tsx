@@ -228,10 +228,25 @@ export const VideoWorkspace: React.FC = () => {
 
         {/* Video Control Bar */}
         <div className="p-3 bg-surface-container-low border-t border-outline-variant flex flex-wrap justify-between items-center text-xs gap-3 shrink-0">
-          <div>
-            <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
-              {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
-            </h3>
+          <div className="flex items-center gap-3">
+            {workspaceAssets.length > 0 ? (
+              <select
+                value={activeMediaId || ''}
+                onChange={(e) => useAppStore.setState({ activeMediaId: e.target.value || null })}
+                className="bg-surface-container border border-outline-variant rounded px-2.5 py-1 text-xs font-mono text-on-surface focus:border-secondary outline-none max-w-xs"
+              >
+                <option value="" disabled>-- Select Workspace Video --</option>
+                {workspaceAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    🎥 {asset.title || asset.id}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
+                {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
+              </h3>
+            )}
             <span className="font-mono text-secondary text-[11px]">
               Time: {currentTime}
             </span>
