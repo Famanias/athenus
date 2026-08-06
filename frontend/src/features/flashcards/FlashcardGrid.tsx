@@ -1,17 +1,58 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useFlashcards } from './useFlashcards';
+import { useFlashcards, FlashcardCardDTO } from './useFlashcards';
 import { Button } from '@/components/ui/Button';
-import { useAppStore } from '@/store/useAppStore';
+
+interface ReviewRating {
+  label: string;
+  rating: number;
+  hint: string;
+}
+
+const RATINGS: ReviewRating[] = [
+  { label: 'Again', rating: 1, hint: 'Missed recall' },
+  { label: 'Hard', rating: 2, hint: 'Fuzzy recall' },
+  { label: 'Good', rating: 3, hint: 'Recalled' },
+  { label: 'Easy', rating: 4, hint: 'Trivial recall' },
+];
+
+function cardFrontText(card: FlashcardCardDTO): string {
+  if (card.card_type === 'cloze' && card.cloze_text) return card.cloze_text;
+  return card.front || card.concept_name || '';
+}
+
+function cardBackText(card: FlashcardCardDTO): string {
+  if (card.card_type === 'cloze') return card.back || card.front || '';
+  return card.back || card.options?.join('  ·  ') || '';
+}
 
 export const FlashcardGrid: React.FC = () => {
-  const { cards, loading } = useFlashcards();
-  const { setActiveView } = useAppStore();
+  const {
+    decks,
+    activeDeck,
+    selectedVersion,
+    cards,
+    loading,
+    generating,
+    error,
+    generateDeck,
+    selectVersion,
+    recordReview,
+    jumpToSource,
+    setActiveView,
+  } = useFlashcards();
+
   const [flippedMap, setFlippedMap] = useState<Record<string, boolean>>({});
+  const [ratedMap, setRatedMap] = useState<Record<string, boolean>>({});
 
   const toggleFlip = (id: string) => {
     setFlippedMap((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleRate = async (card: FlashcardCardDTO, rating: number) => {
+    await recordReview(card.id, rating);
+    setRatedMap((prev) => ({ ...prev, [card.id]: true }));
   };
 
   return (
@@ -23,13 +64,55 @@ export const FlashcardGrid: React.FC = () => {
             Active Recall Flashcards (Anki SM-2)
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
-            Click any flashcard to flip between Question and Answer.
+            Click any flashcard to flip between Question and Answer, then rate your recall.
           </p>
         </div>
-        <span className="font-mono text-xs text-secondary bg-secondary/10 px-3 py-1 rounded border border-secondary/30">
-          {cards.length} Active Deck Cards
-        </span>
+        <div className="flex items-center gap-3">
+          {activeDeck && (
+            <span className="font-mono text-xs text-secondary bg-secondary/10 px-3 py-1 rounded border border-secondary/30">
+              Deck v{activeDeck.version} · {activeDeck.card_count} cards
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            icon="add_card"
+            disabled={generating}
+            onClick={() => generateDeck()}
+          >
+            {generating ? 'Generating...' : 'Generate v' + ((activeDeck?.version || 1) + 1)}
+          </Button>
+        </div>
       </div>
+
+      {/* Version selector */}
+      {decks.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-mono text-[10px] text-on-surface-variant uppercase tracking-wider">
+            Deck versions:
+          </span>
+          {decks.map((deck) => (
+            <button
+              key={deck.id}
+              onClick={() => selectVersion(deck.version)}
+              className={`font-mono text-xs px-3 py-1 rounded border transition-colors ${
+                selectedVersion === deck.version
+                  ? 'bg-secondary text-on-secondary border-secondary'
+                  : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:bg-surface-container-high'
+              }`}
+            >
+              v{deck.version}
+              {deck.status !== 'ready' && <span className="ml-1">({deck.status})</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 rounded border border-error/40 bg-error/10 text-xs text-error font-mono">
+          {error}
+        </div>
+      )}
 
       {loading && (
         <div className="p-12 text-center text-xs text-on-surface-variant font-mono">
@@ -37,16 +120,22 @@ export const FlashcardGrid: React.FC = () => {
         </div>
       )}
 
-      {!loading && cards.length === 0 && (
+      {!loading && !error && cards.length === 0 && (
         <div className="p-12 border border-dashed border-outline-variant rounded-lg bg-surface-container-low text-center space-y-3">
           <span className="text-4xl block">🎴</span>
           <h4 className="font-bold text-sm text-on-surface">No Flashcards in Active Deck</h4>
           <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
-            Upload and process a lecture video to generate active recall flashcards with Anki SM-2 spaced repetition schedules.
+            Process a lecture video to extract concepts, then generate an SM-2 spaced
+            repetition flashcard deck grounded in your knowledge graph.
           </p>
-          <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
-            Upload Lecture
-          </Button>
+          <div className="flex justify-center gap-3">
+            <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
+              Upload Lecture
+            </Button>
+            <Button variant="outline" icon="auto_awesome" disabled={generating} onClick={() => generateDeck()}>
+              Generate Deck
+            </Button>
+          </div>
         </div>
       )}
 
@@ -55,40 +144,78 @@ export const FlashcardGrid: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {cards.map((card) => {
             const isFlipped = !!flippedMap[card.id];
+            const isRated = !!ratedMap[card.id];
             return (
-              <div
-                key={card.id}
-                onClick={() => toggleFlip(card.id)}
-                className={`flashcard-box ${isFlipped ? 'flipped' : ''}`}
-              >
-                <div className="flashcard-inner">
-                  {/* Question Front */}
-                  <div className="flashcard-front">
-                    <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
-                      {card.category}
-                    </span>
-                    <p className="text-xs font-semibold text-center my-auto text-on-surface leading-relaxed">
-                      {card.question}
-                    </p>
-                    <span className="text-[10px] text-on-surface-variant/50 font-mono text-center">
-                      Click to flip 🔄
-                    </span>
-                  </div>
+              <div key={card.id} className="flex flex-col gap-2">
+                <div
+                  onClick={() => toggleFlip(card.id)}
+                  className={`flashcard-box ${isFlipped ? 'flipped' : ''}`}
+                >
+                  <div className="flashcard-inner">
+                    {/* Question Front */}
+                    <div className="flashcard-front">
+                      <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
+                        {card.card_type}
+                      </span>
+                      <p className="text-xs font-semibold text-center my-auto text-on-surface leading-relaxed">
+                        {cardFrontText(card)}
+                      </p>
+                      <span className="text-[10px] text-on-surface-variant/50 font-mono text-center">
+                        Click to flip 🔄
+                      </span>
+                    </div>
 
-                  {/* Answer Back */}
-                  <div className="flashcard-back">
-                    <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
-                      ANSWER & RECALL
-                    </span>
-                    <p className="text-xs font-mono font-semibold text-center my-auto leading-relaxed">
-                      {card.answer}
-                    </p>
-                    <div className="text-[10px] font-mono text-secondary text-center flex justify-between pt-2 border-t border-secondary/30">
-                      <span>Ease: {card.easeFactor}</span>
-                      <span>Due: {card.dueDate}</span>
+                    {/* Answer Back */}
+                    <div className="flashcard-back">
+                      <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
+                        ANSWER &amp; RECALL
+                      </span>
+                      <p className="text-xs font-mono font-semibold text-center my-auto leading-relaxed">
+                        {cardBackText(card)}
+                      </p>
+                      <div className="text-[10px] font-mono text-secondary text-center flex justify-between pt-2 border-t border-secondary/30">
+                        <span>Ease: {card.ease_factor.toFixed(2)}</span>
+                        <span>Ivl: {card.interval_days}d</span>
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                {/* SM-2 Rating buttons */}
+                {isFlipped && (
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {RATINGS.map((r) => (
+                      <button
+                        key={r.rating}
+                        title={r.hint}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRate(card, r.rating);
+                        }}
+                        className={`text-[10px] font-mono px-1 py-1.5 rounded border transition-colors ${
+                          isRated && card.ease_factor >= 2.5 && r.rating >= 3
+                            ? 'bg-secondary/20 text-secondary border-secondary/40'
+                            : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:bg-secondary/15 hover:text-secondary'
+                        }`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Provenance / timestamp jump */}
+                {isFlipped && card.media_id && card.start_time != null && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      jumpToSource(card.media_id, card.start_time);
+                    }}
+                    className="text-[10px] font-mono text-secondary/80 hover:text-secondary text-left underline underline-offset-2"
+                  >
+                    Jump to source at {card.start_time.toFixed(1)}s ⏱
+                  </button>
+                )}
               </div>
             );
           })}
