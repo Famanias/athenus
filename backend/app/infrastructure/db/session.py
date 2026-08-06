@@ -36,6 +36,32 @@ try:
                         conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN message_count INTEGER DEFAULT 0"))
                     if "preview_text" not in cols:
                         conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN preview_text TEXT"))
+
+                if inspector.has_table("knowledge_concepts"):
+                    cols = [c["name"] for c in inspector.get_columns("knowledge_concepts")]
+                    if "status" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN status VARCHAR DEFAULT 'ready'"))
+                    if "media_id" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN media_id VARCHAR"))
+                    if "source_chunk_ids" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN source_chunk_ids TEXT"))
+                    if "start_time" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN start_time FLOAT"))
+                    if "end_time" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN end_time FLOAT"))
+                    if "embedding" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN embedding TEXT"))
+                    if "updated_at" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_concepts ADD COLUMN updated_at DATETIME"))
+
+                if inspector.has_table("knowledge_relations"):
+                    cols = [c["name"] for c in inspector.get_columns("knowledge_relations")]
+                    if "weight" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_relations ADD COLUMN weight FLOAT DEFAULT 1.0"))
+                    if "media_id" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_relations ADD COLUMN media_id VARCHAR"))
+                    if "updated_at" not in cols:
+                        conn.execute(text("ALTER TABLE knowledge_relations ADD COLUMN updated_at DATETIME"))
                 conn.commit()
         except Exception as e:
             print("MIGRATION ERROR:", e)

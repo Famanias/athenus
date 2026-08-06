@@ -103,7 +103,17 @@ try:
         workspace_id: str = Field(index=True)
         name: str = Field(index=True)
         description: Optional[str] = None
+        # Artifact lifecycle observability
+        status: str = "ready"  # pending | generating | ready | failed
+        # Grounding & provenance contract
+        media_id: Optional[str] = Field(default=None, index=True)
+        source_chunk_ids: Optional[str] = None
+        start_time: Optional[float] = None
+        end_time: Optional[float] = None
+        # Semantic dedup embedding (JSON-encoded 384-dim vector)
+        embedding: Optional[str] = None
         created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class KnowledgeRelationTable(SQLModel, table=True):
         __tablename__ = "knowledge_relations"
@@ -112,6 +122,157 @@ try:
         source_concept: str = Field(index=True)
         target_concept: str = Field(index=True)
         relation_type: str = "relates_to"
+        weight: float = 1.0
+        media_id: Optional[str] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class ConceptAliasTable(SQLModel, table=True):
+        __tablename__ = "concept_aliases"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        concept_id: str = Field(index=True)
+        alias: str
+        normalized: str = Field(index=True)
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class ArtifactJobTable(SQLModel, table=True):
+        __tablename__ = "artifact_jobs"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        artifact_type: str = Field(index=True)  # graph | flashcards | quiz
+        target_key: str = Field(index=True)  # media_id for graph; deck/quiz id otherwise
+        status: str = "pending"  # pending | generating | ready | failed
+        progress: int = 0
+        message: Optional[str] = None
+        error_message: Optional[str] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class FlashcardDeckTable(SQLModel, table=True):
+        __tablename__ = "flashcard_decks"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        name: str
+        version: int = Field(default=1)
+        status: str = "ready"  # pending | generating | ready | failed
+        media_ids: Optional[str] = None
+        concept_ids: Optional[str] = None
+        source_chunk_ids: Optional[str] = None
+        card_count: int = 0
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class FlashcardTable(SQLModel, table=True):
+        __tablename__ = "flashcards"
+        id: str = Field(primary_key=True)
+        deck_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        concept_id: Optional[str] = Field(default=None, index=True)
+        card_type: str = "basic"  # basic | cloze | definition | true_false
+        front: str
+        back: Optional[str] = None
+        cloze_text: Optional[str] = None
+        options_json: Optional[str] = None
+        # Grounding & provenance contract
+        media_id: Optional[str] = Field(default=None, index=True)
+        source_chunk_ids: Optional[str] = None
+        start_time: Optional[float] = None
+        end_time: Optional[float] = None
+        # SM-2 scheduling state (initial values copied into reviews)
+        ease_factor: float = 2.5
+        interval_days: int = 0
+        repetitions: int = 0
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class FlashcardReviewTable(SQLModel, table=True):
+        __tablename__ = "flashcard_reviews"
+        id: str = Field(primary_key=True)
+        flashcard_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        rating: int = 0  # SM-2 quality 0-4 (hard->perfect) or 1-4 recall scale
+        ease_factor: float = 2.5
+        interval_days: int = 0
+        repetitions: int = 0
+        reviewed_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class QuizTable(SQLModel, table=True):
+        __tablename__ = "quizzes"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        title: str
+        version: int = Field(default=1)
+        status: str = "ready"  # pending | generating | ready | failed
+        concept_ids: Optional[str] = None
+        source_chunk_ids: Optional[str] = None
+        question_count: int = 0
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class QuizQuestionTable(SQLModel, table=True):
+        __tablename__ = "quiz_questions"
+        id: str = Field(primary_key=True)
+        quiz_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        concept_id: Optional[str] = Field(default=None, index=True)
+        question_text: str
+        options_json: str
+        correct_index: int = 0
+        explanation: str
+        # Grounding & provenance contract
+        media_id: Optional[str] = Field(default=None, index=True)
+        source_chunk_ids: Optional[str] = None
+        start_time: Optional[float] = None
+        end_time: Optional[float] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class QuizAttemptTable(SQLModel, table=True):
+        __tablename__ = "quiz_attempts"
+        id: str = Field(primary_key=True)
+        quiz_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        version: int = 1
+        score: float = 0.0
+        total_questions: int = 0
+        correct_count: int = 0
+        answers_json: Optional[str] = None
+        time_taken: float = 0.0
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class WorkspaceAnalyticsTable(SQLModel, table=True):
+        __tablename__ = "workspace_analytics"
+        workspace_id: str = Field(primary_key=True)
+        total_media: int = 0
+        total_concepts: int = 0
+        total_flashcards: int = 0
+        total_quiz_attempts: int = 0
+        total_reviews: int = 0
+        avg_quiz_score: float = 0.0
+        total_study_seconds: float = 0.0
+        review_streak_days: int = 0
+        last_activity_at: Optional[datetime] = None
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class ConceptMasteryTable(SQLModel, table=True):
+        __tablename__ = "concept_mastery"
+        concept_id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        concept_name: str = ""
+        mastery_level: float = 0.0  # 0.0 .. 1.0
+        review_count: int = 0
+        quiz_correct: int = 0
+        quiz_attempts: int = 0
+        last_reviewed_at: Optional[datetime] = None
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class StudySessionTable(SQLModel, table=True):
+        __tablename__ = "study_sessions"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        activity_type: str = "review"  # review | quiz | graph | flashcard
+        started_at: datetime = Field(default_factory=datetime.utcnow)
+        ended_at: Optional[datetime] = None
+        duration_seconds: float = 0.0
         created_at: datetime = Field(default_factory=datetime.utcnow)
 
 except ImportError:
@@ -217,7 +378,14 @@ except ImportError:
         workspace_id = Column(String, index=True, nullable=False)
         name = Column(String, index=True, nullable=False)
         description = Column(Text, nullable=True)
+        status = Column(String, default="ready")
+        media_id = Column(String, index=True, nullable=True)
+        source_chunk_ids = Column(Text, nullable=True)
+        start_time = Column(Float, nullable=True)
+        end_time = Column(Float, nullable=True)
+        embedding = Column(Text, nullable=True)
         created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
 
     class KnowledgeRelationTable(Base):
         __tablename__ = "knowledge_relations"
@@ -226,6 +394,152 @@ except ImportError:
         source_concept = Column(String, index=True, nullable=False)
         target_concept = Column(String, index=True, nullable=False)
         relation_type = Column(String, default="relates_to")
+        weight = Column(Float, default=1.0)
+        media_id = Column(String, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
+    class ConceptAliasTable(Base):
+        __tablename__ = "concept_aliases"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        concept_id = Column(String, index=True, nullable=False)
+        alias = Column(String, nullable=False)
+        normalized = Column(String, index=True, nullable=False)
         created_at = Column(DateTime, default=datetime.utcnow)
 
+    class ArtifactJobTable(Base):
+        __tablename__ = "artifact_jobs"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        artifact_type = Column(String, index=True, nullable=False)
+        target_key = Column(String, index=True, nullable=False)
+        status = Column(String, default="pending")
+        progress = Column(Integer, default=0)
+        message = Column(String, nullable=True)
+        error_message = Column(String, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
 
+    class FlashcardDeckTable(Base):
+        __tablename__ = "flashcard_decks"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        name = Column(String, nullable=False)
+        version = Column(Integer, default=1)
+        status = Column(String, default="ready")
+        media_ids = Column(Text, nullable=True)
+        concept_ids = Column(Text, nullable=True)
+        source_chunk_ids = Column(Text, nullable=True)
+        card_count = Column(Integer, default=0)
+        created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
+    class FlashcardTable(Base):
+        __tablename__ = "flashcards"
+        id = Column(String, primary_key=True)
+        deck_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        concept_id = Column(String, index=True, nullable=True)
+        card_type = Column(String, default="basic")
+        front = Column(Text, nullable=False)
+        back = Column(Text, nullable=True)
+        cloze_text = Column(Text, nullable=True)
+        options_json = Column(Text, nullable=True)
+        media_id = Column(String, index=True, nullable=True)
+        source_chunk_ids = Column(Text, nullable=True)
+        start_time = Column(Float, nullable=True)
+        end_time = Column(Float, nullable=True)
+        ease_factor = Column(Float, default=2.5)
+        interval_days = Column(Integer, default=0)
+        repetitions = Column(Integer, default=0)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
+    class FlashcardReviewTable(Base):
+        __tablename__ = "flashcard_reviews"
+        id = Column(String, primary_key=True)
+        flashcard_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        rating = Column(Integer, default=0)
+        ease_factor = Column(Float, default=2.5)
+        interval_days = Column(Integer, default=0)
+        repetitions = Column(Integer, default=0)
+        reviewed_at = Column(DateTime, default=datetime.utcnow)
+
+    class QuizTable(Base):
+        __tablename__ = "quizzes"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        title = Column(String, nullable=False)
+        version = Column(Integer, default=1)
+        status = Column(String, default="ready")
+        concept_ids = Column(Text, nullable=True)
+        source_chunk_ids = Column(Text, nullable=True)
+        question_count = Column(Integer, default=0)
+        created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
+    class QuizQuestionTable(Base):
+        __tablename__ = "quiz_questions"
+        id = Column(String, primary_key=True)
+        quiz_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        concept_id = Column(String, index=True, nullable=True)
+        question_text = Column(Text, nullable=False)
+        options_json = Column(Text, nullable=False)
+        correct_index = Column(Integer, default=0)
+        explanation = Column(Text, nullable=False)
+        media_id = Column(String, index=True, nullable=True)
+        source_chunk_ids = Column(Text, nullable=True)
+        start_time = Column(Float, nullable=True)
+        end_time = Column(Float, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
+    class QuizAttemptTable(Base):
+        __tablename__ = "quiz_attempts"
+        id = Column(String, primary_key=True)
+        quiz_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        version = Column(Integer, default=1)
+        score = Column(Float, default=0.0)
+        total_questions = Column(Integer, default=0)
+        correct_count = Column(Integer, default=0)
+        answers_json = Column(Text, nullable=True)
+        time_taken = Column(Float, default=0.0)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
+    class WorkspaceAnalyticsTable(Base):
+        __tablename__ = "workspace_analytics"
+        workspace_id = Column(String, primary_key=True)
+        total_media = Column(Integer, default=0)
+        total_concepts = Column(Integer, default=0)
+        total_flashcards = Column(Integer, default=0)
+        total_quiz_attempts = Column(Integer, default=0)
+        total_reviews = Column(Integer, default=0)
+        avg_quiz_score = Column(Float, default=0.0)
+        total_study_seconds = Column(Float, default=0.0)
+        review_streak_days = Column(Integer, default=0)
+        last_activity_at = Column(DateTime, nullable=True)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
+    class ConceptMasteryTable(Base):
+        __tablename__ = "concept_mastery"
+        concept_id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        concept_name = Column(String, default="")
+        mastery_level = Column(Float, default=0.0)
+        review_count = Column(Integer, default=0)
+        quiz_correct = Column(Integer, default=0)
+        quiz_attempts = Column(Integer, default=0)
+        last_reviewed_at = Column(DateTime, nullable=True)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
+    class StudySessionTable(Base):
+        __tablename__ = "study_sessions"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        activity_type = Column(String, default="review")
+        started_at = Column(DateTime, default=datetime.utcnow)
+        ended_at = Column(DateTime, nullable=True)
+        duration_seconds = Column(Float, default=0.0)
+        created_at = Column(DateTime, default=datetime.utcnow)

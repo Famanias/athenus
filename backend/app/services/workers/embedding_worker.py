@@ -78,6 +78,9 @@ class EmbeddingWorker:
             chunk_texts = [c.text for c in chunks]
             embeddings = await embedding_capability.embed_texts(chunk_texts)
 
+            # 5b. Persist canonical chunk metadata to SQLite for grounded learning artifact generation
+            self._persist_chunks(chunks)
+
             # 6. Upsert vectors into Embedded Qdrant
             point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, c.id)) for c in chunks]
             payloads = [
@@ -111,3 +114,38 @@ class EmbeddingWorker:
                 aggregate_id=media_id,
                 payload={"media_id": media_id, "stage": current_stage, "error": err_msg}
             ))
+
+    def _persist_chunks(self, chunks) -> None:
+        """Persist canonical transcript chunk metadata (text + timestamps) to SQLite."""
+        try:
+            from app.infrastructure.db.models import TranscriptChunkTable
+            from app.infrastructure.db.session import engine
+        except ImportError:
+            return
+        if not engine:
+            return
+        try:
+            from sqlmodel import Session, select
+            with Session(engine) as session:
+                if not chunks:
+                    return
+                existing_stmt = select(TranscriptChunkTable).where(
+                    TranscriptChunkTable.media_id == chunks[0].media_id
+                )
+                existing = session.scalars(existing_stmt).all() if hasattr(session, "scalars") else session.exec(existing_stmt).all()
+                for rec in existing:
+                    session.delete(rec)
+                for c in chunks:
+                    session.add(TranscriptChunkTable(
+                        id=c.id,
+                        media_id=c.media_id,
+                        workspace_id=c.workspace_id,
+                        text=c.text,
+                        start_time=c.start_time,
+                        end_time=c.end_time,
+                        chunk_index=c.chunk_index,
+                        word_count=c.word_count,
+                    ))
+                session.commit()
+        except Exception:
+            pass

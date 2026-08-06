@@ -15,7 +15,7 @@ from app.presentation.api.v1.health import router as health_router
 from app.presentation.api.v1.media import router as media_router
 from app.presentation.api.v1.chat import router as chat_router
 from app.presentation.api.v1.workspaces import router as workspaces_router
-from app.presentation.api.v1.knowledge_graph import router as graph_router, graph_service
+from app.presentation.api.v1.graph import router as graph_router
 from app.presentation.api.v1.learning import router as learning_router
 from app.presentation.api.v1.agents import router as agents_router
 from app.presentation.api.v1.settings import router as settings_router
@@ -31,11 +31,9 @@ from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
 from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
 from app.services.workers.transcript_worker import TranscriptWorker
 from app.services.workers.embedding_worker import EmbeddingWorker
-from app.services.workers.knowledge_graph_worker import KnowledgeGraphWorker
-from app.services.workers.summary_worker import SummaryWorker
-from app.services.workers.quiz_worker import QuizWorker
-from app.services.workers.flashcard_worker import FlashcardWorker
+from app.services.workers.graph_extraction_worker import GraphExtractionWorker
 from app.application.services.workspace_intelligence import WorkspaceIntelligenceManager
+from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
 from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
 
@@ -84,10 +82,7 @@ async def lifespan(app: FastAPI):
     
     transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
     embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
-    graph_worker = KnowledgeGraphWorker(event_bus, graph_service)
-    summary_worker = SummaryWorker(event_bus, ai_service_bus)
-    quiz_worker = QuizWorker(event_bus)
-    flashcard_worker = FlashcardWorker(event_bus)
+    graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=KnowledgeGraphService())
 
     intelligence_manager = WorkspaceIntelligenceManager(
         ai_service_bus,

@@ -14,7 +14,9 @@ class EmbeddedQdrantVectorStoreAdapter:
 
     def _init_qdrant(self) -> None:
         try:
+            # pyrefly: ignore [missing-import]
             from qdrant_client import QdrantClient
+            # pyrefly: ignore [missing-import]
             from qdrant_client.models import Distance, VectorParams
 
             os.makedirs(self.path, exist_ok=True)
@@ -48,6 +50,7 @@ class EmbeddedQdrantVectorStoreAdapter:
                 self._fallback_memory.append({"id": idx, "vector": vec, "payload": pay})
             return
 
+        # pyrefly: ignore [missing-import]
         from qdrant_client.models import PointStruct
         points = [
             PointStruct(id=idx, vector=vec, payload=pay)
@@ -73,6 +76,7 @@ class EmbeddedQdrantVectorStoreAdapter:
                 results.append({"id": item["id"], "score": 0.85, "payload": pay})
             return results[:limit]
 
+        # pyrefly: ignore [missing-import]
         from qdrant_client.models import Filter, FieldCondition, MatchValue
 
         must_conditions = []

@@ -40,6 +40,11 @@ class ConceptNode:
     description: str
     source_chunk_ids: List[str] = field(default_factory=list)
     mastery_level: float = 0.0
+    # Grounding & provenance contract
+    status: str = "ready"
+    media_id: Optional[str] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
 
 @dataclass
 class ConceptRelation:
@@ -48,6 +53,7 @@ class ConceptRelation:
     target_concept_id: str
     relation_type: RelationType
     weight: float = 1.0
+    media_id: Optional[str] = None
 
 class KnowledgeGraphProtocol(Protocol):
     def add_node(self, node: ConceptNode) -> None: ...
