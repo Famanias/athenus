@@ -89,43 +89,11 @@ async def upload_media(
         status=media_item.status.value
     )
 
-@router.get("/media/workspace/{workspace_id}", response_model=List[MediaUploadResponse])
-def list_workspace_media(workspace_id: str):
-    """Fetch all media items belonging to a specific workspace."""
-    from app.infrastructure.db.models import MediaItemTable
-    from app.infrastructure.db.session import engine
-    try:
-        from sqlmodel import Session, select
-    except ImportError:
-        from sqlalchemy import select
-        from sqlalchemy.orm import Session
-
-    if not engine or not Session or not select:
-        return []
-
-    try:
-        with Session(engine) as session:
-            stmt = select(MediaItemTable).where(MediaItemTable.workspace_id == workspace_id)
-            records = session.scalars(stmt).all() if hasattr(session, "scalars") else session.exec(stmt).all()
-            return [
-                MediaUploadResponse(
-                    media_id=r.id,
-                    workspace_id=r.workspace_id,
-                    title=r.title,
-                    status=r.status
-                )
-                for r in records
-            ]
-    except Exception:
-        return []
-
 @router.get("/media/{media_id}/status", response_model=MediaStatusResponse)
-def get_media_status(media_id: str, workspace_id: Optional[str] = None):
+def get_media_status(media_id: str):
     item = media_repository.get(media_id)
     if not item:
         raise HTTPException(status_code=404, detail="Media item not found")
-    if workspace_id and item.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail=f"Media item does not belong to workspace '{workspace_id}'")
     
     snap = progress_store.snapshot(media_id) or {}
     return MediaStatusResponse(
@@ -137,10 +105,7 @@ def get_media_status(media_id: str, workspace_id: Optional[str] = None):
     )
 
 @router.get("/media/{media_id}/transcript", response_model=TranscriptResponse)
-def get_transcript(media_id: str, workspace_id: Optional[str] = None):
-    item = media_repository.get(media_id)
-    if workspace_id and item and item.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail=f"Media item does not belong to workspace '{workspace_id}'")
+def get_transcript(media_id: str):
     segments = media_repository.get_transcript(media_id)
     full_text = " ".join([s.get("text", "") for s in segments])
     return TranscriptResponse(
@@ -150,13 +115,11 @@ def get_transcript(media_id: str, workspace_id: Optional[str] = None):
     )
 
 @router.get("/media/{media_id}/file")
-def get_media_file(media_id: str, workspace_id: Optional[str] = None):
+def get_media_file(media_id: str):
     """Serve the uploaded media file for playback in the video workspace."""
     item = media_repository.get(media_id)
     if not item or not item.file_path:
         raise HTTPException(status_code=404, detail="Media item not found")
-    if workspace_id and item.workspace_id != workspace_id:
-        raise HTTPException(status_code=404, detail=f"Media item does not belong to workspace '{workspace_id}'")
     if not os.path.exists(item.file_path):
         raise HTTPException(status_code=404, detail="Media file not found on disk")
     return FileResponse(item.file_path, filename=os.path.basename(item.file_path))
@@ -212,6 +175,7 @@ def get_media_processing_history(media_id: str):
     from app.infrastructure.db.models import ProcessingLogTable
     from app.infrastructure.db.session import engine
     try:
+        # pyrefly: ignore [missing-import]
         from sqlmodel import Session, select
     except ImportError:
         from sqlalchemy import select

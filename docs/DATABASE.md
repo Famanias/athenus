@@ -1,192 +1,83 @@
-# DATABASE.md — Athenus Database & Storage Specifications
+# DATABASE.md — Athenus Relational & Vector Storage Specifications
 
-Canonical database schema reference and vector storage specifications for Athenus.
+This document defines the canonical relational database schema (21 tables in SQLite) and vector collection parameters for **Athenus**.
 
 ---
 
 ## 1. SQLite Relational Schema (`./data/athenus.db`)
 
-Managed via SQLModel / SQLAlchemy with auto-creation and schema migrations on application startup (`init_db()`).
+All tables are defined as dual-compatible **SQLModel** / **SQLAlchemy ORM** classes in `backend/app/infrastructure/db/models.py` with automatic startup schema migration (`init_db()`).
 
-### Table: `workspaces`
-Stores learning workspace definitions and metadata.
-```sql
-CREATE TABLE workspaces (
-    id VARCHAR PRIMARY KEY,
-    name VARCHAR NOT NULL,
-    description VARCHAR,
-    icon VARCHAR,
-    is_pinned BOOLEAN DEFAULT 0,
-    is_archived BOOLEAN DEFAULT 0,
-    settings_json TEXT,
-    last_accessed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+### Core System & Workspace Tables
+- **`workspaces`**: Workspace definitions, metadata, custom settings JSON, and access timestamps.
+- **`system_settings`**: Global provider configuration (`default_llm`, `selected_ollama_model`, `ollama_models_dir`, `default_stt`, `gpu_acceleration`).
+
+### Ingestion & Media Asset Tables
+- **`media_items`**: Uploaded lecture asset metadata (`workspace_id`, `file_path`, `duration_seconds`, `status`, `error_message`).
+- **`transcript_segments`**: Raw Whisper ASR transcript output (`media_id`, `start_time`, `end_time`, `text`).
+- **`transcript_chunks`**: Processed RAG text chunks (`media_id`, `workspace_id`, `text`, `start_time`, `end_time`, `chunk_index`, `word_count`).
+- **`processing_logs`**: Immutable telemetry audit trail for background processing stages (`stage`, `status`, `progress`, `message`, `error_message`).
+
+### Conversational Memory Tables
+- **`chat_sessions`**: Session containers bound to workspaces with session preview metadata (`title`, `last_message_at`, `message_count`, `preview_text`).
+- **`chat_messages`**: Conversational turn turns (`session_id`, `workspace_id`, `sender`, `content`, `citations_json`).
+
+### Knowledge Graph & Blueprint Tables
+- **`knowledge_concepts`**: Domain concept nodes with provenance grounding (`workspace_id`, `name`, `description`, `status`, `media_id`, `source_chunk_ids`, `start_time`, `end_time`, `embedding`).
+- **`knowledge_relations`**: Directed graph relationship edges (`workspace_id`, `source_concept`, `target_concept`, `relation_type`, `weight`, `media_id`).
+- **`concept_aliases`**: Exact and alias mapping table for entity deduplication (`concept_id`, `alias`).
+- **`artifact_jobs`**: Async lifecycle job tracker for graph extraction and background processing (`workspace_id`, `job_type`, `status`, `progress`, `message`).
+
+### Active Recall & Spaced Repetition Tables
+- **`flashcard_decks`**: Versioned flashcard decks (`workspace_id`, `name`, `version`, `status`, `media_ids`, `concept_ids`, `card_count`).
+- **`flashcards`**: Concept-grounded cards (`deck_id`, `workspace_id`, `concept_id`, `card_type`, `front`, `back`, `cloze_text`, `options_json`, `ease_factor`, `interval_days`, `repetitions`).
+- **`flashcard_reviews`**: Immutable SM-2 review logs (`flashcard_id`, `workspace_id`, `rating`, `ease_factor`, `interval_days`, `repetitions`, `reviewed_at`).
+
+### Diagnostic Quiz Studio Tables
+- **`quizzes`**: Versioned quiz suites (`workspace_id`, `title`, `version`, `status`, `concept_ids`, `question_count`).
+- **`quiz_questions`**: Concept-balanced multiple choice questions (`quiz_id`, `workspace_id`, `concept_id`, `question_text`, `options_json`, `correct_index`, `explanation`).
+- **`quiz_attempts`**: Immutable quiz execution attempts (`quiz_id`, `workspace_id`, `version`, `score`, `total_questions`, `correct_count`, `answers_json`, `time_taken`).
+
+### Precomputed Learning Analytics Tables
+- **`workspace_analytics`**: Precomputed workspace summary counters (`workspace_id`, `total_media`, `total_concepts`, `total_flashcards`, `total_quiz_attempts`, `total_reviews`, `avg_quiz_score`, `total_study_seconds`, `review_streak_days`, `last_activity_at`).
+- **`concept_mastery`**: Real-time concept retention scores (`concept_id`, `workspace_id`, `concept_name`, `mastery_level`, `review_count`, `quiz_correct`, `quiz_attempts`, `last_reviewed_at`).
+- **`study_sessions`**: Activity log entries (`workspace_id`, `activity_type`, `started_at`, `ended_at`, `duration_seconds`).
+
+---
+
+## 2. Factory Reset Purge Sequence (21 Tables)
+
+When **CLEAR MY DATA** (`POST /api/v1/system/clear-data`) is invoked, `SystemResetService` executes a single transaction purging all 21 tables in strict foreign key order (child tables first):
+
 ```
-
-### Table: `media_items`
-Stores uploaded lecture video/audio asset records.
-```sql
-CREATE TABLE media_items (
-    id VARCHAR PRIMARY KEY,
-    workspace_id VARCHAR NOT NULL,
-    title VARCHAR NOT NULL,
-    file_path VARCHAR NOT NULL,
-    media_type VARCHAR DEFAULT 'video',
-    file_size_bytes BIGINT DEFAULT 0,
-    duration_seconds FLOAT DEFAULT 0.0,
-    status VARCHAR DEFAULT 'pending',
-    error_message VARCHAR,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_media_items_workspace_id ON media_items (workspace_id);
-```
-
-### Table: `transcript_chunks`
-Stores semantic RAG text chunks extracted from transcripts.
-```sql
-CREATE TABLE transcript_chunks (
-    id VARCHAR PRIMARY KEY,
-    media_id VARCHAR NOT NULL,
-    workspace_id VARCHAR NOT NULL,
-    text TEXT NOT NULL,
-    start_time FLOAT NOT NULL,
-    end_time FLOAT NOT NULL,
-    chunk_index INT NOT NULL,
-    word_count INT DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_transcript_chunks_media_id ON transcript_chunks (media_id);
-CREATE INDEX ix_transcript_chunks_workspace_id ON transcript_chunks (workspace_id);
-```
-
-### Table: `transcript_segments`
-Stores raw Whisper ASR transcript segments with timestamps.
-```sql
-CREATE TABLE transcript_segments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    media_id VARCHAR NOT NULL,
-    start_time FLOAT NOT NULL,
-    end_time FLOAT NOT NULL,
-    text TEXT NOT NULL
-);
-CREATE INDEX ix_transcript_segments_media_id ON transcript_segments (media_id);
-```
-
-### Table: `chat_sessions`
-Stores chat session containers bound to workspaces with session list preview metadata.
-```sql
-CREATE TABLE chat_sessions (
-    id VARCHAR PRIMARY KEY,
-    workspace_id VARCHAR NOT NULL,
-    title VARCHAR DEFAULT 'Chat Session',
-    is_pinned BOOLEAN DEFAULT 0,
-    is_archived BOOLEAN DEFAULT 0,
-    last_message_at DATETIME,
-    message_count INTEGER DEFAULT 0,
-    preview_text TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_chat_sessions_workspace_id ON chat_sessions (workspace_id);
-```
-
-### Table: `chat_messages`
-Stores user queries, assistant responses, and citation JSON payloads across sessions.
-```sql
-CREATE TABLE chat_messages (
-    id VARCHAR PRIMARY KEY,
-    session_id VARCHAR NOT NULL,
-    workspace_id VARCHAR NOT NULL,
-    sender VARCHAR NOT NULL,
-    content TEXT NOT NULL,
-    citations_json TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_chat_messages_session_id ON chat_messages (session_id);
-CREATE INDEX ix_chat_messages_workspace_id ON chat_messages (workspace_id);
-```
-
-### Table: `processing_logs`
-Stores immutable ingestion telemetry audit logs for every pipeline stage.
-```sql
-CREATE TABLE processing_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    media_id VARCHAR NOT NULL,
-    workspace_id VARCHAR NOT NULL,
-    stage VARCHAR NOT NULL,
-    status VARCHAR DEFAULT 'processing',
-    progress INT DEFAULT 0,
-    message VARCHAR,
-    error_message VARCHAR,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_processing_logs_media_id ON processing_logs (media_id);
-CREATE INDEX ix_processing_logs_workspace_id ON processing_logs (workspace_id);
-```
-
-### Table: `knowledge_concepts`
-Stores extracted domain entity concept nodes bound to workspaces.
-```sql
-CREATE TABLE knowledge_concepts (
-    id VARCHAR PRIMARY KEY,
-    workspace_id VARCHAR NOT NULL,
-    name VARCHAR NOT NULL,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_knowledge_concepts_workspace_id ON knowledge_concepts (workspace_id);
-CREATE INDEX ix_knowledge_concepts_name ON knowledge_concepts (name);
-```
-
-### Table: `knowledge_relations`
-Stores directional concept relationship triples for Knowledge Graph traversal.
-```sql
-CREATE TABLE knowledge_relations (
-    id VARCHAR PRIMARY KEY,
-    workspace_id VARCHAR NOT NULL,
-    source_concept VARCHAR NOT NULL,
-    target_concept VARCHAR NOT NULL,
-    relation_type VARCHAR DEFAULT 'relates_to',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX ix_knowledge_relations_workspace_id ON knowledge_relations (workspace_id);
-CREATE INDEX ix_knowledge_relations_source_concept ON knowledge_relations (source_concept);
-CREATE INDEX ix_knowledge_relations_target_concept ON knowledge_relations (target_concept);
-### Table: `system_settings`
-Stores persistent global application configuration, model provider selections, and local directory configurations.
-```sql
-CREATE TABLE system_settings (
-    id VARCHAR PRIMARY KEY DEFAULT 'global',
-    default_llm VARCHAR DEFAULT 'ollama',
-    selected_ollama_model VARCHAR,
-    ollama_models_dir VARCHAR,
-    default_stt VARCHAR DEFAULT 'faster-whisper',
-    default_embedding VARCHAR DEFAULT 'BAAI/bge-small-en-v1.5',
-    gpu_acceleration BOOLEAN DEFAULT 1,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+1. FlashcardReviewTable
+2. FlashcardTable
+3. FlashcardDeckTable
+4. QuizAttemptTable
+5. QuizQuestionTable
+6. QuizTable
+7. ConceptMasteryTable
+8. WorkspaceAnalyticsTable
+9. StudySessionTable
+10. ConceptAliasTable
+11. KnowledgeRelationTable
+12. KnowledgeConceptTable
+13. ArtifactJobTable
+14. ChatMessageTable
+15. ChatSessionTable
+16. TranscriptSegmentTable
+17. TranscriptChunkTable
+18. ProcessingLogTable
+19. MediaItemTable
+20. WorkspaceTable (re-initialized with default workspace)
+21. SystemSettings (reset to defaults)
 ```
 
 ---
 
-## 2. Embedded Qdrant Vector Storage (`transcript_chunks`)
+## 3. Embedded Qdrant Vector Storage (`transcript_chunks`)
 
-* **Storage Directory**: `./data/qdrant`
+* **Storage Path**: `./data/qdrant`
 * **Collection Name**: `transcript_chunks`
-* **Vector Dimension**: `384` (Cosine distance metric via `SentenceTransformersEmbeddingAdapter`)
-* **Payload Schema & Mandatory Isolation Fields**:
-```json
-{
-  "chunk_id": "chunk_9a8b7c6d",
-  "workspace_id": "default",
-  "media_id": "med_12345678",
-  "text": "Gradient descent optimizes neural network parameters using partial derivatives...",
-  "start_time": 12.5,
-  "end_time": 28.0,
-  "chunk_index": 1
-}
-```
-* **Filter Conditions**: Search queries apply `Filter(must=[FieldCondition(key="workspace_id", match=MatchValue(value=filter_workspace_id))])` to enforce strict workspace boundaries.
+* **Vector Dimension**: `384` (Cosine metric via `SentenceTransformersEmbeddingAdapter`)
+* **Payload Isolation Filter**: All queries enforce `FieldCondition(key="workspace_id", match=MatchValue(value=filter_workspace_id))`.

@@ -36,7 +36,7 @@ Future knowledge sources:
 
 # Current Phase & Implementation Status
 
-**Current Phase**: Version 1.0 Final Release Complete (Phases 1 through 5 fully implemented and verified).
+**Current Phase**: Version 1.0 Final Release Complete (Phases 1 through 5) plus Master Architecture Plan (Milestones 1-4) fully implemented and verified.
 
 **Status**:
 * **Phase 1 (v0.1 MVP)**: Local Video Upload, Audio Extraction (FFmpeg), Faster-Whisper Transcription, Semantic Chunker, Embedded Qdrant Vector Indexing, 8-Stage Retrieval, RAG Chat with Timestamp Citations, Next.js UI, Tauri Desktop Shell Config.
@@ -44,10 +44,14 @@ Future knowledge sources:
 * **Phase 3 (v0.3)**: Knowledge Graph Engine (`KnowledgeGraphService`), Keyframe Sampling (`FrameExtractor`), `KnowledgeGraphWorker`, Concept Prerequisite APIs (`/api/v1/graph`).
 * **Phase 4 (v0.4)**: Active Recall Learning Tools: `SummaryWorker`, `QuizWorker`, `FlashcardWorker` (Anki SM-2 export), Learning APIs (`/api/v1/learning`).
 * **Phase 5 (v1.0)**: Agentic AI Suite (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`), Agent APIs (`/api/v1/agents`).
-* **Frontend Presentation Layer (Phases A-F Complete)**: Next.js + React + Tauri Desktop App (`npx tauri dev`) with Athena Theme (`#051424` & `#e9c349`), custom typography (`TT Carvist`, `Geist`, `JetBrains Mono`), Zustand state store, and 6 domain feature modules (`features/chat/`, `features/video/`, `features/transcript/`, `features/library/`, `features/flashcards/`, `features/quiz/`, `features/graph/`, `features/ingestion/`, `features/settings/`).
+* **Milestone 1 (M1) — Knowledge Graph & Entity Consolidation**: Concept-centric graph model with provenance (media/source chunks/timestamps), `ConceptMergingService` dedup (exact + alias + semantic 0.88 cosine), event-driven `GraphExtractionWorker` with LLM + heuristic fallback, `ConceptAliasTable`/`ArtifactJobTable`, interactive Blueprint visualizer (`KnowledgeGraphCanvas.tsx`) with search, shortest-path, and timestamp jump links.
+* **Milestone 2 (M2) — Flashcards & Spaced Repetition**: Pure SM-2 algorithm (`learning/sm2.py`), on-demand versioned `FlashcardService` (cached deck reuse, immutable vN+1), `FlashcardReviewedEvent`, valid `.apkg` + CSV exporters, flip-card UI with provenance links.
+* **Milestone 3 (M3) — Adaptive Quiz Studio**: Concept-balanced generation + heuristic fallback, versioned `QuizService`, graded immutable attempts publishing `QuizAttemptEvent` (per-question concept/accuracy/time), timed quiz runner with instant feedback, explanations, and jump-to-source.
+* **Milestone 4 (M4) — Learning Analytics & Unified Pipeline**: `AnalyticsService` (event-driven precomputed workspace/concept mastery/study-session tables, streak logic, revision recommendations), analytics APIs, `AnalyticsDashboard.tsx`, and `UnifiedLearningPipeline.tsx` (ingestion + downstream artifact stage links).
+* **Frontend Presentation Layer (Phases A-F + M1-M4 Complete)**: Next.js + React + Tauri Desktop App (`npx tauri dev`) with Athena Theme (`#051424` & `#e9c349`), custom typography (`TT Carvist`, `Geist`, `JetBrains Mono`), Zustand state store, and domain feature modules (`features/chat/`, `features/video/`, `features/transcript/`, `features/library/`, `features/flashcards/`, `features/quiz/`, `features/graph/`, `features/ingestion/`, `features/analytics/`, `features/settings/`).
 * **Runtime Verification**: End-to-end integration verified. Native Tauri desktop app (`npx tauri dev`) communicates with FastAPI backend RAG query endpoint (`python app/main.py`).
-* **Automated Tests**: 56 of 56 unit and integration tests passing in `backend/tests/`.
-* **Clean UI & Real Data Pipeline**: All sample/mock data removed; clean empty states implemented across all 6 frontend feature modules (`features/library/`, `features/video/`, `features/transcript/`, `features/quiz/`, `features/flashcards/`, `features/graph/`).
+* **Automated Tests**: 111 of 111 unit and integration tests passing in `backend/tests/` (baseline was 73).
+* **Clean UI & Real Data Pipeline**: All sample/mock data removed; clean empty states implemented across all frontend feature modules (`features/library/`, `features/video/`, `features/transcript/`, `features/quiz/`, `features/flashcards/`, `features/graph/`, `features/analytics/`, `features/ingestion/`).
 * **Event-Driven Pipeline & Single Progress Source**: Asynchronous video ingestion pipeline decoupled from HTTP layer using `MediaRepository`, application-layer event handlers (`media_event_handlers.py`), and snapshot replay via `ProgressStore`.
 * **SQLite System Settings Persistence**: `SystemSettings` table in SQLite (`./data/athenus.db`) managed via `SettingsService` and auto-rehydrated on application launch.
 * **Local Ollama Model Discovery**: Pure local filesystem model discovery (`OllamaModelScanner`) with dynamic dropdown selection in LLM settings.
@@ -106,3 +110,9 @@ Supports three deployment modes:
 * **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0008`).
 * **First-Class AI Evaluation Subsystem**: Automated benchmark suite evaluating Retrieval Precision/Recall@K, Groundedness, Latency, and Token Cost.
 * **Machine Learning & Deep Learning Reviewer Guide**: Comprehensive architectural theory reference in `docs/ML_DL_ARCHITECTURE.md`.
+* **Concept-Centric Learning Artifacts**: Flashcards and quiz questions are anchored to canonical knowledge-graph concepts (never raw chunks), each carrying full provenance (`media_id`, `source_chunk_ids`, `start_time`, `end_time`).
+* **On-Demand, Versioned Artifact Generation**: Decks/quizzes are cached and reused unless `force_new_version`; regeneration creates immutable `vN+1` rows, preserving prior versions and review history (`FlashcardService`, `QuizService`).
+* **Event-Driven Precomputed Analytics**: `AnalyticsService` subscribes to `QuizAttemptEvent`, `FlashcardReviewedEvent`, `ConceptGraphUpdatedEvent` to maintain workspace analytics, concept mastery, study sessions, and revision recommendations.
+* **SM-2 Spaced Repetition**: Pure SM-2 scheduling on a 1-4 scale (`Again/Hard/Good/Easy`) with EF floor 1.3, interval progression, and failure reset.
+
+> **User-facing change log**: see [`docs/WHATS_NEW.md`](WHATS_NEW.md). **Technical implementation & manual testing guide**: see [`docs/IMPLEMENTATION_SUMMARY.md`](IMPLEMENTATION_SUMMARY.md).

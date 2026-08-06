@@ -1,12 +1,10 @@
 # APPLICATION_ARCHITECTURE.md — Desktop & UI Application Architecture
 
-This document specifies the canonical frontend and desktop architecture for **Athenus**.
+This document specifies the canonical frontend, studio features, background workers, and desktop architecture for **Athenus**.
 
 ---
 
 ## 1. Desktop Shell Architecture (Tauri + FastAPI Sidecar)
-
-The desktop application is built as a **Local-First Desktop Application**:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -22,35 +20,47 @@ The desktop application is built as a **Local-First Desktop Application**:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **Desktop Shell**: Tauri (`src-tauri/`) manages desktop windowing, native OS file pickers, GPU hardware access, and sidecar process lifecycle.
-- **Sidecar Spawning**: On launch, Tauri spawns the FastAPI Python backend executable, supplying an ephemeral authorization token for local IPC request verification.
-- **Dynamic Port Assignment**: FastAPI automatically binds to local ports (default `8000`), communicating health state to Tauri.
+- **Desktop Shell**: Tauri (`src-tauri/`) manages windowing, native OS file pickers, GPU hardware access, and sidecar process lifecycle.
+- **Sidecar Spawning**: On launch, Tauri spawns the FastAPI Python backend executable on port `8000`.
+- **Zero-Detachment Media Player**: `<VideoWorkspace />` is mounted inside a persistent container in [`DesktopShell.tsx`](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx) with CSS `display: none` when switching views. This guarantees zero DOM re-parenting and keeps PiP media playing smoothly.
 
 ---
 
-## 2. Presentation Layer Component Architecture (`frontend/src/`)
+## 2. Core Feature Studios & Views (`frontend/src/features/`)
 
-Built with React 18, Next.js 16 (Turbopack), TypeScript, Vanilla CSS design tokens, and Zustand state management:
+1. **Video Workspace (`view-video` — `VideoWorkspace.tsx`)**:
+   - Synchronized transcript reader with timestamp click-to-seek navigation (`seekToSeconds`).
+   - Workspace video asset selector dropdown populated **only** with videos belonging to the active workspace.
+   - Resizable side panel (draggable split handle from 260px to 650px) with embedded context-aware AI assistant widget.
 
-### 2.1 Single Authoritative Video Player Architecture
-- **Persistent DOM Container**: To prevent browser Picture-in-Picture (PiP) node detachment, `<VideoWorkspace />` is mounted inside a persistent container in [`DesktopShell.tsx`](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx) with CSS `display: none` (`hidden`) when navigating between workspace views.
-- **Zero DOM Re-parenting**: The HTML5 `<video>` DOM element's parent container **never changes**, React **never invokes `removeChild()`**, and the browser **never detaches the player node**, guaranteeing strictly 1 active video player and 0 duplicate audio instances.
+2. **Interactive Knowledge Graph Canvas (`view-graph` — `KnowledgeGraphCanvas.tsx`)**:
+   - Interactive SVG canvas with zoom, pan, force-directed layout, node inspector, shortest-path calculation between concepts, and timestamp jump links to lecture videos.
 
-### 2.2 Core Feature Modules
-1. **Video Workspace (`VideoWorkspace.tsx`)**:
-   - Synchronized transcript reader with card-level timestamp click-to-seek navigation (`seekToSeconds`).
-   - Resizable side panel (draggable split handle from 260px to 650px) and one-click collapse toggle (`◀ Panel` / `▶ Hide`).
-   - Embedded Context-Aware AI Chat Widget ([`EmbeddedChatWidget.tsx`](file:///e:/repos/athenus/frontend/src/features/chat/EmbeddedChatWidget.tsx)).
-2. **Interactive RAG Chat Workspace (`ChatWorkspace.tsx`)**:
-   - Per-message grounded citations: Assistant responses carry turn-specific evidence badges (`citations`).
-   - Interactive evidence inspection: Clicking any historical assistant response bubble updates `selectedMessageId` and inspects that turn's evidence in `RetrievedEvidencePanel`.
-   - Clear Conversation Action: Invokes `DELETE /api/v1/chat/history` to purge SQLite session records and resets local chat state.
-3. **Workspace Library (`LibraryGrid.tsx`)**:
-   - Workspace asset grid displaying indexed video assets, transcript status badges, and asset selection handlers.
-4. **Ingestion Pipelines (`UploadDropzone.tsx`)**:
-   - Drag-and-drop video upload zone with real-time SSE stage progress telemetry.
-5. **System Settings (`SystemSettings.tsx`)**:
-   - **Persistent Settings Management**: Interfaces with `SettingsService` via `GET/PUT /api/v1/settings/providers` and `GET/PUT /api/v1/settings/ollama`.
-   - **Local Model Sources & Discovery**: Displays configured and resolved Ollama directory paths (`.ollama` $\rightarrow$ `.ollama/models`), scan status badges (`✓ Valid (X models)` / `✕ Invalid Directory`), and interactive **Save** and **Refresh** controls.
-   - **Dynamic Model Selection**: Renders a dynamic `<select>` dropdown populated from discovered local models with seamless provider restoration across Groq and Ollama.
-   - **System Clear Data**: Triggers atomic system reset (`POST /api/v1/system/clear-data`) purging SQLite records and vector collections while restoring a clean single default workspace.
+3. **Active Recall Flashcard Studio (`view-flashcards` — `FlashcardGrid.tsx`)**:
+   - 3D flip card reader with SuperMemo-2 (SM-2) rating buttons (Again/Hard/Good/Easy).
+   - In-Studio Toolbar controls: Inline `⚡ Auto-Evolve` toggle and `Target Budget` dropdown (10-50 items).
+   - Instant Anki `.apkg` and CSV export.
+
+4. **Adaptive Quiz Studio (`view-quiz` — `QuizStudio.tsx`)**:
+   - Timed quiz runner with concept-balanced question sampling.
+   - Immediate answer grading (green/red feedback), detailed explanations, provenance timestamp links, and attempt score summary.
+   - In-Studio Toolbar controls: Inline `⚡ Auto-Evolve` toggle and `Target Budget` dropdown.
+
+5. **Precomputed Analytics Dashboard (`view-analytics` — `AnalyticsDashboard.tsx`)**:
+   - Real-time stat cards (study time, review streaks, quiz averages, total reviews).
+   - Concept mastery progress bars computed from active recall accuracy and review coverage.
+   - Priority revision plan recommendations with direct jump links to low-mastery concepts.
+
+6. **Unified Learning Pipeline (`view-ingestion` — `UnifiedLearningPipeline.tsx`)**:
+   - Drag-and-drop video upload zone with real-time SSE progress telemetry and downstream studio stage links.
+
+7. **System Settings (`view-settings` — `SystemSettings.tsx`)**:
+   - Provider settings, hardware acceleration GPU toggles, local Ollama directory path inspection, and **CLEAR MY DATA** (21-table atomic factory reset).
+
+---
+
+## 3. Background Workers & Event Subscribers (`backend/app/services/workers/`)
+
+- **`GraphExtractionWorker`**: Listens for `ChunksIndexedEvent` and extracts concepts/relations via LLM (with heuristic fallback). Publishes `ConceptGraphUpdatedEvent`.
+- **`LearningEvolutionWorker`**: Listens for `ConceptGraphUpdatedEvent`. If auto-evolution is enabled for the workspace, calculates delta concepts using `ConceptImportanceAllocator` and automatically generates evolved `vN+1` decks and quizzes.
+- **`AnalyticsService` Event Handler**: Subscribes to `QuizAttemptEvent`, `FlashcardReviewedEvent`, and `ConceptGraphUpdatedEvent` to maintain real-time precomputed counters in `WorkspaceAnalyticsTable` and `ConceptMasteryTable`.

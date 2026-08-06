@@ -8,18 +8,22 @@
 
 This document details the implementation of the **Master Architecture Plan** (`implementation_plan.md`) across its four milestones, and provides a structured **manual testing guide** focused on edge cases, failure paths, and cross-cutting guarantees.
 
-All milestones were delivered in four commits, each verified by the full backend pytest suite and a clean Next.js production build:
+All milestones and architectural expansions were delivered in eight commits, each verified by the full backend pytest suite and a clean Next.js production build:
 
-| Commit | Milestone | Message |
+| Commit | Milestone | Summary |
 |---|---|---|
 | `2a95006` | M1 | Knowledge graph extraction, concept merging & interactive visualizer |
 | `e5f2e27` | M2 | Active recall flashcards with SM-2 scheduling & Anki export |
 | `c84b1ff` | M3 | Adaptive comprehension quiz studio |
 | `cfdf75d` | M4 | Learning analytics & unified learning pipeline |
+| `bbd08cd` | Evolutionary Knowledge | Concept importance allocator, delta versioning & `LearningEvolutionWorker` |
+| `1df712b` | Evolutionary UI | In-Studio `⚡ Auto-Evolve` toggle and `Target Budget` controls |
+| `789cde0` | System Reset | Atomic 21-table factory reset engine for complete data purge |
+| `f4e865b` | Video Isolation | Enforce strict workspace boundary isolation across store, hooks, and endpoints |
 
 **Final verification state:**
-- Backend: `111 passed` (baseline was 73) across `test_knowledge_graph.py`, `test_flashcards.py`, `test_quiz.py`, `test_analytics.py`, `test_learning_tools.py`, plus the full legacy suite.
-- Frontend: `npm run build` compiles cleanly (Next.js 16.2.12, TypeScript passes).
+- Backend: **114 passed** out of 114 tests across `test_knowledge_graph.py`, `test_flashcards.py`, `test_quiz.py`, `test_analytics.py`, `test_learning_evolution.py`, `test_concept_importance_allocator.py`, `test_system_clear_data.py`, `test_workspace_isolation.py`, plus legacy suites.
+- Frontend: `npm run build` compiles cleanly (Next.js 16.2.12, TypeScript passes with zero errors).
 
 ---
 

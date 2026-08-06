@@ -120,6 +120,20 @@ with one click.
 
 ---
 
+## 6. Evolutionary Workspace Knowledge & Budget Controls ⚡
+
+**No more manual deck regeneration.**
+
+When you upload new lecture videos into an existing workspace, Athenus now automatically detects newly introduced concepts and evolves your workspace flashcards and quizzes (`vN+1`) in the background.
+
+- **Preserves 100% of your progress**: Your SM-2 review intervals, ease factors, and quiz attempt records are preserved intact.
+- **Concept Importance Allocation**: Foundational and low-mastery concepts are prioritized during card and quiz generation.
+- **In-Studio Budget Controls**: Adjust Target Budgets (10 to 50 items) and toggle `⚡ Auto-Evolve` inline from the Flashcard and Quiz studio toolbars.
+- **Strict Workspace Isolation**: Videos, transcripts, and study decks stay strictly inside their designated workspace.
+- **Atomic 21-Table Data Reset**: A complete "CLEAR MY DATA" factory reset purges all 21 database tables, vector embeddings, and disk assets in one transaction.
+
+---
+
 ## What Stays the Same
 
 - ✅ **Everything still runs locally** — no account, no cloud, no uploads to a
