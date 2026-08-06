@@ -4,7 +4,12 @@ import { WorkspaceDropdown } from './WorkspaceDropdown';
 import { WorkspaceModal } from '../workspace/WorkspaceModal';
 
 export const TopToolbar: React.FC = () => {
-  const { setCmdPaletteOpen } = useAppStore();
+  const { setCmdPaletteOpen, jobs, setActiveView } = useAppStore();
+
+  const activeJobs = Object.values(jobs).filter(
+    (j) => j.status === 'processing' || j.status === 'pending'
+  );
+  const singleJob = activeJobs.length === 1 ? activeJobs[0] : null;
 
   return (
     <>
@@ -14,9 +19,9 @@ export const TopToolbar: React.FC = () => {
         </div>
 
         {/* Global Search & Command Palette Trigger */}
-        <div className="flex-1 max-w-md mx-6">
+        <div className="flex-1 max-w-md mx-6 flex items-center gap-3">
           <div
-            className="relative cursor-pointer"
+            className="relative cursor-pointer flex-1"
             onClick={() => setCmdPaletteOpen(true)}
           >
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">
@@ -35,6 +40,23 @@ export const TopToolbar: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Active Background Task Progress Badge */}
+        {activeJobs.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveView('view-ingestion')}
+            className="flex items-center gap-2 bg-secondary/15 hover:bg-secondary/25 border border-secondary/40 text-secondary px-3 py-1.5 rounded text-xs font-mono font-bold transition-all shadow-sm shrink-0"
+            title="Click to view live background task pipeline"
+          >
+            <span className="material-symbols-outlined text-sm animate-pulse">sync</span>
+            <span>
+              {singleJob
+                ? `⚡ ${singleJob.stage.replace('_', ' ')} (${singleJob.progress}%)`
+                : `⚡ ${activeJobs.length} Background Tasks Running`}
+            </span>
+          </button>
+        )}
       </header>
 
       {/* Global Workspace Modal */}

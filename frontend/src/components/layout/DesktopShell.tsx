@@ -19,6 +19,7 @@ import { KnowledgeGraphCanvas } from '@/features/graph/KnowledgeGraphCanvas';
 import { UnifiedLearningPipeline } from '@/features/ingestion/UnifiedLearningPipeline';
 import { AnalyticsDashboard } from '@/features/analytics/AnalyticsDashboard';
 import { SystemSettings } from '@/features/settings/SystemSettings';
+import { BackgroundTaskRuntime } from '@/features/pipeline/BackgroundTaskRuntime';
 
 import { PersistentMediaPlayer } from '@/features/video/PersistentMediaPlayer';
 
@@ -31,6 +32,9 @@ export const DesktopShell: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-on-background">
+      {/* Decoupled Background Task Engine Runtime */}
+      <BackgroundTaskRuntime />
+
       {/* Categorized Navigation Sidebar */}
       <Sidebar />
 

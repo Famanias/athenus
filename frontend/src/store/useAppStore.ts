@@ -8,6 +8,21 @@ import type { ChatSessionDTO } from '@/services/chatService';
 // UI Slice — view routing, workspace context, playback target & state recovery.
 // ---------------------------------------------------------------------------
 
+export interface BackgroundJob {
+  job_id: string;
+  media_id: string;
+  workspace_id: string;
+  job_type: 'ingestion' | 'graph_extraction' | 'flashcard_gen' | 'quiz_gen';
+  stage: 'uploaded' | 'audio_extraction' | 'transcription' | 'chunking' | 'vector_indexing' | 'graph_extraction' | 'completed' | 'failed';
+  progress: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  message: string;
+  error?: string;
+  startedAt: string;
+  updatedAt: string;
+  history?: Array<{ stage: string; progress: number; status: string; timestamp: string }>;
+}
+
 interface UISlice {
   activeView: string;
   context: WorkspaceContext;
@@ -21,6 +36,10 @@ interface UISlice {
   isCmdPaletteOpen: boolean;
   isWorkspaceModalOpen: boolean;
   searchQuery: string;
+
+  // Background Task Engine Jobs Registry
+  jobs: Record<string, BackgroundJob>;
+  activeJobId: string | null;
 
   // Settings
   llmProvider: string;
@@ -41,6 +60,12 @@ interface UISlice {
   setWorkspaceModalOpen: (isOpen: boolean) => void;
   setSearchQuery: (query: string) => void;
   setProviderSettings: (llm: string, stt: string, gpu: boolean, ollamaModel?: string) => void;
+
+  // Background Job Reducers (Pure State Mutations)
+  upsertJob: (job: BackgroundJob) => void;
+  removeJob: (jobId: string) => void;
+  setJobHistory: (jobId: string, history: Array<{ stage: string; progress: number; status: string; timestamp: string }>) => void;
+  setActiveJobId: (jobId: string | null) => void;
 
   // 9-Step Workspace Lifecycle Actions
   switchWorkspace: (workspaceId: string) => void;
@@ -107,6 +132,10 @@ export const useAppStore = create<AppState>()((...args) => {
     isWorkspaceModalOpen: false,
     searchQuery: '',
 
+    // Background Job Registry State
+    jobs: {},
+    activeJobId: null,
+
     llmProvider: 'ollama',
     selectedOllamaModel: '',
     sttProvider: 'faster-whisper',
@@ -137,6 +166,32 @@ export const useAppStore = create<AppState>()((...args) => {
         context: { ...state.context, mediaId: id },
       }));
     },
+
+    // Pure Reducers for Background Job State Mutations (No side-effects)
+    upsertJob: (job) =>
+      set((state) => ({
+        jobs: { ...state.jobs, [job.job_id]: { ...(state.jobs[job.job_id] || {}), ...job } },
+      })),
+
+    removeJob: (jobId) =>
+      set((state) => {
+        const newJobs = { ...state.jobs };
+        delete newJobs[jobId];
+        return {
+          jobs: newJobs,
+          activeJobId: state.activeJobId === jobId ? null : state.activeJobId,
+        };
+      }),
+
+    setJobHistory: (jobId, history) =>
+      set((state) => ({
+        jobs: {
+          ...state.jobs,
+          ...(state.jobs[jobId] ? { [jobId]: { ...state.jobs[jobId], history } } : {}),
+        },
+      })),
+
+    setActiveJobId: (jobId) => set({ activeJobId: jobId }),
 
     setCurrentTime: (time) => set({ currentTime: time }),
     setTargetSeekSeconds: (seconds) => set({ targetSeekSeconds: seconds }),
