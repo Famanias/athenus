@@ -239,6 +239,105 @@ class FlashcardService:
         )
         return self.get_deck(deck_id)
 
+    async def evolve_workspace_deck(
+        self,
+        workspace_id: str,
+        new_concept_ids: List[str],
+        name: str = "Auto-evolved Deck",
+        target_budget: int = 20,
+    ) -> Optional[FlashcardDeck]:
+        """Evolve workspace deck when new concepts are merged into the Knowledge Graph."""
+        if not new_concept_ids:
+            return self.get_workspace_deck(workspace_id)
+
+        all_concept_dicts = self._concept_dicts(workspace_id)
+        if not all_concept_dicts:
+            return None
+
+        new_concepts = [c for c in all_concept_dicts if c["id"] in new_concept_ids]
+        if not new_concepts:
+            return self.get_workspace_deck(workspace_id)
+
+        from app.domain.learning.concept_importance_allocator import (
+            ConceptImportanceAllocator,
+            ConceptNodeDTO,
+            RelationDTO,
+        )
+        allocator = ConceptImportanceAllocator()
+        
+        triples = self.graph_service.get_workspace_triples(workspace_id)
+        relation_dtos = [RelationDTO(source_concept=t[0], target_concept=t[2]) for t in triples if len(t) >= 3]
+        concept_dtos = [ConceptNodeDTO(id=c["id"], name=c["name"]) for c in new_concepts]
+
+        allocations = allocator.calculate_allocations(concept_dtos, relation_dtos, total_budget=target_budget)
+
+        media_ids: List[str] = []
+        for c in new_concepts:
+            if c.get("media_id") and c["media_id"] not in media_ids:
+                media_ids.append(c["media_id"])
+
+        all_chunks: List[dict] = []
+        for media_id in media_ids:
+            all_chunks.extend(load_chunks(media_id, workspace_id))
+        seen: set = set()
+        chunks = [c for c in all_chunks if not (c["id"] in seen or seen.add(c["id"]))]
+
+        new_extracted_cards = await self._generate_with_llm(new_concepts, chunks)
+        if not new_extracted_cards:
+            new_extracted_cards = generate_flashcards_heuristic(new_concepts, chunks, max_cards=target_budget)
+
+        latest_version = self._latest_version(workspace_id)
+        prev_deck = self.get_workspace_deck(workspace_id, version=latest_version)
+
+        new_version = latest_version + 1
+        new_deck_id = f"deck_{workspace_id}_v{new_version}"
+        self._upsert_deck(new_deck_id, workspace_id, name, new_version, "generating")
+
+        copied_cards_count = 0
+        if prev_deck:
+            prev_cards = self.get_deck_cards(prev_deck.id)
+            if engine and Session:
+                try:
+                    from app.infrastructure.db.models import FlashcardTable
+                    with Session(engine) as session:
+                        for prev_card in prev_cards:
+                            c_id = f"card_{new_deck_id}_{uuid.uuid4().hex[:8]}"
+                            session.add(
+                                FlashcardTable(
+                                    id=c_id,
+                                    deck_id=new_deck_id,
+                                    workspace_id=workspace_id,
+                                    concept_id=prev_card.concept_id,
+                                    card_type=prev_card.card_type,
+                                    front=prev_card.front,
+                                    back=prev_card.back,
+                                    cloze_text=prev_card.cloze_text,
+                                    options_json=json.dumps(prev_card.options) if prev_card.options else None,
+                                    media_id=prev_card.media_id,
+                                    source_chunk_ids=",".join(prev_card.source_chunk_ids) if prev_card.source_chunk_ids else None,
+                                    start_time=prev_card.start_time,
+                                    end_time=prev_card.end_time,
+                                )
+                            )
+                            copied_cards_count += 1
+                        session.commit()
+                except Exception:
+                    pass
+
+        new_cards_count = self._persist_cards(new_deck_id, workspace_id, new_version, new_extracted_cards, new_concepts)
+        total_card_count = copied_cards_count + new_cards_count
+
+        all_concept_ids = [c["id"] for c in all_concept_dicts]
+        all_media_ids = list(set([c.get("media_id") for c in all_concept_dicts if c.get("media_id")]))
+
+        self._upsert_deck(
+            new_deck_id, workspace_id, name, new_version, "ready",
+            card_count=total_card_count,
+            media_ids=all_media_ids,
+            concept_ids=all_concept_ids,
+        )
+        return self.get_deck(new_deck_id)
+
     def _persist_cards(
         self,
         deck_id: str,

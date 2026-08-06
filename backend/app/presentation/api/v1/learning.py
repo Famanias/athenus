@@ -358,6 +358,76 @@ def list_quiz_attempts(workspace_id: str, limit: int = 20):
 
 
 # ---------------------------------------------------------------------------
+# Workspace Learning Settings & Auto-Evolution Configuration
+# ---------------------------------------------------------------------------
+class WorkspaceLearningSettingsDTO(BaseModel):
+    auto_evolve_flashcards: bool = True
+    flashcard_target_budget_per_media: int = 20
+    auto_evolve_quizzes: bool = True
+    quiz_target_budget_per_media: int = 15
+
+
+@router.get("/learning/workspaces/{workspace_id}/settings", response_model=WorkspaceLearningSettingsDTO)
+def get_workspace_learning_settings(workspace_id: str):
+    from app.infrastructure.db.models import WorkspaceTable
+    from app.infrastructure.db.session import engine
+    try:
+        from sqlmodel import Session
+    except ImportError:
+        from sqlalchemy.orm import Session
+
+    if not engine or not Session:
+        return WorkspaceLearningSettingsDTO()
+
+    try:
+        with Session(engine) as session:
+            ws = session.get(WorkspaceTable, workspace_id)
+            if ws and ws.settings_json:
+                import json
+                data = json.loads(ws.settings_json)
+                return WorkspaceLearningSettingsDTO(
+                    auto_evolve_flashcards=data.get("auto_evolve_flashcards", True),
+                    flashcard_target_budget_per_media=data.get("flashcard_target_budget_per_media", 20),
+                    auto_evolve_quizzes=data.get("auto_evolve_quizzes", True),
+                    quiz_target_budget_per_media=data.get("quiz_target_budget_per_media", 15),
+                )
+    except Exception:
+        pass
+    return WorkspaceLearningSettingsDTO()
+
+
+@router.patch("/learning/workspaces/{workspace_id}/settings", response_model=WorkspaceLearningSettingsDTO)
+def patch_workspace_learning_settings(workspace_id: str, payload: WorkspaceLearningSettingsDTO):
+    from app.infrastructure.db.models import WorkspaceTable
+    from app.infrastructure.db.session import engine
+    try:
+        from sqlmodel import Session
+    except ImportError:
+        from sqlalchemy.orm import Session
+
+    if not engine or not Session:
+        return payload
+
+    try:
+        with Session(engine) as session:
+            ws = session.get(WorkspaceTable, workspace_id)
+            if ws:
+                import json
+                current_settings = json.loads(ws.settings_json) if ws.settings_json else {}
+                current_settings.update({
+                    "auto_evolve_flashcards": payload.auto_evolve_flashcards,
+                    "flashcard_target_budget_per_media": payload.flashcard_target_budget_per_media,
+                    "auto_evolve_quizzes": payload.auto_evolve_quizzes,
+                    "quiz_target_budget_per_media": payload.quiz_target_budget_per_media,
+                })
+                ws.settings_json = json.dumps(current_settings)
+                session.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return payload
+
+
+# ---------------------------------------------------------------------------
 # Legacy endpoints (kept for backward compatibility with existing tests/UIs)
 # ---------------------------------------------------------------------------
 class QuizQuestionResponse(BaseModel):

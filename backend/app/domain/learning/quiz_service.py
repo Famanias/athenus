@@ -208,7 +208,6 @@ class QuizService:
         questions = await self._generate_with_llm(concept_dicts[:12], chunks, max_questions)
         if not questions:
             questions = generate_quiz_heuristic(concept_dicts, chunks, max_questions)
-
         saved = self._persist_questions(quiz_id, workspace_id, questions, concept_dicts)
         self._upsert_quiz(
             quiz_id, workspace_id, title, version, "ready",
@@ -216,6 +215,102 @@ class QuizService:
             concept_ids=concept_ids,
         )
         return self.get_quiz(quiz_id)
+
+    async def evolve_workspace_quiz(
+        self,
+        workspace_id: str,
+        new_concept_ids: List[str],
+        title: str = "Auto-evolved Comprehension Quiz",
+        target_budget: int = 15,
+    ) -> Optional[QuizContainer]:
+        """Evolve workspace quiz when new concepts are merged into the Knowledge Graph."""
+        if not new_concept_ids:
+            return self.get_workspace_quiz(workspace_id)
+
+        all_concept_dicts = self._concept_dicts(workspace_id)
+        if not all_concept_dicts:
+            return None
+
+        new_concepts = [c for c in all_concept_dicts if c["id"] in new_concept_ids]
+        if not new_concepts:
+            return self.get_workspace_quiz(workspace_id)
+
+        from app.domain.learning.concept_importance_allocator import (
+            ConceptImportanceAllocator,
+            ConceptNodeDTO,
+            RelationDTO,
+        )
+        allocator = ConceptImportanceAllocator()
+
+        triples = self.graph_service.get_workspace_triples(workspace_id)
+        relation_dtos = [RelationDTO(source_concept=t[0], target_concept=t[2]) for t in triples if len(t) >= 3]
+        concept_dtos = [ConceptNodeDTO(id=c["id"], name=c["name"]) for c in new_concepts]
+
+        allocations = allocator.calculate_allocations(concept_dtos, relation_dtos, total_budget=target_budget)
+
+        media_ids: List[str] = []
+        for c in new_concepts:
+            if c.get("media_id") and c["media_id"] not in media_ids:
+                media_ids.append(c["media_id"])
+
+        all_chunks: List[dict] = []
+        for media_id in media_ids:
+            all_chunks.extend(load_chunks(media_id, workspace_id))
+        seen: set = set()
+        chunks = [c for c in all_chunks if not (c["id"] in seen or seen.add(c["id"]))]
+
+        new_questions = await self._generate_with_llm(new_concepts, chunks, target_budget)
+        if not new_questions:
+            new_questions = generate_quiz_heuristic(new_concepts, chunks, target_budget)
+
+        latest_version = self._latest_version(workspace_id)
+        prev_quiz = self.get_workspace_quiz(workspace_id, version=latest_version)
+
+        new_version = latest_version + 1
+        new_quiz_id = f"quiz_{workspace_id}_v{new_version}"
+        self._upsert_quiz(new_quiz_id, workspace_id, title, new_version, "generating")
+
+        copied_questions_count = 0
+        if prev_quiz:
+            prev_questions = self.get_quiz_questions(prev_quiz.id)
+            if engine and Session:
+                try:
+                    from app.infrastructure.db.models import QuizQuestionTable
+                    with Session(engine) as session:
+                        for prev_q in prev_questions:
+                            qid = f"q_{new_quiz_id}_{uuid.uuid4().hex[:8]}"
+                            session.add(
+                                QuizQuestionTable(
+                                    id=qid,
+                                    quiz_id=new_quiz_id,
+                                    workspace_id=workspace_id,
+                                    concept_id=prev_q.concept_id,
+                                    question_text=prev_q.question_text,
+                                    options_json=json.dumps(prev_q.options) if prev_q.options else None,
+                                    correct_index=prev_q.correct_index,
+                                    explanation=prev_q.explanation,
+                                    media_id=prev_q.media_id,
+                                    source_chunk_ids=",".join(prev_q.source_chunk_ids) if prev_q.source_chunk_ids else None,
+                                    start_time=prev_q.start_time,
+                                    end_time=prev_q.end_time,
+                                )
+                            )
+                            copied_questions_count += 1
+                        session.commit()
+                except Exception:
+                    pass
+
+        new_saved_count = self._persist_questions(new_quiz_id, workspace_id, new_questions, new_concepts)
+        total_questions_count = copied_questions_count + new_saved_count
+
+        all_concept_ids = [c["id"] for c in all_concept_dicts]
+
+        self._upsert_quiz(
+            new_quiz_id, workspace_id, title, new_version, "ready",
+            question_count=total_questions_count,
+            concept_ids=all_concept_ids,
+        )
+        return self.get_quiz(new_quiz_id)
 
     def _persist_questions(
         self,

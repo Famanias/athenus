@@ -62,6 +62,8 @@ from app.application.events.progress_store import progress_store
 from app.bootstrap.event_subscribers import register_media_subscribers
 from app.presentation.api.v1.media import media_repository
 
+from app.services.workers.learning_evolution_worker import LearningEvolutionWorker
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Boot sequence: initialize SQLite schema & load models
@@ -84,6 +86,7 @@ async def lifespan(app: FastAPI):
     transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
     embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
     graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=KnowledgeGraphService())
+    learning_evolution_worker = LearningEvolutionWorker(event_bus)
 
     intelligence_manager = WorkspaceIntelligenceManager(
         ai_service_bus,
