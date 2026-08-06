@@ -20,6 +20,7 @@ export const QuizStudio: React.FC = () => {
     totalQuestions,
     selectedOptId,
     showExplanation,
+    artifact,
     settings,
     loading,
     generating,
@@ -95,6 +96,27 @@ export const QuizStudio: React.FC = () => {
           >
             {generating ? 'Generating...' : 'Generate v' + ((activeQuiz?.version || 1) + 1)}
           </Button>
+        </div>
+      </div>
+
+      {/* Independent Quiz Artifact Lifecycle Status Bar */}
+      <div className="px-4 py-2 border border-outline-variant bg-surface-container-low rounded flex items-center gap-3 text-[11px] font-mono">
+        <span className="text-on-surface-variant">Artifact:</span>
+        <span className={`font-bold uppercase ${artifact?.status === 'failed' ? 'text-rose-400' : artifact?.status === 'ready' ? 'text-emerald-400' : 'text-secondary'}`}>
+          {artifact?.status || 'idle'}
+        </span>
+        {artifact?.stage && artifact.stage !== 'ready' && (
+          <span className="text-on-surface-variant/70">{artifact.stage.replace(/_/g, ' ')}</span>
+        )}
+        <span className="text-on-surface-variant/60">progress {artifact?.progress ?? 0}%</span>
+        {artifact?.message && (
+          <span className="text-on-surface-variant truncate">{artifact.message}</span>
+        )}
+        <div className="flex-1 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+          <div
+            className="h-full rounded-full bg-secondary transition-all"
+            style={{ width: `${artifact?.progress ?? 0}%` }}
+          />
         </div>
       </div>
 

@@ -143,6 +143,7 @@ try:
         artifact_type: str = Field(index=True)  # graph | flashcards | quiz
         target_key: str = Field(index=True)  # media_id for graph; deck/quiz id otherwise
         status: str = "pending"  # pending | generating | ready | failed
+        stage: Optional[str] = "queued"  # queued | collect_context | llm_generation | validation | persist | ready
         progress: int = 0
         message: Optional[str] = None
         error_message: Optional[str] = None
@@ -415,6 +416,7 @@ except ImportError:
         artifact_type = Column(String, index=True, nullable=False)
         target_key = Column(String, index=True, nullable=False)
         status = Column(String, default="pending")
+        stage = Column(String, nullable=True, default="queued")
         progress = Column(Integer, default=0)
         message = Column(String, nullable=True)
         error_message = Column(String, nullable=True)

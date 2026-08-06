@@ -1,111 +1,90 @@
-# Implementation Plan — BackgroundTaskRuntime (Generic Multi-Job Pipeline Engine)
+# Implementation Plan — Fix Learning Pipeline Artifact Generation, Lifecycle Isolation & Version Regeneration
 
-Re-architect background processing into a decoupled **`BackgroundTaskRuntime`**, separating event streaming side-effects from Zustand state management, supporting concurrent multi-job registries (`jobs: { [jobId]: JobState }`), exponential backoff SSE reconnects, HTTP polling fallbacks, and explicit stage state machines.
-
----
-
-## 🏗️ Architecture Topology
-
-```
-                  Backend (FastAPI & EventBus)
-                               │
-            ┌──────────────────┴──────────────────┐
-            ▼ SSE Stream                          ▼ REST Telemetry
-   /api/v1/media/{id}/stream             /api/v1/media/{id}/history
-            │                                     │
-            └──────────────────┬──────────────────┘
-                               ▼
-                   [BackgroundTaskRuntime]
-            (SSE Lifecycle, Retry Manager, Fallback Polling,
-             Rehydration, State Machine Validation)
-                               │
-                      Writes Validated State
-                               │
-                               ▼
-                       [useAppStore]
-           (Pure State Store: jobs: { [jobId]: JobState })
-                               │
-                      React Unidirectional Data Flow
-                               │
-            ┌──────────────────┼──────────────────┐
-            ▼                  ▼                  ▼
-      [TopToolbar]       [Pipelines View]   [Toast Notifications]
-```
+This document provides the architectural plan to fix three critical issues in the **Athenus Learning Pipeline**:
+1. Stopping unwanted automatic generation of Flashcards and Quizzes upon video ingestion.
+2. Isolating artifact status/progress tracking so each artifact (Blueprint, Flashcards, Quizzes, Analytics) owns an independent, stage-based lifecycle.
+3. Fixing "Regenerate New Version" so it executes a fresh AI generation request with concept & chunk rotation instead of cloning existing output or relying on temperature tweaks.
 
 ---
 
-## 🔍 Core Architectural Features
+## 🔍 Root Cause Analysis & Architectural Principles
 
-### 1. Decoupled `BackgroundTaskRuntime` (No Side Effects in Zustand)
-- `useAppStore` acts purely as a **state store**. It owns state properties (`jobs`, `activeJobId`), while `BackgroundTaskRuntime` owns `EventSource` lifecycles, exponential backoff retries, and HTTP polling.
+### Issue 1: Incorrect Automatic Artifact Generation
+- **Root Cause**: `LearningEvolutionWorker` ([`learning_evolution_worker.py`](file:///e:/repos/athenus/backend/app/services/workers/learning_evolution_worker.py)) subscribes to `ConceptGraphUpdatedEvent`. When concept graph extraction finishes after a video upload, `LearningEvolutionWorker` automatically triggers `flashcard_service.evolve_workspace_deck` and `quiz_service.evolve_workspace_quiz`.
+- **Expected Behavior**: Video ingestion should automatically generate **ONLY**:
+  - Blueprint (Knowledge Graph)
+  - Analytics
+  Flashcards and Quizzes must **NOT** be generated automatically. Users must explicitly trigger generation from their respective tabs.
 
-### 2. Multi-Job Registry & Job Identity (`job_id` vs `media_id`)
-- Store `jobs` as a dictionary keyed by `job_id`:
-  ```ts
-  export interface BackgroundJob {
-    job_id: string;
-    media_id: string;
-    workspace_id: string;
-    job_type: 'ingestion' | 'graph_extraction' | 'flashcard_gen' | 'quiz_gen';
-    stage: 'uploaded' | 'audio_extraction' | 'transcription' | 'chunking' | 'vector_indexing' | 'graph_extraction' | 'completed' | 'failed';
-    progress: number;
-    status: 'pending' | 'processing' | 'completed' | 'failed';
-    message: string;
-    startedAt: string;
-    updatedAt: string;
-    history: Array<{ stage: string; progress: number; status: string; timestamp: string }>;
-  }
-  ```
+### Issue 2: Stage-Based Independent Artifact Progress
+- **Root Cause**: `ArtifactJobTable` in SQLite was only used for `"graph"` jobs by `GraphExtractionWorker`. `FlashcardService` and `QuizService` did not maintain dedicated `ArtifactJobTable` progress records.
+- **Stage-Based Progress Metric**: Rather than hardcoding raw numbers (`10%`, `50%`, `90%`), progress will be driven by explicit semantic pipeline stages:
+  - `QUEUED` / `PENDING` (Stage 1)
+  - `COLLECT_CONTEXT` (Stage 2: concepts & chunks retrieval)
+  - `LLM_GENERATION` (Stage 3: AI prompt execution)
+  - `VALIDATION` (Stage 4: JSON schema & grounding verification)
+  - `PERSIST` (Stage 5: SQLite write transaction)
+  - `COMPLETED` / `READY` (Stage 6: 100%)
 
-### 3. Strict Ingestion State Machine
-- Enforce valid state transitions:
-  `UPLOADED` $\rightarrow$ `AUDIO_EXTRACTION` $\rightarrow$ `TRANSCRIPTION` $\rightarrow$ `CHUNKING` $\rightarrow$ `VECTOR_INDEXING` $\rightarrow$ `GRAPH_EXTRACTION` $\rightarrow$ `COMPLETED` / `FAILED`.
-
-### 4. Exponential Backoff Reconnect & Polling Fallback
-- If SSE connection drops:
-  - Retry after 2s $\rightarrow$ 5s $\rightarrow$ 10s.
-  - Fall back to polling `GET /api/v1/media/{media_id}/status` every 5 seconds until SSE reconnects or the job completes.
-
-### 5. Event History Replay
-- On UI mount or reconnect, fetch `GET /api/v1/media/{media_id}/history` to rebuild completed stage checkmarks (`✔ Audio extraction`, `✔ Whisper ASR`, `✔ Chunking`).
+### Issue 3: Diversity via Concept & Chunk Rotation for Version Regeneration
+- **Root Cause**: In `FlashcardService.evolve_workspace_deck` ([`flashcard_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/flashcard_service.py#L298-L326)) and `QuizService.evolve_workspace_quiz` ([`quiz_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/quiz_service.py#L274-L300)), creating a new version `vN+1` explicitly iterated through previous cards/questions from `v1` and **cloned/copied all stored output from `v1` into `v2`**.
+- **Educational Diversity Strategy**: When regenerating `vN+1`:
+  - Keep LLM temperature stable for high quality.
+  - Rotate concept selection (prioritize concepts with lower card/question coverage in prior versions).
+  - Vary concept ordering & sample different transcript chunks across the workspace.
+  - Never copy or clone previous version cards/questions into the new version.
 
 ---
 
-## Proposed Changes
+## 🏗️ Proposed Changes
 
-### Frontend Implementation
+### Milestone 1: Fix Automatic Generation Boundaries (Problem 1)
 
-#### [NEW] [BackgroundTaskRuntime.tsx](file:///e:/repos/athenus/frontend/src/features/pipeline/BackgroundTaskRuntime.tsx)
-- Root container component mounted inside `DesktopShell.tsx`.
-- Manages `EventSource` streams for all active jobs in `jobs` registry.
-- Handles exponential backoff reconnects, fallback HTTP polling, history replay, and notification toasts.
-
-#### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
-- Add `jobs: Record<string, BackgroundJob>` dictionary to Zustand store.
-- Add pure state reducers: `upsertJob(job)`, `removeJob(jobId)`, `setJobHistory(jobId, history)`.
-
-#### [MODIFY] [useIngestion.ts](file:///e:/repos/athenus/frontend/src/features/ingestion/useIngestion.ts)
-- Update hook to read jobs from Zustand `jobs` registry and delegate file upload trigger to `BackgroundTaskRuntime`.
-
-#### [MODIFY] [TopToolbar.tsx](file:///e:/repos/athenus/frontend/src/components/navigation/TopToolbar.tsx)
-- Update top bar indicator to support multi-job display:
-  - Single active job: `⚡ Apollo: Transcribing Biology.mp4 (63%)`
-  - Multiple active jobs: `⚡ 3 Background Jobs Running`
-
-#### [MODIFY] [DesktopShell.tsx](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx)
-- Mount `<BackgroundTaskRuntime />` at the root shell level.
+#### [MODIFY] [learning_evolution_worker.py](file:///e:/repos/athenus/backend/app/services/workers/learning_evolution_worker.py)
+- Remove automatic `ConceptGraphUpdatedEvent` auto-generation triggers for Flashcards and Quizzes during video ingestion.
+- Ensure `ConceptGraphUpdatedEvent` updates Knowledge Graph topology and triggers `AnalyticsService` precomputation only.
 
 ---
 
-## Verification Plan
+### Milestone 2: Stage-Based Independent Artifact Progress (Problem 2)
+
+#### [MODIFY] [models.py](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)
+- Ensure `ArtifactJobTable` tracks `stage` (`queued`, `collect_context`, `llm_generation`, `validation`, `persist`, `ready`, `failed`) for each `artifact_type` (`graph`, `flashcards`, `quiz`).
+
+#### [MODIFY] [flashcard_service.py](file:///e:/repos/athenus/backend/app/domain/learning/flashcard_service.py) & [quiz_service.py](file:///e:/repos/athenus/backend/app/domain/learning/quiz_service.py)
+- Update `ArtifactJobTable` at each semantic stage (`collect_context` $\rightarrow$ `llm_generation` $\rightarrow$ `validation` $\rightarrow$ `persist` $\rightarrow$ `ready`).
+
+#### [MODIFY] [graph.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/graph.py) & [learning.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/learning.py)
+- Expose independent artifact lifecycle status endpoints for Blueprint (`/api/v1/graph/workspace/{id}`), Flashcards (`/api/v1/learning/decks/{workspace_id}/status`), and Quizzes (`/api/v1/learning/quizzes/workspace/{workspace_id}/status`).
+
+#### [MODIFY] [KnowledgeGraphCanvas.tsx](file:///e:/repos/athenus/frontend/src/features/graph/KnowledgeGraphCanvas.tsx), [FlashcardGrid.tsx](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx), and [QuizStudio.tsx](file:///e:/repos/athenus/frontend/src/features/quiz/QuizStudio.tsx)
+- Ensure each UI studio displays ONLY its own independent status, current stage name, and progress bar.
+
+---
+
+### Milestone 3: Fix Version Regeneration Engine (Problem 3)
+
+#### [MODIFY] [flashcard_service.py](file:///e:/repos/athenus/backend/app/domain/learning/flashcard_service.py)
+- Remove code block in `evolve_workspace_deck` / `generate_deck` that copies previous version cards into new versions.
+- Implement concept & chunk rotation: select concepts with lowest prior coverage and vary chunk sampling for `vN+1`.
+
+#### [MODIFY] [quiz_service.py](file:///e:/repos/athenus/backend/app/domain/learning/quiz_service.py)
+- Remove code block in `evolve_workspace_quiz` / `generate_quiz` that copies previous version questions into new versions.
+- Implement fresh question concept rotation and chunk sampling for `vN+1`.
+
+---
+
+## 🧪 Verification Plan
 
 ### Automated Tests
-- Backend test: `python -m pytest tests/test_ingestion_pipeline.py`
-- Frontend production build: `npm run build`
+- Run `pytest tests/test_knowledge_graph.py` to verify Knowledge Graph extraction and job progress.
+- Run `pytest tests/test_flashcards.py` to verify on-demand deck generation and versioning without copying prior cards.
+- Run `pytest tests/test_quiz.py` to verify on-demand quiz generation and versioning.
+- Run `pytest tests/test_learning_evolution.py` to verify ingestion boundaries.
+- Run frontend build `npm run build` to verify zero TypeScript errors.
 
 ### Manual Verification
-1. Upload a video in **Pipelines** (`view-ingestion`).
-2. Navigate to **Chat**, **Flashcards**, and **Knowledge Graph** tabs while video processes.
-3. Verify that the **TopToolbar** badge shows active live progress (e.g. `⚡ Apollo: Transcribing (45%)`).
-4. Disconnect Wi-Fi / simulate network interruption: verify exponential backoff retry and HTTP status polling fallback.
-5. Reload page mid-ingestion: verify history rehydration rebuilds completed stage checkmarks.
+1. Upload a new video in **Pipelines**: confirm that video ingestion automatically generates **only Blueprint and Analytics** (Flashcards & Quizzes remain ungenerated until requested).
+2. Check **Blueprint tab**: confirm that artifact status displays Blueprint generation progress and stages independently without waiting for Flashcards/Quizzes.
+3. Open **Flashcards tab**: click **Generate Deck** $\rightarrow$ verify fresh `v1` generation. Click **Regenerate New Version** $\rightarrow$ verify `v2` contains freshly generated cards via concept rotation rather than identical copies of `v1`.
+4. Open **Quiz Studio**: click **Generate Quiz** $\rightarrow$ verify fresh `v1`. Click **Regenerate New Version** $\rightarrow$ verify `v2` contains freshly generated questions.

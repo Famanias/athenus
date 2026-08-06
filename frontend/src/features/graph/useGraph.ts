@@ -28,6 +28,7 @@ export interface GraphEdge {
 export interface ArtifactLifecycle {
   status: string;
   progress: number;
+  stage: string | null;
   message: string | null;
   error_message: string | null;
   updated_at: string | null;

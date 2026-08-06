@@ -195,7 +195,22 @@ class FlashcardService:
         Decks are immutable: re-generating with ``force_new_version`` produces a
         new ``Deck vN+1`` rather than mutating the existing one. A cached ``ready``
         deck is returned on subsequent calls.
+
+        Version regeneration performs a fresh AI generation request using concept
+        and transcript chunk rotation instead of cloning previous version cards.
         """
+        def update_job(stage: str, progress: int, message: str, status: str = "generating") -> None:
+            self.graph_service.upsert_artifact_job(
+                job_id=f"flashcards_{workspace_id}",
+                workspace_id=workspace_id,
+                artifact_type="flashcards",
+                target_key=workspace_id,
+                status=status,
+                stage=stage,
+                progress=progress,
+                message=message,
+            )
+
         concept_dicts = self._concept_dicts(workspace_id)
         if not concept_dicts:
             raise ValueError(f"No concepts indexed for workspace {workspace_id}")
@@ -211,6 +226,8 @@ class FlashcardService:
             deck_id, workspace_id, name, version, "generating",
         )
 
+        update_job("collect_context", 20, "Collecting concepts and transcript chunks...")
+
         media_ids: List[str] = []
         concept_ids: List[str] = []
         for c in concept_dicts:
@@ -225,10 +242,20 @@ class FlashcardService:
         seen: set = set()
         chunks = [c for c in all_chunks if not (c["id"] in seen or seen.add(c["id"]))]
 
-        cards = await self._generate_with_llm(concept_dicts[:12], chunks)
-        if not cards:
-            cards = generate_flashcards_heuristic(concept_dicts, chunks, max_cards=max_cards)
+        if force_new_version and version > 1:
+            selected_concepts, prompt_chunks = self._rotate_concepts_and_chunks(
+                workspace_id, concept_dicts, chunks, version
+            )
+        else:
+            selected_concepts = concept_dicts[:12]
+            prompt_chunks = chunks
 
+        update_job("llm_generation", 50, "Generating cards with AI model...")
+        cards = await self._generate_with_llm(selected_concepts, prompt_chunks)
+        if not cards:
+            cards = generate_flashcards_heuristic(selected_concepts, prompt_chunks, max_cards=max_cards)
+
+        update_job("persist", 85, "Saving cards to database...")
         saved_count = self._persist_cards(
             deck_id, workspace_id, version, cards, concept_dicts
         )
@@ -238,7 +265,49 @@ class FlashcardService:
             media_ids=media_ids,
             concept_ids=concept_ids,
         )
+        update_job("ready", 100, "Deck ready.", status="ready")
         return self.get_deck(deck_id)
+
+    def _concept_coverage(self, workspace_id: str) -> dict:
+        """Map concept_id -> number of cards already generated across all prior
+        deck versions for the workspace."""
+        coverage: dict = {}
+        if not engine or not Session or not select:
+            return coverage
+        try:
+            from app.infrastructure.db.models import FlashcardTable
+            with Session(engine) as session:
+                stmt = select(FlashcardTable).where(FlashcardTable.workspace_id == workspace_id)
+                records = self._scalars(session, stmt)
+                for r in records:
+                    if r.concept_id:
+                        coverage[r.concept_id] = coverage.get(r.concept_id, 0) + 1
+        except Exception:
+            pass
+        return coverage
+
+    def _rotate_concepts_and_chunks(
+        self,
+        workspace_id: str,
+        concept_dicts: List[dict],
+        chunks: List[dict],
+        version: int,
+        max_concepts: int = 12,
+    ):
+        """Rotate concept selection toward the least-covered concepts and sample
+        transcript chunks from a version-based offset for fresh LLM context."""
+        coverage = self._concept_coverage(workspace_id)
+        ranked = sorted(
+            concept_dicts,
+            key=lambda c: (coverage.get(c["id"], 0), c["name"]),
+        )
+        selected_concepts = ranked[:max_concepts] or ranked
+        if chunks:
+            offset = (version - 1) % len(chunks)
+            rotated_chunks = chunks[offset:] + chunks[:offset]
+        else:
+            rotated_chunks = chunks
+        return selected_concepts, rotated_chunks
 
     async def evolve_workspace_deck(
         self,
@@ -288,45 +357,12 @@ class FlashcardService:
             new_extracted_cards = generate_flashcards_heuristic(new_concepts, chunks, max_cards=target_budget)
 
         latest_version = self._latest_version(workspace_id)
-        prev_deck = self.get_workspace_deck(workspace_id, version=latest_version)
-
         new_version = latest_version + 1
         new_deck_id = f"deck_{workspace_id}_v{new_version}"
         self._upsert_deck(new_deck_id, workspace_id, name, new_version, "generating")
 
-        copied_cards_count = 0
-        if prev_deck:
-            prev_cards = self.get_deck_cards(prev_deck.id)
-            if engine and Session:
-                try:
-                    from app.infrastructure.db.models import FlashcardTable
-                    with Session(engine) as session:
-                        for prev_card in prev_cards:
-                            c_id = f"card_{new_deck_id}_{uuid.uuid4().hex[:8]}"
-                            session.add(
-                                FlashcardTable(
-                                    id=c_id,
-                                    deck_id=new_deck_id,
-                                    workspace_id=workspace_id,
-                                    concept_id=prev_card.concept_id,
-                                    card_type=prev_card.card_type,
-                                    front=prev_card.front,
-                                    back=prev_card.back,
-                                    cloze_text=prev_card.cloze_text,
-                                    options_json=json.dumps(prev_card.options) if prev_card.options else None,
-                                    media_id=prev_card.media_id,
-                                    source_chunk_ids=",".join(prev_card.source_chunk_ids) if prev_card.source_chunk_ids else None,
-                                    start_time=prev_card.start_time,
-                                    end_time=prev_card.end_time,
-                                )
-                            )
-                            copied_cards_count += 1
-                        session.commit()
-                except Exception:
-                    pass
-
         new_cards_count = self._persist_cards(new_deck_id, workspace_id, new_version, new_extracted_cards, new_concepts)
-        total_card_count = copied_cards_count + new_cards_count
+        total_card_count = new_cards_count
 
         all_concept_ids = [c["id"] for c in all_concept_dicts]
         all_media_ids = list(set([c.get("media_id") for c in all_concept_dicts if c.get("media_id")]))

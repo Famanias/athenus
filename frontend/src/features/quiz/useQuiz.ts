@@ -42,6 +42,17 @@ export interface QuizAttemptDTO {
   created_at: string | null;
 }
 
+export interface ArtifactJobStatusDTO {
+  artifact_type: string;
+  target_key: string;
+  status: string;
+  stage: string | null;
+  progress: number;
+  message: string | null;
+  error_message: string | null;
+  updated_at: string | null;
+}
+
 export interface QuizQuestion {
   id: string;
   question: string;
@@ -64,7 +75,7 @@ export interface WorkspaceLearningSettingsDTO {
 }
 
 export function useQuiz(options: UseQuizOptions = {}) {
-  const { autoGenerate = true } = options;
+  const { autoGenerate = false } = options;
   const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
   const setActiveView = useAppStore((state) => state.setActiveView);
 
@@ -72,6 +83,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
   const [activeQuiz, setActiveQuiz] = useState<QuizContainerDTO | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
+  const [artifact, setArtifact] = useState<ArtifactJobStatusDTO | null>(null);
   const [settings, setSettings] = useState<WorkspaceLearningSettingsDTO>({
     auto_evolve_flashcards: true,
     flashcard_target_budget_per_media: 20,
@@ -136,6 +148,22 @@ export function useQuiz(options: UseQuizOptions = {}) {
     }
   }, []);
 
+  const refreshArtifactStatus = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws) {
+      setArtifact(null);
+      return;
+    }
+    try {
+      const data = await apiClient<ArtifactJobStatusDTO | null>(
+        `/api/v1/learning/quizzes/workspace/${encodeURIComponent(ws)}/status`
+      );
+      setArtifact(data || null);
+    } catch (_err) {
+      setArtifact(null);
+    }
+  }, []);
+
   const generateQuiz = useCallback(async () => {
     const ws = wsRef.current;
     if (!ws) return null;
@@ -147,6 +175,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
         { method: 'POST' }
       );
       await refreshQuizzes();
+      await refreshArtifactStatus();
       return quiz;
     } catch (_err) {
       setError('Failed to generate quiz. Ensure concepts have been extracted.');
@@ -154,7 +183,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
     } finally {
       setGenerating(false);
     }
-  }, [refreshQuizzes]);
+  }, [refreshQuizzes, refreshArtifactStatus]);
 
   const loadQuiz = useCallback(async (quiz: QuizContainerDTO) => {
     setActiveQuiz(quiz);
@@ -199,6 +228,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
       if (!wsRef.current) return;
       setLoading(true);
       fetchSettings();
+      refreshArtifactStatus();
       try {
         let existing = await refreshQuizzes();
         if (!existing || existing.length === 0) {
@@ -228,6 +258,14 @@ export function useQuiz(options: UseQuizOptions = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    const timer = setInterval(() => {
+      refreshArtifactStatus();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [activeWorkspaceId, refreshArtifactStatus]);
 
   const selectVersion = useCallback(
     async (version: number) => {
@@ -321,6 +359,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
     totalQuestions: questions.length,
     selectedOptId,
     showExplanation,
+    artifact,
     settings,
     loading,
     generating,
@@ -337,5 +376,6 @@ export function useQuiz(options: UseQuizOptions = {}) {
     setActiveView,
     activeWorkspaceId,
     refreshQuizzes,
+    refreshArtifactStatus,
   };
 }

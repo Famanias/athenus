@@ -179,7 +179,23 @@ class QuizService:
         max_questions: int = 10,
         force_new_version: bool = False,
     ) -> QuizContainer:
-        """Generate (or reuse a cached) versioned quiz for a workspace."""
+        """Generate (or reuse a cached) versioned quiz for a workspace.
+
+        Version regeneration performs a fresh AI generation request using concept
+        rotation instead of cloning previous version questions.
+        """
+        def update_job(stage: str, progress: int, message: str, status: str = "generating") -> None:
+            self.graph_service.upsert_artifact_job(
+                job_id=f"quiz_{workspace_id}",
+                workspace_id=workspace_id,
+                artifact_type="quiz",
+                target_key=workspace_id,
+                status=status,
+                stage=stage,
+                progress=progress,
+                message=message,
+            )
+
         concept_dicts = self._concept_dicts(workspace_id)
         if not concept_dicts:
             raise ValueError(f"No concepts indexed for workspace {workspace_id}")
@@ -193,6 +209,8 @@ class QuizService:
         quiz_id = f"quiz_{workspace_id}_v{version}"
         self._upsert_quiz(quiz_id, workspace_id, title, version, "generating")
 
+        update_job("collect_context", 20, "Collecting concepts and transcript chunks...")
+
         concept_ids: List[str] = [c["id"] for c in concept_dicts]
         media_ids: List[str] = []
         for c in concept_dicts:
@@ -205,16 +223,69 @@ class QuizService:
         seen: set = set()
         chunks = [c for c in all_chunks if not (c["id"] in seen or seen.add(c["id"]))]
 
-        questions = await self._generate_with_llm(concept_dicts[:12], chunks, max_questions)
+        if force_new_version and version > 1:
+            selected_concepts, prompt_chunks = self._rotate_concepts_and_chunks(
+                workspace_id, concept_dicts, chunks, version
+            )
+        else:
+            selected_concepts = concept_dicts[:12]
+            prompt_chunks = chunks
+
+        update_job("llm_generation", 50, "Generating questions with AI model...")
+        questions = await self._generate_with_llm(selected_concepts, prompt_chunks, max_questions)
         if not questions:
-            questions = generate_quiz_heuristic(concept_dicts, chunks, max_questions)
+            questions = generate_quiz_heuristic(selected_concepts, prompt_chunks, max_questions)
+
+        update_job("persist", 85, "Saving questions to database...")
         saved = self._persist_questions(quiz_id, workspace_id, questions, concept_dicts)
         self._upsert_quiz(
             quiz_id, workspace_id, title, version, "ready",
             question_count=saved,
             concept_ids=concept_ids,
         )
+        update_job("ready", 100, "Quiz ready.", status="ready")
         return self.get_quiz(quiz_id)
+
+    def _concept_coverage(self, workspace_id: str) -> dict:
+        """Map concept_id -> number of questions already generated across all
+        prior quiz versions for the workspace."""
+        coverage: dict = {}
+        if not engine or not Session or not select:
+            return coverage
+        try:
+            from app.infrastructure.db.models import QuizQuestionTable
+            with Session(engine) as session:
+                stmt = select(QuizQuestionTable).where(QuizQuestionTable.workspace_id == workspace_id)
+                records = self._scalars(session, stmt)
+                for r in records:
+                    if r.concept_id:
+                        coverage[r.concept_id] = coverage.get(r.concept_id, 0) + 1
+        except Exception:
+            pass
+        return coverage
+
+    def _rotate_concepts_and_chunks(
+        self,
+        workspace_id: str,
+        concept_dicts: List[dict],
+        chunks: List[dict],
+        version: int,
+        max_concepts: int = 12,
+    ):
+        """Rotate concept selection toward the least-covered concepts and sample
+        transcript chunks from a version-based offset for fresh LLM context."""
+        coverage = self._concept_coverage(workspace_id)
+        ranked = sorted(
+            concept_dicts,
+            key=lambda c: (coverage.get(c["id"], 0), c["name"]),
+        )
+        selected_concepts = ranked[:max_concepts] or ranked
+        if chunks:
+            offset = (version - 1) % len(chunks)
+            rotated_chunks = chunks[offset:] + chunks[:offset]
+        else:
+            rotated_chunks = chunks
+        return selected_concepts, rotated_chunks
 
     async def evolve_workspace_quiz(
         self,
@@ -264,44 +335,12 @@ class QuizService:
             new_questions = generate_quiz_heuristic(new_concepts, chunks, target_budget)
 
         latest_version = self._latest_version(workspace_id)
-        prev_quiz = self.get_workspace_quiz(workspace_id, version=latest_version)
-
         new_version = latest_version + 1
         new_quiz_id = f"quiz_{workspace_id}_v{new_version}"
         self._upsert_quiz(new_quiz_id, workspace_id, title, new_version, "generating")
 
-        copied_questions_count = 0
-        if prev_quiz:
-            prev_questions = self.get_quiz_questions(prev_quiz.id)
-            if engine and Session:
-                try:
-                    from app.infrastructure.db.models import QuizQuestionTable
-                    with Session(engine) as session:
-                        for prev_q in prev_questions:
-                            qid = f"q_{new_quiz_id}_{uuid.uuid4().hex[:8]}"
-                            session.add(
-                                QuizQuestionTable(
-                                    id=qid,
-                                    quiz_id=new_quiz_id,
-                                    workspace_id=workspace_id,
-                                    concept_id=prev_q.concept_id,
-                                    question_text=prev_q.question_text,
-                                    options_json=json.dumps(prev_q.options) if prev_q.options else None,
-                                    correct_index=prev_q.correct_index,
-                                    explanation=prev_q.explanation,
-                                    media_id=prev_q.media_id,
-                                    source_chunk_ids=",".join(prev_q.source_chunk_ids) if prev_q.source_chunk_ids else None,
-                                    start_time=prev_q.start_time,
-                                    end_time=prev_q.end_time,
-                                )
-                            )
-                            copied_questions_count += 1
-                        session.commit()
-                except Exception:
-                    pass
-
         new_saved_count = self._persist_questions(new_quiz_id, workspace_id, new_questions, new_concepts)
-        total_questions_count = copied_questions_count + new_saved_count
+        total_questions_count = new_saved_count
 
         all_concept_ids = [c["id"] for c in all_concept_dicts]
 

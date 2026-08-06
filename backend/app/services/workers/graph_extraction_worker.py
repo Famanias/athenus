@@ -88,6 +88,7 @@ class GraphExtractionWorker:
         workspace_id: str,
         status: str,
         progress: int,
+        stage: Optional[str] = None,
         message: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
@@ -97,6 +98,7 @@ class GraphExtractionWorker:
             artifact_type="graph",
             target_key=media_id,
             status=status,
+            stage=stage,
             progress=progress,
             message=message,
             error_message=error,
@@ -129,7 +131,7 @@ class GraphExtractionWorker:
         workspace_id = event.payload.get("workspace_id", "default")
 
         self._update_job(
-            media_id, workspace_id, "generating", 15,
+            media_id, workspace_id, "generating", 15, stage="collect_context",
             message="Extracting domain concepts from transcript chunks...",
         )
 
@@ -137,25 +139,25 @@ class GraphExtractionWorker:
             chunks = load_chunks(media_id, workspace_id)
             if not chunks:
                 self._update_job(
-                    media_id, workspace_id, "ready", 100,
+                    media_id, workspace_id, "ready", 100, stage="ready",
                     message="No transcript chunks available for graph extraction.",
                 )
                 return
 
-            self._update_job(media_id, workspace_id, "generating", 35, message="Running LLM concept extraction...")
+            self._update_job(media_id, workspace_id, "generating", 35, stage="llm_generation", message="Running LLM concept extraction...")
             concepts, relations = await self._extract_with_llm(chunks)
             if not concepts:
-                self._update_job(media_id, workspace_id, "generating", 55, message="LLM extraction unavailable; using deterministic heuristic extraction...")
+                self._update_job(media_id, workspace_id, "generating", 55, stage="llm_generation", message="LLM extraction unavailable; using deterministic heuristic extraction...")
                 concepts, relations = extract_concepts_heuristic(chunks)
 
             if not concepts:
                 self._update_job(
-                    media_id, workspace_id, "failed", 0,
+                    media_id, workspace_id, "failed", 0, stage="failed",
                     message="No concepts could be extracted.", error="Empty extraction result.",
                 )
                 return
 
-            self._update_job(media_id, workspace_id, "generating", 70, message="Merging candidate concepts into canonical knowledge graph...")
+            self._update_job(media_id, workspace_id, "generating", 70, stage="validation", message="Merging candidate concepts into canonical knowledge graph...")
             resolved_ids: dict = {}
             for concept in concepts:
                 canonical_id, _ = await self.merging_service.resolve_concept(
@@ -190,7 +192,7 @@ class GraphExtractionWorker:
                 relation_count += 1
 
             self._update_job(
-                media_id, workspace_id, "ready", 100,
+                media_id, workspace_id, "ready", 100, stage="ready",
                 message=f"Knowledge graph updated: {len(resolved_ids)} canonical concepts, {relation_count} relations.",
             )
 
@@ -207,6 +209,6 @@ class GraphExtractionWorker:
         except Exception as e:
             err_msg = str(e).strip() or repr(e)
             self._update_job(
-                media_id, workspace_id, "failed", 0,
+                media_id, workspace_id, "failed", 0, stage="failed",
                 message="Knowledge graph extraction failed.", error=err_msg,
             )

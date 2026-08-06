@@ -43,6 +43,17 @@ export interface ReviewResultDTO {
   repetitions: number;
 }
 
+export interface ArtifactJobStatusDTO {
+  artifact_type: string;
+  target_key: string;
+  status: string;
+  stage: string | null;
+  progress: number;
+  message: string | null;
+  error_message: string | null;
+  updated_at: string | null;
+}
+
 interface UseFlashcardsOptions {
   autoGenerate?: boolean;
 }
@@ -55,7 +66,7 @@ export interface WorkspaceLearningSettingsDTO {
 }
 
 export function useFlashcards(options: UseFlashcardsOptions = {}) {
-  const { autoGenerate = true } = options;
+  const { autoGenerate = false } = options;
   const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
   const setActiveView = useAppStore((state) => state.setActiveView);
 
@@ -63,6 +74,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [activeDeck, setActiveDeck] = useState<FlashcardDeckDTO | null>(null);
   const [cards, setCards] = useState<FlashcardCardDTO[]>([]);
+  const [artifact, setArtifact] = useState<ArtifactJobStatusDTO | null>(null);
   const [settings, setSettings] = useState<WorkspaceLearningSettingsDTO>({
     auto_evolve_flashcards: true,
     flashcard_target_budget_per_media: 20,
@@ -121,6 +133,22 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     }
   }, []);
 
+  const refreshArtifactStatus = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws) {
+      setArtifact(null);
+      return;
+    }
+    try {
+      const data = await apiClient<ArtifactJobStatusDTO | null>(
+        `/api/v1/learning/decks/${encodeURIComponent(ws)}/status`
+      );
+      setArtifact(data || null);
+    } catch (_err) {
+      setArtifact(null);
+    }
+  }, []);
+
   const generateDeck = useCallback(async () => {
     const ws = wsRef.current;
     if (!ws) return null;
@@ -132,6 +160,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
         { method: 'POST' }
       );
       await refreshDecks();
+      await refreshArtifactStatus();
       return deck;
     } catch (_err) {
       setError('Failed to generate flashcard deck. Ensure concepts have been extracted.');
@@ -139,7 +168,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     } finally {
       setGenerating(false);
     }
-  }, [refreshDecks]);
+  }, [refreshDecks, refreshArtifactStatus]);
 
   const selectVersion = useCallback(async (version: number) => {
     const ws = wsRef.current;
@@ -170,6 +199,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
       if (!wsRef.current) return;
       setLoading(true);
       fetchSettings();
+      refreshArtifactStatus();
       try {
         let existing = await refreshDecks();
         if (!existing || existing.length === 0) {
@@ -205,6 +235,14 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    const timer = setInterval(() => {
+      refreshArtifactStatus();
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [activeWorkspaceId, refreshArtifactStatus]);
 
   const recordReview = useCallback(
     async (flashcardId: string, rating: number): Promise<ReviewResultDTO | null> => {
@@ -254,11 +292,13 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     activeDeck,
     selectedVersion,
     cards,
+    artifact,
     settings,
     loading,
     generating,
     error,
     refreshDecks,
+    refreshArtifactStatus,
     generateDeck,
     selectVersion,
     recordReview,

@@ -62,6 +62,11 @@ try:
                         conn.execute(text("ALTER TABLE knowledge_relations ADD COLUMN media_id VARCHAR"))
                     if "updated_at" not in cols:
                         conn.execute(text("ALTER TABLE knowledge_relations ADD COLUMN updated_at DATETIME"))
+
+                if inspector.has_table("artifact_jobs"):
+                    cols = [c["name"] for c in inspector.get_columns("artifact_jobs")]
+                    if "stage" not in cols:
+                        conn.execute(text("ALTER TABLE artifact_jobs ADD COLUMN stage VARCHAR DEFAULT 'queued'"))
                 conn.commit()
         except Exception as e:
             print("MIGRATION ERROR:", e)

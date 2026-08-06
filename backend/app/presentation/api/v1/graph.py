@@ -40,6 +40,7 @@ class ConceptEdgeDTO(BaseModel):
 class ArtifactLifecycleDTO(BaseModel):
     status: str
     progress: int
+    stage: Optional[str] = None
     message: Optional[str] = None
     error_message: Optional[str] = None
     updated_at: Optional[str] = None
@@ -116,6 +117,7 @@ def get_workspace_graph(workspace_id: str):
         artifact = ArtifactLifecycleDTO(
             status=job.status,
             progress=job.progress,
+            stage=getattr(job, "stage", None),
             message=job.message,
             error_message=job.error_message,
             updated_at=job.updated_at.isoformat() if job.updated_at else None,

@@ -42,3 +42,40 @@ def test_workspace_learning_settings_api():
     updated_data = patch_res.json()
     assert updated_data["flashcard_target_budget_per_media"] == 30
     assert updated_data["auto_evolve_quizzes"] is False
+
+
+def test_learning_evolution_worker_analytics_only():
+    """ConceptGraphUpdatedEvent must trigger analytics precomputation ONLY —
+    never automatic Flashcard or Quiz generation."""
+    import asyncio
+    from app.domain.analytics.analytics_service import AnalyticsService
+    from app.infrastructure.events.event_bus import EventBus, DomainEvent
+    from app.services.workers.learning_evolution_worker import LearningEvolutionWorker
+
+    class RecordingAnalytics(AnalyticsService):
+        def __init__(self) -> None:
+            super().__init__(event_bus=None)
+            self.graph_updates = 0
+
+        async def handle_graph_updated(self, event):
+            self.graph_updates += 1
+
+    bus = EventBus()
+    analytics = RecordingAnalytics()
+    worker = LearningEvolutionWorker(bus, analytics_service=analytics)
+
+    async def run():
+        await bus.publish(DomainEvent(
+            event_type="ConceptGraphUpdatedEvent",
+            aggregate_id="test_ws_worker_1",
+            payload={
+                "workspace_id": "test_ws_worker_1",
+                "new_concept_ids": ["c1", "c2"],
+            },
+        ))
+
+    asyncio.run(run())
+
+    assert analytics.graph_updates == 1
+    assert not hasattr(worker, "flashcard_service")
+    assert not hasattr(worker, "quiz_service")

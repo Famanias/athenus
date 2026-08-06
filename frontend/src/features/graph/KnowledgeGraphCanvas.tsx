@@ -189,6 +189,9 @@ export const KnowledgeGraphCanvas: React.FC = () => {
           <span className={`font-bold uppercase ${artifact?.status === 'failed' ? 'text-rose-400' : artifact?.status === 'ready' ? 'text-emerald-400' : 'text-secondary'}`}>
             {artifact?.status || 'idle'}
           </span>
+          {artifact?.stage && artifact.stage !== 'ready' && (
+            <span className="text-on-surface-variant/70">{artifact.stage.replace(/_/g, ' ')}</span>
+          )}
           <span className="text-on-surface-variant/60">progress {artifact?.progress ?? 0}%</span>
           {artifact?.message && (
             <span className="text-on-surface-variant truncate">{artifact.message}</span>

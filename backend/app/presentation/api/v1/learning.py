@@ -121,6 +121,32 @@ class GradeAttemptRequest(BaseModel):
     time_taken: float = 0.0
 
 
+class ArtifactJobStatusResponse(BaseModel):
+    artifact_type: str
+    target_key: str
+    status: str
+    stage: Optional[str] = None
+    progress: int = 0
+    message: Optional[str] = None
+    error_message: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+def _artifact_job_to_response(job) -> Optional[ArtifactJobStatusResponse]:
+    if not job:
+        return None
+    return ArtifactJobStatusResponse(
+        artifact_type=job.artifact_type,
+        target_key=job.target_key,
+        status=job.status,
+        stage=getattr(job, "stage", None),
+        progress=job.progress or 0,
+        message=job.message,
+        error_message=job.error_message,
+        updated_at=job.updated_at.isoformat() if job.updated_at else None,
+    )
+
+
 def _deck_to_response(deck: FlashcardDeck) -> DeckResponse:
     return DeckResponse(
         id=deck.id,
@@ -178,6 +204,14 @@ async def create_deck(
 def list_decks(workspace_id: str):
     decks = flashcard_service.list_decks(workspace_id)
     return [_deck_to_response(d) for d in decks]
+
+
+@router.get("/learning/decks/{workspace_id}/status", response_model=Optional[ArtifactJobStatusResponse])
+def get_flashcard_artifact_status(workspace_id: str):
+    job = graph_service.get_artifact_job(workspace_id, "flashcards", target_key=workspace_id)
+    if not job:
+        return None
+    return _artifact_job_to_response(job)
 
 
 @router.get("/learning/decks/{workspace_id}/version/{version}", response_model=DeckResponse)
@@ -296,6 +330,14 @@ async def generate_quiz(
 def list_quizzes(workspace_id: str):
     quizzes = quiz_service.list_quizzes(workspace_id)
     return [_quiz_to_response(q) for q in quizzes]
+
+
+@router.get("/learning/quizzes/workspace/{workspace_id}/status", response_model=Optional[ArtifactJobStatusResponse])
+def get_quiz_artifact_status(workspace_id: str):
+    job = graph_service.get_artifact_job(workspace_id, "quiz", target_key=workspace_id)
+    if not job:
+        return None
+    return _artifact_job_to_response(job)
 
 
 @router.get("/learning/quizzes/workspace/{workspace_id}/version/{version}", response_model=QuizContainerResponse)

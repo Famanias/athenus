@@ -388,6 +388,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
         artifact_type: str,
         target_key: str,
         status: str,
+        stage: Optional[str] = None,
         progress: int = 0,
         message: Optional[str] = None,
         error_message: Optional[str] = None,
@@ -399,6 +400,8 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                 job = session.get(ArtifactJobTable, job_id)
                 if job:
                     job.status = status
+                    if stage is not None:
+                        job.stage = stage
                     job.progress = progress
                     job.message = message
                     job.error_message = error_message
@@ -410,6 +413,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                         artifact_type=artifact_type,
                         target_key=target_key,
                         status=status,
+                        stage=stage,
                         progress=progress,
                         message=message,
                         error_message=error_message,
