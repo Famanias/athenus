@@ -21,6 +21,9 @@ import {
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
+const DOCKER_MODE_DIR_ERROR =
+  'You are currently using docker, if you want to manually add the path of your ollama models, switch to Native / Non-Docker Mode (Manual Virtual Environment). For more information, check the docs\\ONBOARDING.md \n If you are using docker, ignore this error.';
+
 export const SystemSettings: React.FC = () => {
   const { llmProvider, sttProvider, gpuAcceleration, selectedOllamaModel: storeOllamaModel, setProviderSettings, setActiveMediaId } = useAppStore();
   const [selectedLlm, setSelectedLlm] = useState<string>(llmProvider);
@@ -46,6 +49,7 @@ export const SystemSettings: React.FC = () => {
   // Local Model Storage (Host Filesystem) State
   const [ollamaDir, setOllamaDir] = useState<string>('');
   const [ollamaConfig, setOllamaConfig] = useState<OllamaSettingsResponse | null>(null);
+  const [ollamaDirError, setOllamaDirError] = useState<string | null>(null);
   const [catalogProviders, setCatalogProviders] = useState<ProviderCatalogProviderDTO[]>([]);
   const [isScanningOllama, setIsScanningOllama] = useState<boolean>(false);
 
@@ -290,6 +294,7 @@ export const SystemSettings: React.FC = () => {
         if (requestId !== dirSaveRequestIdRef.current) return;
 
         setOllamaConfig(res);
+        setOllamaDirError(null);
         if (res.configured_dir) {
           setOllamaDir(res.configured_dir);
         }
@@ -303,8 +308,21 @@ export const SystemSettings: React.FC = () => {
         refreshCatalog();
       } catch (err: any) {
         if (requestId !== dirSaveRequestIdRef.current) return;
-        setSaveStatus('error');
-        setSaveErrorMessage(err.message || 'Failed to save local model storage directory');
+
+        const message = err?.message || 'Failed to save local model storage directory';
+        const isContainerBoundaryError =
+          message.toLowerCase().includes('docker') || message.includes('cannot access it');
+
+        if (isContainerBoundaryError) {
+          // Keep the top-bar autosave indicator clean; surface the container
+          // boundary guidance inline within the Local Model Storage card instead.
+          setSaveStatus('idle');
+          setSaveErrorMessage(null);
+          setOllamaDirError(DOCKER_MODE_DIR_ERROR);
+        } else {
+          setSaveStatus('error');
+          setSaveErrorMessage(message);
+        }
       }
     },
     [refreshCatalog]
@@ -475,6 +493,14 @@ export const SystemSettings: React.FC = () => {
 
   // Runtime environment detection
   const isNativeHost = typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
+
+  // Simplify verbose container-boundary backend errors into a single friendly guidance message
+  const simplifyOllamaDirError = (msg?: string): string => {
+    if (msg && (msg.toLowerCase().includes('docker') || msg.includes('cannot access it'))) {
+      return DOCKER_MODE_DIR_ERROR;
+    }
+    return msg || '';
+  };
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-4xl mx-auto space-y-6 w-full">
@@ -800,9 +826,8 @@ export const SystemSettings: React.FC = () => {
                 return (
                   <div
                     key={m.full_id}
-                    className={`p-2.5 bg-surface-container border rounded flex justify-between items-center text-xs transition-colors ${
-                      isActive ? 'border-secondary bg-secondary/10' : 'border-outline-variant'
-                    }`}
+                    className={`p-2.5 bg-surface-container border rounded flex justify-between items-center text-xs transition-colors ${isActive ? 'border-secondary bg-secondary/10' : 'border-outline-variant'
+                      }`}
                   >
                     <div className="flex items-center gap-2 truncate pr-2">
                       <span className="material-symbols-outlined text-xs text-secondary shrink-0">
@@ -853,11 +878,10 @@ export const SystemSettings: React.FC = () => {
           {/* Status Badge */}
           {ollamaConfig && (
             <span
-              className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
-                ollamaConfig.valid
+              className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${ollamaConfig.valid
                   ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
                   : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-              }`}
+                }`}
             >
               {ollamaConfig.valid ? `✓ Valid (${ollamaConfig.models_count} offline manifests)` : '✕ Invalid Path'}
             </span>
@@ -912,10 +936,10 @@ export const SystemSettings: React.FC = () => {
           </div>
         )}
 
-        {/* Error Details if Invalid */}
-        {ollamaConfig && !ollamaConfig.valid && ollamaConfig.error && (
+        {/* Error Details if Invalid / Container Boundary Guidance */}
+        {(ollamaDirError || (ollamaConfig && !ollamaConfig.valid && ollamaConfig.error)) && (
           <div className="p-3 bg-rose-950/40 border border-rose-500/30 rounded text-xs text-rose-300">
-            {ollamaConfig.error}
+            {ollamaDirError || simplifyOllamaDirError(ollamaConfig?.error)}
           </div>
         )}
       </div>
@@ -931,9 +955,8 @@ export const SystemSettings: React.FC = () => {
           </div>
 
           <span
-            className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${
-              gpuEnabled ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' : 'bg-surface-container text-on-surface-variant'
-            }`}
+            className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${gpuEnabled ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' : 'bg-surface-container text-on-surface-variant'
+              }`}
           >
             {gpuEnabled ? 'CUDA Active' : 'CPU Only'}
           </span>

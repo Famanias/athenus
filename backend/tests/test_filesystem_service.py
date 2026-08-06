@@ -34,8 +34,9 @@ def test_filesystem_service_docker_unmounted_windows_drive(monkeypatch):
         service.validate_and_normalize_path(raw_win_path)
 
     err_msg = str(exc_info.value)
-    assert "running inside Docker and cannot access it" in err_msg
-    assert "Mount the folder into Docker" in err_msg
-    assert "Run the backend natively" in err_msg
+    assert "You are currently using docker" in err_msg
+    assert "switch to Native / Non-Docker Mode (Manual Virtual Environment)" in err_msg
+    assert "ONBOARDING.md" in err_msg
+    assert "\n If you are using docker, ignore this error." in err_msg
     # Ensure raw path mangling like /app/E:\... is NOT present in the error
     assert "/app/" not in err_msg

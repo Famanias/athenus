@@ -33,11 +33,10 @@ class FilesystemService:
 
         if self.runtime.is_docker and is_windows_drive:
             raise HostPathInaccessibleError(
-                f"The selected folder '{clean_path}' exists on your Windows computer, but the backend is currently "
-                f"running inside Docker and cannot access it.\n\n"
-                f"To scan this folder, either:\n"
-                f"• Mount the folder into Docker in docker-compose.yml (e.g. - {clean_path}:/mnt/ollama)\n"
-                f"• Run the backend natively."
+                "You are currently using docker, if you want to manually add the path of your ollama models, "
+                "switch to Native / Non-Docker Mode (Manual Virtual Environment). "
+                "For more information, check the docs\\ONBOARDING.md"
+                "\n If you are using docker, ignore this error."
             )
 
         clean_path = os.path.abspath(clean_path)
