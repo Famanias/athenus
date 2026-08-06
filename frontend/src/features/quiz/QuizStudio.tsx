@@ -20,9 +20,7 @@ export const QuizStudio: React.FC = () => {
     totalQuestions,
     selectedOptId,
     showExplanation,
-    handleSelectOption,
-    handleNext,
-    submitQuiz,
+    settings,
     loading,
     generating,
     error,
@@ -30,6 +28,10 @@ export const QuizStudio: React.FC = () => {
     elapsed,
     generateQuiz,
     selectVersion,
+    handleSelectOption,
+    handleNext,
+    submitQuiz,
+    updateSettings,
     jumpToSource,
     setActiveView,
   } = useQuiz();
@@ -37,7 +39,7 @@ export const QuizStudio: React.FC = () => {
   const isLastQuestion = currentIndex === totalQuestions - 1;
 
   return (
-    <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-3xl mx-auto space-y-6 w-full">
+    <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-4xl mx-auto space-y-6 w-full">
       {/* Header */}
       <div className="flex justify-between items-center pb-4 border-b border-outline-variant">
         <div>
@@ -45,12 +47,35 @@ export const QuizStudio: React.FC = () => {
             Adaptive Comprehension Quiz Studio
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
-            {totalQuestions > 0
-              ? `Question ${currentIndex + 1} of ${totalQuestions}`
+            {activeQuiz
+              ? `${activeQuiz.title} — Instant feedback, detailed explanations, and source links.`
               : 'No Quiz Loaded'}
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Auto-Evolve Control */}
+          <div className="flex items-center gap-2 bg-surface-container-high px-3 py-1.5 rounded-lg border border-outline-variant/50">
+            <label className="flex items-center gap-1.5 text-xs text-on-surface cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={settings.auto_evolve_quizzes}
+                onChange={(e) => updateSettings({ auto_evolve_quizzes: e.target.checked })}
+                className="accent-primary rounded"
+              />
+              <span className="font-medium text-xs">⚡ Auto-Evolve</span>
+            </label>
+            <span className="text-outline-variant">|</span>
+            <select
+              value={settings.quiz_target_budget_per_media}
+              onChange={(e) => updateSettings({ quiz_target_budget_per_media: Number(e.target.value) })}
+              className="bg-transparent text-xs font-mono text-primary outline-none cursor-pointer"
+            >
+              <option value={10} className="bg-surface text-on-surface">Quick (~10 Qs)</option>
+              <option value={15} className="bg-surface text-on-surface">Standard (~15 Qs)</option>
+              <option value={30} className="bg-surface text-on-surface">Exhaustive (~30 Qs)</option>
+            </select>
+          </div>
+
           {activeQuiz && (
             <span className="font-mono text-xs text-secondary bg-secondary/10 px-3 py-1 rounded border border-secondary/30">
               Quiz v{activeQuiz.version} · {totalQuestions} Qs

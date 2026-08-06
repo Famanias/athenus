@@ -56,6 +56,13 @@ interface UseQuizOptions {
   autoGenerate?: boolean;
 }
 
+export interface WorkspaceLearningSettingsDTO {
+  auto_evolve_flashcards: boolean;
+  flashcard_target_budget_per_media: number;
+  auto_evolve_quizzes: boolean;
+  quiz_target_budget_per_media: number;
+}
+
 export function useQuiz(options: UseQuizOptions = {}) {
   const { autoGenerate = true } = options;
   const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
@@ -65,6 +72,12 @@ export function useQuiz(options: UseQuizOptions = {}) {
   const [activeQuiz, setActiveQuiz] = useState<QuizContainerDTO | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
+  const [settings, setSettings] = useState<WorkspaceLearningSettingsDTO>({
+    auto_evolve_flashcards: true,
+    flashcard_target_budget_per_media: 20,
+    auto_evolve_quizzes: true,
+    quiz_target_budget_per_media: 15,
+  });
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [selectedOptId, setSelectedOptId] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState<boolean>(false);
@@ -77,6 +90,37 @@ export function useQuiz(options: UseQuizOptions = {}) {
 
   const wsRef = useRef(activeWorkspaceId);
   wsRef.current = activeWorkspaceId;
+
+  const fetchSettings = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    try {
+      const data = await apiClient<WorkspaceLearningSettingsDTO>(
+        `/api/v1/learning/workspaces/${encodeURIComponent(ws)}/settings`
+      );
+      if (data) setSettings(data);
+    } catch (_err) {
+      // fallback
+    }
+  }, []);
+
+  const updateSettings = useCallback(async (partial: Partial<WorkspaceLearningSettingsDTO>) => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    const next = { ...settings, ...partial };
+    setSettings(next);
+    try {
+      await apiClient<WorkspaceLearningSettingsDTO>(
+        `/api/v1/learning/workspaces/${encodeURIComponent(ws)}/settings`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(next),
+        }
+      );
+    } catch (_err) {
+      // revert on failure
+    }
+  }, [settings]);
 
   const refreshQuizzes = useCallback(async () => {
     const ws = wsRef.current;
@@ -154,6 +198,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
     async function init() {
       if (!wsRef.current) return;
       setLoading(true);
+      fetchSettings();
       try {
         let existing = await refreshQuizzes();
         if (!existing || existing.length === 0) {
@@ -276,6 +321,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
     totalQuestions: questions.length,
     selectedOptId,
     showExplanation,
+    settings,
     loading,
     generating,
     error,
@@ -286,6 +332,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
     handleSelectOption,
     handleNext,
     submitQuiz,
+    updateSettings,
     jumpToSource,
     setActiveView,
     activeWorkspaceId,

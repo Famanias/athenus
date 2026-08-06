@@ -47,6 +47,13 @@ interface UseFlashcardsOptions {
   autoGenerate?: boolean;
 }
 
+export interface WorkspaceLearningSettingsDTO {
+  auto_evolve_flashcards: boolean;
+  flashcard_target_budget_per_media: number;
+  auto_evolve_quizzes: boolean;
+  quiz_target_budget_per_media: number;
+}
+
 export function useFlashcards(options: UseFlashcardsOptions = {}) {
   const { autoGenerate = true } = options;
   const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
@@ -56,12 +63,49 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [activeDeck, setActiveDeck] = useState<FlashcardDeckDTO | null>(null);
   const [cards, setCards] = useState<FlashcardCardDTO[]>([]);
+  const [settings, setSettings] = useState<WorkspaceLearningSettingsDTO>({
+    auto_evolve_flashcards: true,
+    flashcard_target_budget_per_media: 20,
+    auto_evolve_quizzes: true,
+    quiz_target_budget_per_media: 15,
+  });
   const [loading, setLoading] = useState<boolean>(false);
   const [generating, setGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef(activeWorkspaceId);
   wsRef.current = activeWorkspaceId;
+
+  const fetchSettings = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    try {
+      const data = await apiClient<WorkspaceLearningSettingsDTO>(
+        `/api/v1/learning/workspaces/${encodeURIComponent(ws)}/settings`
+      );
+      if (data) setSettings(data);
+    } catch (_err) {
+      // fallback
+    }
+  }, []);
+
+  const updateSettings = useCallback(async (partial: Partial<WorkspaceLearningSettingsDTO>) => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    const next = { ...settings, ...partial };
+    setSettings(next);
+    try {
+      await apiClient<WorkspaceLearningSettingsDTO>(
+        `/api/v1/learning/workspaces/${encodeURIComponent(ws)}/settings`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(next),
+        }
+      );
+    } catch (_err) {
+      // revert on failure
+    }
+  }, [settings]);
 
   const refreshDecks = useCallback(async () => {
     const ws = wsRef.current;
@@ -125,6 +169,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     async function init() {
       if (!wsRef.current) return;
       setLoading(true);
+      fetchSettings();
       try {
         let existing = await refreshDecks();
         if (!existing || existing.length === 0) {
@@ -209,6 +254,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     activeDeck,
     selectedVersion,
     cards,
+    settings,
     loading,
     generating,
     error,
@@ -216,6 +262,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     generateDeck,
     selectVersion,
     recordReview,
+    updateSettings,
     jumpToSource,
     setActiveView,
     activeWorkspaceId,
