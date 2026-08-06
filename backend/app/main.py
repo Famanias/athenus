@@ -17,6 +17,7 @@ from app.presentation.api.v1.chat import router as chat_router
 from app.presentation.api.v1.workspaces import router as workspaces_router
 from app.presentation.api.v1.graph import router as graph_router
 from app.presentation.api.v1.learning import router as learning_router
+from app.presentation.api.v1.analytics import router as analytics_router
 from app.presentation.api.v1.agents import router as agents_router
 from app.presentation.api.v1.settings import router as settings_router
 from app.presentation.api.v1.system import router as system_router
@@ -116,6 +117,7 @@ app.include_router(chat_router, prefix=settings.API_V1_PREFIX, tags=["Chat"])
 app.include_router(workspaces_router, prefix=settings.API_V1_PREFIX, tags=["Workspaces"])
 app.include_router(graph_router, prefix=settings.API_V1_PREFIX, tags=["Knowledge Graph"])
 app.include_router(learning_router, prefix=settings.API_V1_PREFIX, tags=["Learning Tools"])
+app.include_router(analytics_router, prefix=settings.API_V1_PREFIX, tags=["Learning Analytics"])
 app.include_router(agents_router, prefix=settings.API_V1_PREFIX, tags=["Agentic AI"])
 app.include_router(settings_router, prefix=settings.API_V1_PREFIX, tags=["Settings"])
 app.include_router(system_router, prefix=settings.API_V1_PREFIX, tags=["System"])

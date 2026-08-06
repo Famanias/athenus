@@ -27,16 +27,16 @@ export const NAVIGATION_CONFIG: NavCategory[] = [
     items: [
       { id: 'view-dashboard', label: 'Workspace Library', icon: 'grid_view' },
       { id: 'view-video', label: 'Video', icon: 'smart_display', badge: 'Active', badgeType: 'active' },
-      { id: 'view-graph', label: 'Blueprint', icon: 'hub', badge: 'v0.3', badgeType: 'soon' },
+      { id: 'view-graph', label: 'Blueprint', icon: 'hub', badge: 'Active', badgeType: 'active' },
     ],
   },
   {
     id: 'strategy',
     title: 'Strategy',
     items: [
-      { id: 'view-flashcards', label: 'Flashcards', icon: 'layers', badge: 'v0.4', badgeType: 'soon' },
-      { id: 'view-quiz', label: 'Quizzes', icon: 'quiz', badge: 'v0.4', badgeType: 'soon' },
-      { id: 'view-analytics', label: 'Analytics', icon: 'analytics' },
+      { id: 'view-flashcards', label: 'Flashcards', icon: 'layers', badge: 'Active', badgeType: 'active' },
+      { id: 'view-quiz', label: 'Quizzes', icon: 'quiz', badge: 'Active', badgeType: 'active' },
+      { id: 'view-analytics', label: 'Analytics', icon: 'analytics', badge: 'Active', badgeType: 'active' },
     ],
   },
   {

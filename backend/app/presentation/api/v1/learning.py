@@ -13,11 +13,16 @@ from app.infrastructure.exporters.anki_exporter import (
     export_deck_csv,
 )
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
+from app.infrastructure.events.event_bus import event_bus as global_event_bus
+from app.domain.analytics.analytics_service import AnalyticsService
 
 router = APIRouter()
 
-flashcard_service = FlashcardService(graph_service=KnowledgeGraphService())
-quiz_service = QuizService(graph_service=KnowledgeGraphService())
+graph_service = KnowledgeGraphService()
+flashcard_service = FlashcardService(graph_service=graph_service, event_bus=global_event_bus)
+quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_bus)
+# Precomputed analytics subscribe to domain events once at import time.
+_analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
 
 
 class CardResponse(BaseModel):

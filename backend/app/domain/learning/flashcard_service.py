@@ -20,6 +20,7 @@ from app.domain.learning.flashcard_generation import (
 from app.domain.learning.sm2 import sm2_review
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.db.session import engine
+from app.infrastructure.events.event_bus import DomainEvent, EventBus
 
 try:
     from sqlmodel import Session, select
@@ -77,9 +78,11 @@ class FlashcardService:
         self,
         graph_service: Optional[KnowledgeGraphService] = None,
         ai_service_bus: Optional[AIServiceBus] = None,
+        event_bus: Optional[EventBus] = None,
     ) -> None:
         self.graph_service = graph_service or KnowledgeGraphService()
         self.ai_service_bus = ai_service_bus
+        self.event_bus = event_bus
 
     # ------------------------------------------------------------------
     # Deck persistence & versioning
@@ -459,7 +462,44 @@ class FlashcardService:
                     session.commit()
             except Exception:
                 pass
+
+        # Emit analytics event with concept grounding.
+        if self.event_bus:
+            card = self._get_card_meta(flashcard_id)
+            import asyncio
+            try:
+                asyncio.get_event_loop().create_task(
+                    self.event_bus.publish(
+                        DomainEvent(
+                            event_type="FlashcardReviewedEvent",
+                            aggregate_id=workspace_id,
+                            payload={
+                                "workspace_id": workspace_id,
+                                "flashcard_id": flashcard_id,
+                                "rating": rating,
+                                "ease_factor": review.ease_factor,
+                                "concept_id": (card or {}).get("concept_id"),
+                            },
+                        )
+                    )
+                )
+            except Exception:
+                pass
         return review
+
+    def _get_card_meta(self, flashcard_id: str) -> Optional[dict]:
+        """Lightweight metadata lookup for event payloads (avoids loading full cards)."""
+        if not engine or not Session:
+            return None
+        try:
+            from app.infrastructure.db.models import FlashcardTable
+            with Session(engine) as session:
+                rec = session.get(FlashcardTable, flashcard_id)
+                if not rec:
+                    return None
+                return {"concept_id": rec.concept_id}
+        except Exception:
+            return None
 
     def due_cards(self, workspace_id: str, limit: int = 30, now: Optional[datetime] = None) -> List[FlashcardCard]:
         """Cards whose next review is due, newest decks first."""

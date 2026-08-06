@@ -378,6 +378,7 @@ class QuizService:
                 "user_answer": user_answer,
                 "correct_index": q.correct_index,
                 "is_correct": is_correct,
+                "concept_id": q.concept_id,
             }
         score = (correct / len(questions)) * 100.0 if questions else 0.0
 
@@ -408,6 +409,7 @@ class QuizService:
                                 "score": attempt.score,
                                 "total_questions": attempt.total_questions,
                                 "correct_count": attempt.correct_count,
+                                "time_taken": attempt.time_taken,
                                 "concept_results": per_question,
                             },
                         )
