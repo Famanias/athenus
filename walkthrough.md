@@ -1,83 +1,81 @@
-# Walkthrough: System Settings Autosave & Native Environment Setup
+# Walkthrough — Decoupled BackgroundTaskRuntime Engine & Persistent Multi-Job Telemetry
+
+This document details the resolution of the background ingestion pause bug through the implementation of a decoupled **`BackgroundTaskRuntime`** engine.
 
 ---
 
-## 🛠️ Milestone 1 — Native Non-Docker Onboarding Documentation
+## 🔍 Root Cause Analysis & Architecture Redesign
 
-Added comprehensive instructions in [`docs/ONBOARDING.md`](file:///e:/repos/athenus/docs/ONBOARDING.md) for running Athenus in a native, non-Docker environment (manual Python virtual environment + Node.js + host Ollama).
+### The Bug
+Previously, rendering of the Pipelines view was conditional (`{activeView === 'view-ingestion' && <UnifiedLearningPipeline />}`). Switching tabs unmounted the React component, destroyed local hook state, and closed the SSE stream (`eventSource.close()`). Returning to the tab rendered a fresh component with blank state, hiding live progress.
 
-### Key Updates to `ONBOARDING.md`
-1. **Prerequisites Table**: Added Python 3.10+ requirement for native non-Docker execution.
-2. **Section 5: Native / Non-Docker Mode (Manual Virtual Environment)**:
-   - Step-by-step virtualenv creation (`python -m venv venv`), activation on Windows/Linux/macOS, and dependency installation (`pip install -r requirements.txt`).
-   - Running native Ollama service daemon (`ollama serve`) and model pulling (`ollama pull llama3:8b`).
-   - Starting native FastAPI backend (`python app/main.py` or uvicorn reload on port 8000).
-   - Starting native frontend (`npm run dev` or `npm run tauri dev`).
-   - Host filesystem Model Storage inspection guidance for native mode.
-3. **Sequential Numbering**: Fixed section numbering sequence (1 through 10) for clean documentation flow.
+### The Decoupled Solution Architecture
 
----
-
-## 🚀 Milestone 2 — System Settings Refactoring & Information Architecture
-
-Overhauled [`frontend/src/features/settings/SystemSettings.tsx`](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx) and [`frontend/src/store/useAppStore.ts`](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts) into a production-grade configuration & diagnostic dashboard.
-
-### Implemented Architectural Improvements
-1. **Authoritative Persistence Hierarchy (`useAppStore.ts`)**:
-   - Backend SQLite database is the **Authoritative Source of Truth**.
-   - Zustand Store maintains in-memory runtime state.
-   - `localStorage` cache is used strictly as a transient render cache during cold boots to prevent layout shift before HTTP hydration completes.
-2. **Top Live Status Summary Banner (`SystemSettings.tsx`)**:
-   - Status badge (`✓ Connected (v0.x.x)` or `✕ Offline`).
-   - REST Latency timer measurement in milliseconds (`⚡ 14 ms`).
-   - Installed Live Models count (`🏷️ 5 Installed`).
-   - Active Model display (`🎯 llama3:8b`).
-   - Runtime Environment badge (`💻 Native Host` vs `🐳 Docker Container`).
-   - **Last Checked: HH:MM:SS AM/PM** timestamp.
-3. **Event-Driven Refresh Strategy**:
-   - Automatic diagnostic refreshes on **Page Mount**, **Window Focus (`focus` event)**, **Manual Refresh Click**, and **Post-Save Confirmation**.
-   - Relaxed 45-second background polling fallback to eliminate background network noise.
-4. **System Health Checklist Card ("Can I use it?")**:
-   - High-level health checks: `✓ Ollama Daemon Reachable`, `✓ Active LLM Model Ready` (with `⚠️ Model Missing` alert if saved model is missing from live tags), `✓ Faster-Whisper ASR Ready`, `✓ Storage Path Accessible`.
-5. **Local Model Storage Card**:
-   - Renamed to **Local Model Storage**.
-   - Added folder **Browse** button powered by native Tauri dialog (`@tauri-apps/api/dialog`) with manual paste fallback.
-   - Displays configured vs resolved directory paths and offline manifest counts.
+```
+                  Backend (FastAPI & EventBus)
+                               │
+            ┌──────────────────┴──────────────────┐
+            ▼ SSE Stream                          ▼ REST Telemetry
+   /api/v1/media/{id}/stream             /api/v1/media/{id}/history
+            │                                     │
+            └──────────────────┬──────────────────┘
+                               ▼
+                   [BackgroundTaskRuntime]
+            (SSE Lifecycle, Retry Manager, Fallback Polling,
+             Rehydration, State Machine Validation)
+                               │
+                      Writes Validated State
+                               │
+                               ▼
+                       [useAppStore]
+           (Pure State Store: jobs: { [jobId]: JobState })
+                               │
+                      React Unidirectional Data Flow
+                               │
+            ┌──────────────────┼──────────────────┐
+            ▼                  ▼                  ▼
+      [TopToolbar]       [Pipelines View]   [Toast Notifications]
+```
 
 ---
 
-## ⚡ Milestone 3 — Automatic Saving & Zero-Click Persistence Engine
+## 🛠️ Summary of Changes
 
-Transformed System Settings into a zero-friction, zero-click autosave interface where every control persists automatically without manual Save buttons.
+### 1. Pure State Store Reducers ([`useAppStore.ts`](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts))
+- **`BackgroundJob` Interface**: Defined structured job state (`job_id`, `media_id`, `workspace_id`, `job_type`, `stage`, `progress`, `status`, `message`, `error`, `startedAt`, `updatedAt`, `history`).
+- **Multi-Job Registry**: Added `jobs: Record<string, BackgroundJob>` dictionary and `activeJobId` to Zustand store.
+- **Pure State Reducers**: Implemented `upsertJob`, `removeJob`, `setJobHistory`, and `setActiveJobId` without any side-effects in Zustand.
 
-### Key Technical Details
-1. **Removed Manual Save Buttons**: Eliminated manual "Save Configuration" and "Save Path" buttons from the UI.
-2. **Live Auto-Save Status Badge**: Added top-level save state feedback badge (`Saving...` with spinner, `✓ All changes saved`, and `⚠️ Failed to save [Retry]`).
-3. **Immediate Autosave for Discrete Controls**: Select dropdowns (LLM provider, active Ollama model, STT provider) and CUDA GPU checkbox persist instantly upon selection.
-4. **Debounced Autosave for Text Inputs**:
-   - Cloud API Key input uses a **600ms debounce**.
-   - Local Model Storage directory input uses a **750ms debounce**.
-   - Tauri folder picker immediately persists selected folder paths.
-5. **Hydration Race Condition Protection**:
-   - `isHydratedRef` flag guarantees zero spurious autosaves trigger during initial page hydration.
-   - `lastSavedRef` baseline diffing prevents redundant HTTP requests when values match persisted state.
-6. **Concurrent Request Protection**:
-   - `saveRequestIdRef` and `dirSaveRequestIdRef` ensure stale/outdated HTTP responses are discarded if newer changes occur concurrently.
+### 2. Decoupled Runtime Component ([`BackgroundTaskRuntime.tsx`](file:///e:/repos/athenus/frontend/src/features/pipeline/BackgroundTaskRuntime.tsx))
+- **Root Shell Container**: Mounted at the top level of [`DesktopShell.tsx`](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx) to stay alive indefinitely across all view navigation.
+- **SSE Stream Management**: Maintains active `EventSource` connections for in-flight tasks without unmounting.
+- **Exponential Backoff Reconnect**: On SSE disconnect, automatically retries reconnection at 2s $\rightarrow$ 5s $\rightarrow$ 10s intervals.
+- **HTTP Polling Fallback**: Polling `GET /api/v1/media/{media_id}/status` every 5 seconds ensures UI state never becomes stale if SSE is disrupted.
+- **Event History Replay**: Fetches `GET /api/v1/media/{media_id}/history` to rebuild completed stage checkmarks.
+- **Completion Events**: Dispatches global `athenus:transcript-ready` events upon task completion.
 
----
+### 3. Pipeline Hook Refactoring ([`useIngestion.ts`](file:///e:/repos/athenus/frontend/src/features/ingestion/useIngestion.ts))
+- Refactored `useIngestion` to read live job state from Zustand's `jobs` registry.
+- File uploads register a `job_id` and hand over stream listening directly to `BackgroundTaskRuntime`.
 
-## 🧪 Comprehensive Verification Matrix
-
-| Verification Check | Target / Command | Result |
-| :--- | :--- | :---: |
-| **Frontend TypeScript Typecheck** | `npx tsc --noEmit` (from `frontend/`) | ✅ **0 Errors** |
-| **Full Backend Test Suite** | `python -m pytest tests` (from `backend/`) | ✅ **73/73 Passed** |
-| **Immediate Autosave (Discrete)** | Select LLM/Model/GPU $\rightarrow$ verify immediate PATCH & status badge | ✅ **Verified** |
-| **Debounced Autosave (Text)** | Type API key / path $\rightarrow$ wait 600-750ms $\rightarrow$ verify debounced autosave | ✅ **Verified** |
-| **Hydration Protection** | Load page $\rightarrow$ verify 0 HTTP PATCH requests fire during initial render | ✅ **Verified** |
+### 4. Global Top Toolbar Indicator ([`TopToolbar.tsx`](file:///e:/repos/athenus/frontend/src/components/navigation/TopToolbar.tsx))
+- Added a live progress badge in the top app bar:
+  - Single active task: `⚡ Apollo: Transcribing (60%)`
+  - Multiple active tasks: `⚡ 3 Background Tasks Running`
+- Clicking the badge navigates directly to the Pipelines tab (`view-ingestion`).
 
 ---
 
-## Conclusion
+## 📦 Git Commits Created
 
-All requested updates, automatic saving features, and architectural refinements are **100% complete, fully verified, cleanly written, and free of TODOs or placeholders**.
+| Commit | Scope | Summary |
+|---|---|---|
+| `fdc6961` | Frontend | `feat(pipeline): implement decoupled BackgroundTaskRuntime with multi-job registry, backoff reconnects, polling fallbacks, and top bar progress badge` |
+| `fdeea05` | Documentation | `docs: add ADR 0015 for Generic BackgroundTaskRuntime & Multi-Job Pipeline Engine` |
+
+---
+
+## 🧪 Verification Results
+
+- **Frontend Production Build**: `npm run build` compiled cleanly in `4.9s` with zero TypeScript errors.
+- **Backend Test Suite**: All **114 passed** out of 114 tests in backend pytest suite.
