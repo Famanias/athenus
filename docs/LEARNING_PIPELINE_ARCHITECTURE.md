@@ -1,0 +1,275 @@
+# LEARNING_PIPELINE_ARCHITECTURE.md — End-to-End Learning Subsystems Architecture
+
+This document provides a comprehensive architectural specification of the four core AI learning subsystems in **Athenus**: **Blueprints (Knowledge Graph)**, **Active Recall Flashcards**, **Adaptive Diagnostic Quizzes**, and **Precomputed Learning Analytics**.
+
+---
+
+## 1. High-Level Architectural Flywheel
+
+Athenus operates as an **Event-Driven Learning Flywheel**. Every lecture video uploaded into a workspace flows through a multi-stage ingestion pipeline, populates a concept-centric Knowledge Graph, generates versioned active recall artifacts under dynamic budget allocation, and feeds all review/quiz interactions into precomputed real-time retention analytics.
+
+```mermaid
+graph TD
+    subgraph INGESTION["1. Ingestion Pipeline"]
+        MEDIA["Uploaded Video / Audio"] --> ASR["Whisper ASR"]
+        ASR --> CHUNKS["Semantic Transcript Chunks"]
+        CHUNKS --> EMBED["384-dim Embeddings & Qdrant"]
+    end
+
+    subgraph GRAPH["2. Knowledge Blueprint"]
+        EMBED -->|ChunksIndexedEvent| GEW["GraphExtractionWorker"]
+        GEW --> CMS["ConceptMergingService"]
+        CMS --> KG_DB[("KnowledgeConceptTable &\nKnowledgeRelationTable")]
+    end
+
+    subgraph LEARNING["3. Evolutionary Learning Engine"]
+        KG_DB -->|ConceptGraphUpdatedEvent| LEW["LearningEvolutionWorker"]
+        LEW --> ALLOC["ConceptImportanceAllocator"]
+        ALLOC --> DECK["FlashcardService\n(SM-2 Scheduling & vN+1 Deck)"]
+        ALLOC --> QUIZ["QuizService\n(Concept-Balanced vN+1 Quiz)"]
+    end
+
+    subgraph ANALYTICS["4. Real-Time Precomputed Analytics"]
+        DECK -->|FlashcardReviewedEvent| AS["AnalyticsService"]
+        QUIZ -->|QuizAttemptEvent| AS
+        AS --> ANALYTICS_DB[("WorkspaceAnalyticsTable &\nConceptMasteryTable")]
+    end
+
+    ANALYTICS_DB -. Low Mastery Feedback .-> ALLOC
+```
+
+---
+
+## 2. Generation Pipelines
+
+### 2.1 Subsystem 1: Blueprints (Knowledge Graph)
+- **Trigger**: `ChunksIndexedEvent` published on the `EventBus` by `EmbeddingWorker` upon completion of transcript chunk indexing.
+- **Components**: `GraphExtractionWorker` (`services/workers/graph_extraction_worker.py`), `ConceptMergingService` (`domain/knowledge/concept_merging.py`), and `KnowledgeGraphService`.
+- **Transformation Pipeline**:
+  1. `GraphExtractionWorker` reads canonical `TranscriptChunkTable` rows for the processed `media_id`.
+  2. Invokes LLM capability (`ai_service_bus.get_text_capability().generate()`) with a structured extraction prompt requesting domain concepts, descriptions, relationship triples (`source`, `target`, `relation_type`), and exact chunk indices.
+  3. *Offline Fallback*: If LLM generation fails or is offline, a rule-based TF/bigram heuristic extractor parses key phrase candidates.
+  4. Extracted entities pass into `ConceptMergingService` for 3-tier deduplication:
+     - **Tier 1 (Exact)**: Normalized name match against existing `KnowledgeConceptTable` rows.
+     - **Tier 2 (Alias)**: Alias lookup in `ConceptAliasTable`.
+     - **Tier 3 (Semantic)**: Cosine similarity check between candidate embedding and existing concept embeddings ($\text{threshold} \ge 0.88$).
+  5. If merged, provenance (`media_id`, `source_chunk_ids`, `start_time`, `end_time`) is aggregated onto the canonical node.
+- **Persistence**: Writes `KnowledgeConceptTable`, `KnowledgeRelationTable`, `ConceptAliasTable`, and sets `ArtifactJobTable` status to `ready`.
+- **Event Emitted**: Publishes `ConceptGraphUpdatedEvent`.
+
+```mermaid
+sequenceDiagram
+    participant EB as Domain EventBus
+    participant GEW as GraphExtractionWorker
+    participant LLM as AIServiceBus / Ollama
+    participant CMS as ConceptMergingService
+    participant DB as SQLite DB
+
+    EB->>GEW: Handle ChunksIndexedEvent(media_id, workspace_id)
+    GEW->>DB: Fetch TranscriptChunkTable rows
+    GEW->>LLM: Generate ExtractedConcept & ExtractedRelation JSON
+    alt LLM Success
+        LLM-->>GEW: Parsed Entities & Relations
+    else LLM Offline
+        GEW->>GEW: Execute Heuristic TF/Bigram Extractor
+    end
+
+    loop For Each Extracted Concept
+        GEW->>CMS: merge_or_create_concept(concept_name, workspace_id, provenance)
+        CMS->>DB: Check Exact Match / Alias / Cosine Embedding (0.88)
+        CMS-->>DB: Save/Update KnowledgeConceptTable & ConceptAliasTable
+    end
+
+    GEW->>DB: Save KnowledgeRelationTable triples
+    GEW->>EB: Publish ConceptGraphUpdatedEvent(workspace_id)
+```
+
+---
+
+### 2.2 Subsystem 2: Active Recall Flashcards
+- **Trigger**: Direct on-demand request (`POST /api/v1/learning/decks/generate`) or automatic event invocation by `LearningEvolutionWorker` on `ConceptGraphUpdatedEvent`.
+- **Components**: `LearningEvolutionWorker`, `FlashcardService`, `ConceptImportanceAllocator`, and `sm2.py`.
+- **Transformation Pipeline**:
+  1. `ConceptImportanceAllocator` ranks workspace concepts by graph connection degree, explicit extraction weight, and low-mastery scores (<0.5) from `ConceptMasteryTable`.
+  2. Allocates a target card budget (e.g. 20 cards) across foundational concepts.
+  3. `FlashcardService` checks for an existing deck version in `FlashcardDeckTable`:
+     - **Initial Deck (`v1`)**: Generates card questions (`basic`, `cloze`, `definition`, `true_false`) via LLM prompt or heuristic fallback, setting initial SM-2 state (`ease_factor=2.5`, `interval_days=0`, `repetitions=0`).
+     - **Evolution Deck (`vN+1`)**: If new concepts exist, generates delta cards for newly introduced concepts while preserving 100% of existing SM-2 review progress and histories.
+- **Persistence**: Writes `FlashcardDeckTable` (`version=N+1`) and `FlashcardTable` rows.
+
+---
+
+### 2.3 Subsystem 3: Adaptive Diagnostic Quizzes
+- **Trigger**: On-demand request (`POST /api/v1/learning/quizzes/generate`) or auto-evolution via `LearningEvolutionWorker`.
+- **Components**: `QuizService` (`domain/learning/quiz_service.py`), `ConceptImportanceAllocator`, and `quiz_generation.py`.
+- **Transformation Pipeline**:
+  1. `ConceptImportanceAllocator` samples concepts according to workspace importance weight and user mastery deficits.
+  2. Invokes `QuizService.generate_quiz()`:
+     - Prompts LLM to produce concept-balanced multiple-choice questions (4 options, correct answer index, explanation, and provenance timestamp links).
+     - *Heuristic Fallback*: Samples distractor options from related concept terms if LLM is offline.
+  3. `QuizService.grade_attempt()` evaluates user submissions, calculates score percentage, and persists an immutable `QuizAttemptTable` row.
+- **Persistence**: Writes `QuizTable`, `QuizQuestionTable`, and `QuizAttemptTable`.
+- **Event Emitted**: Publishes `QuizAttemptEvent`.
+
+---
+
+### 2.4 Subsystem 4: Precomputed Learning Analytics
+- **Trigger**: Asynchronous event handlers subscribed to `QuizAttemptEvent`, `FlashcardReviewedEvent`, and `ConceptGraphUpdatedEvent`.
+- **Components**: `AnalyticsService` (`domain/analytics/analytics_service.py`).
+- **Transformation Pipeline**:
+  1. On `FlashcardReviewedEvent` (rating 1-4: Again, Hard, Good, Easy):
+     - Updates `WorkspaceAnalyticsTable` counter `total_reviews`.
+     - Recalculates `ConceptMasteryTable.mastery_level` for the card's concept:
+       $$\text{Mastery} = 0.6 \times \text{QuizAccuracy} + 0.4 \times \text{ReviewCoverage} + \text{StreakBonus}$$
+     - Updates daily review streak in `WorkspaceAnalyticsTable` (same-day $\rightarrow$ maintain, $+1$ day $\rightarrow$ increment, $>1$ day gap $\rightarrow$ reset to 1).
+  2. On `QuizAttemptEvent`:
+     - Increments `total_quiz_attempts`, updates `avg_quiz_score`, and updates `ConceptMasteryTable` accuracy stats for each tested question.
+- **Persistence**: Writes `WorkspaceAnalyticsTable`, `ConceptMasteryTable`, and `StudySessionTable`.
+
+---
+
+## 3. Data Flow Architecture
+
+The following diagram details the flow of data from raw video upload to database persistence and frontend presentation:
+
+```
+[Uploaded Video MP4]
+       │
+       ▼ (Multipart HTTP Upload)
+[Host Disk: ./data/uploads/med_xxx.mp4] ──► [MediaItemTable]
+       │
+       ▼ (Faster-Whisper ASR)
+[TranscriptSegmentTable (raw text + start_time/end_time)]
+       │
+       ▼ (Semantic Chunker & SentenceTransformers)
+[TranscriptChunkTable] ──► [Embedded Qdrant Vector Collection (384-dim)]
+       │
+       ▼ (ChunksIndexedEvent -> GraphExtractionWorker)
+[KnowledgeConceptTable] ──► [KnowledgeRelationTable] & [ConceptAliasTable]
+       │
+       ▼ (ConceptGraphUpdatedEvent -> LearningEvolutionWorker)
+[ConceptImportanceAllocator] (Reads Concept Masteries & Graph Degrees)
+       │
+       ├─────────────────────────────────┐
+       ▼                                 ▼
+[FlashcardDeckTable (vN+1)]     [QuizTable (vN+1)]
+[FlashcardTable]                [QuizQuestionTable]
+       │                                 │
+       ▼ (User Reviews Card)             ▼ (User Submits Quiz)
+[FlashcardReviewTable]          [QuizAttemptTable]
+       │                                 │
+       └────────────────┬────────────────┘
+                        ▼ (EventBus: FlashcardReviewedEvent / QuizAttemptEvent)
+          [AnalyticsService Precomputation]
+                        │
+                        ▼
+          [WorkspaceAnalyticsTable & ConceptMasteryTable]
+                        │
+                        ▼ (REST API GET /analytics/workspace/{id}/summary)
+          [Frontend Analytics Dashboard & Studio UIs]
+```
+
+---
+
+## 4. Database Architecture (21 Tables & Provenance Contract)
+
+### 4.1 Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    WorkspaceTable ||--o{ MediaItemTable : contains
+    WorkspaceTable ||--o{ KnowledgeConceptTable : contains
+    WorkspaceTable ||--o{ FlashcardDeckTable : contains
+    WorkspaceTable ||--o{ QuizTable : contains
+    WorkspaceTable ||--o{ WorkspaceAnalyticsTable : tracks
+
+    MediaItemTable ||--o{ TranscriptSegmentTable : yields
+    MediaItemTable ||--o{ TranscriptChunkTable : yields
+
+    KnowledgeConceptTable ||--o{ KnowledgeRelationTable : source_target
+    KnowledgeConceptTable ||--o{ ConceptAliasTable : has_aliases
+    KnowledgeConceptTable ||--o{ ConceptMasteryTable : tracks_mastery
+
+    FlashcardDeckTable ||--o{ FlashcardTable : contains
+    FlashcardTable ||--o{ FlashcardReviewTable : receives_reviews
+
+    QuizTable ||--o{ QuizQuestionTable : contains
+    QuizTable ||--o{ QuizAttemptTable : records_attempts
+```
+
+### 4.2 Provenance Grounding Contract
+Every learning artifact (concept, flashcard, quiz question) contains four strict provenance columns:
+- `media_id`: Originating lecture video ID.
+- `source_chunk_ids`: JSON array of semantic transcript chunk IDs.
+- `start_time`: Float timestamp (in seconds) marking start of explanation.
+- `end_time`: Float timestamp (in seconds) marking end of explanation.
+
+### 4.3 Immutable Versioning Model
+- **Decks & Quizzes**: Decks and quizzes are immutable versioned snapshots (`version=1`, `version=2`).
+- **Review & Attempt History**: Review entries (`FlashcardReviewTable`) and quiz attempts (`QuizAttemptTable`) point to specific card and version IDs. Evolving a workspace deck creates `vN+1` while preserving 100% of prior review logs and SM-2 interval progress.
+
+---
+
+## 5. Retrieval & Usage Architecture
+
+### 5.1 Backend REST Endpoints
+
+| View / Studio | Endpoint | Method | Responsibilities |
+|---|---|---|---|
+| **Blueprint** (`view-graph`) | `/api/v1/graph/workspace/{id}` | GET | Returns interactive graph network (`nodes`, `edges`, `provenance`). |
+| | `/api/v1/graph/concepts/shortest-path` | GET | Computes shortest prerequisite path between two concepts. |
+| **Flashcards** (`view-flashcards`) | `/api/v1/learning/decks/generate` | POST | On-demand deck generation/evolution with Target Budget. |
+| | `/api/v1/learning/decks/{id}/due` | GET | Surfaces SM-2 due cards for active recall study. |
+| | `/api/v1/learning/cards/{id}/review` | POST | Records SM-2 rating (1-4) and publishes `FlashcardReviewedEvent`. |
+| | `/api/v1/learning/decks/{id}/export` | GET | Exports deck as CSV or Anki `.apkg` file. |
+| **Quiz Studio** (`view-quiz`) | `/api/v1/learning/quizzes/generate` | POST | On-demand quiz generation/evolution with Target Budget. |
+| | `/api/v1/learning/quizzes/{id}/attempt` | POST | Grades user attempt, saves score, and publishes `QuizAttemptEvent`. |
+| **Analytics** (`view-analytics`) | `/api/v1/analytics/workspace/{id}/summary` | GET | Returns precomputed analytics, concept masteries, and revision plan. |
+
+---
+
+## 6. AI Architecture & Hallucination Prevention
+
+### 6.1 Grounded Generation Strategy
+To prevent AI hallucinations, flashcards and quiz questions are **never generated from ungrounded general knowledge**. Generation follows a strict 3-level constraint:
+1. **Context Window Constraint**: The LLM prompt is injected only with extracted concept definitions, exact transcript chunk text, and provenances.
+2. **JSON Schema Parsing**: Responses are enforced via Pydantic schema parsers (`FlashcardGenerationResponse`, `QuizGenerationResponse`).
+3. **Fallback Determinism**: If the LLM produces invalid JSON or is offline, deterministic heuristic generators produce cloze/definition cards and distractor-sampled questions from indexed concepts.
+
+---
+
+## 7. Subsystem Interdependencies
+
+The four subsystems form a tightly integrated dependency matrix:
+
+```mermaid
+graph TD
+    KG["Knowledge Blueprint (Graph)"] -->|Provides Canonical Concepts & Triples| FC["Flashcard Studio"]
+    KG -->|Provides Concept Network| QZ["Quiz Studio"]
+    
+    FC -->|Emits FlashcardReviewedEvent| AN["Analytics Service"]
+    QZ -->|Emits QuizAttemptEvent| AN
+
+    AN -->|Updates ConceptMasteryTable| MASTERY["Concept Mastery Scores"]
+    MASTERY -->|Feeds Low-Mastery Deficits| ALLOC["ConceptImportanceAllocator"]
+    
+    ALLOC -->|Prioritizes Cards/Questions for vN+1| FC
+    ALLOC -->|Prioritizes Cards/Questions for vN+1| QZ
+```
+
+1. **Graph $\rightarrow$ Flashcards/Quizzes**: Flashcards and quizzes consume canonical concept nodes from `KnowledgeConceptTable`, guaranteeing zero duplicate concepts.
+2. **Flashcards/Quizzes $\rightarrow$ Analytics**: Every card review and quiz attempt emits a domain event that updates precomputed workspace statistics and concept mastery scores.
+3. **Analytics $\rightarrow$ Generation (Flywheel Feedback)**: Low-mastery concepts (<0.5) are prioritized by the `ConceptImportanceAllocator` during the next auto-evolution deck/quiz update.
+
+---
+
+## 8. Architectural Evaluation
+
+### 8.1 Strengths
+1. **Event-Driven Decoupling**: Ingestion, evolution, and analytics operate via asynchronous domain events (`EventBus`), preventing API route blocking.
+2. **SM-2 State Preservation**: Workspace deck evolution appends delta cards for new concepts without erasing existing spaced repetition review histories.
+3. **Sub-10ms Analytics Reads**: Denormalized analytics counters in `WorkspaceAnalyticsTable` eliminate expensive runtime SQL joins.
+
+### 8.2 Weaknesses & Opportunities for Improvement
+1. **Heuristic Fallback Complexity**: The fallback distractor sampler in `quiz_generation.py` is workable but basic; adding TF-IDF distractor ranking would improve offline quiz quality.
+2. **Concept Merging Threshold**: The 0.88 cosine similarity threshold in `ConceptMergingService` works well for general lecture domains, but domain-specific thresholds (e.g. medical vs programming lectures) could be exposed in system settings.
