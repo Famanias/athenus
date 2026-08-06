@@ -38,8 +38,7 @@ export function useVideo() {
 
   const mediaUrl = activeMediaId ? getMediaUrl(activeMediaId) : '';
 
-  // Fetch transcript segments on activeMediaId change
-  useEffect(() => {
+  const fetchTranscript = useCallback(async () => {
     if (!activeMediaId) {
       setSegments([]);
       setHasTranscript(false);
@@ -49,35 +48,55 @@ export function useVideo() {
 
     setMediaSrc(mediaUrl);
 
-    async function fetchTranscript() {
-      try {
-        setLoading(true);
-        const data = await getTranscript(activeMediaId!);
-        if (data && data.segments && data.segments.length > 0) {
-          const mapped: TranscriptSegment[] = data.segments.map((seg: BackendTranscriptSegmentDTO, idx: number) => ({
-            id: `seg_${idx}`,
-            timestamp: formatSecondsToTimestamp(seg.start_time),
-            start_seconds: seg.start_time,
-            end_seconds: seg.end_time,
-            speaker: seg.speaker || 'Lecturer',
-            text: seg.text,
-          }));
-          setSegments(mapped);
-          setHasTranscript(true);
-        } else {
-          setSegments([]);
-          setHasTranscript(false);
-        }
-      } catch (_err) {
+    try {
+      setLoading(true);
+      const data = await getTranscript(activeMediaId);
+      if (data && data.segments && data.segments.length > 0) {
+        const mapped: TranscriptSegment[] = data.segments.map((seg: BackendTranscriptSegmentDTO, idx: number) => ({
+          id: `seg_${idx}`,
+          timestamp: formatSecondsToTimestamp(seg.start_time),
+          start_seconds: seg.start_time,
+          end_seconds: seg.end_time,
+          speaker: seg.speaker || 'Lecturer',
+          text: seg.text,
+        }));
+        setSegments(mapped);
+        setHasTranscript(true);
+      } else {
         setSegments([]);
         setHasTranscript(false);
-      } finally {
-        setLoading(false);
       }
+    } catch (_err) {
+      setSegments([]);
+      setHasTranscript(false);
+    } finally {
+      setLoading(false);
     }
-
-    fetchTranscript();
   }, [activeMediaId, mediaUrl]);
+
+  // Fetch transcript segments on activeMediaId change
+  useEffect(() => {
+    fetchTranscript();
+  }, [fetchTranscript]);
+
+  // Listen for ingestion completion event to re-fetch transcript dynamically
+  useEffect(() => {
+    const handleTranscriptReady = (e: Event) => {
+      const customEvt = e as CustomEvent<{ mediaId?: string }>;
+      if (!customEvt.detail?.mediaId || customEvt.detail.mediaId === activeMediaId) {
+        fetchTranscript();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('athenus:transcript-ready', handleTranscriptReady);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('athenus:transcript-ready', handleTranscriptReady);
+      }
+    };
+  }, [activeMediaId, fetchTranscript]);
 
   // Bind Picture-in-Picture lifecycle event listeners to the persistent video element
   useEffect(() => {
@@ -217,6 +236,7 @@ export function useVideo() {
     isPipActive,
     loading,
     hasTranscript,
+    refetchTranscript: fetchTranscript,
     playbackSpeed,
     changePlaybackSpeed,
     handleLoadedMetadata,

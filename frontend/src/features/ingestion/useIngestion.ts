@@ -85,6 +85,12 @@ export function useIngestion() {
             ]);
             setIsUploading(false);
             eventSource.close();
+
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('athenus:transcript-ready', { detail: { mediaId: data.media_id } })
+              );
+            }
             return;
           }
 

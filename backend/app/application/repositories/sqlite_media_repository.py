@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 from app.application.repositories.media_repository import MediaRepository
 from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
-from app.infrastructure.db.models import MediaItemTable, TranscriptSegmentTable
+from app.infrastructure.db.models import MediaItemTable, TranscriptSegmentTable, TranscriptChunkTable
 from app.infrastructure.db.session import engine
 
 try:
@@ -118,9 +118,18 @@ class SqliteMediaRepository(MediaRepository):
         with Session(engine) as session:
             statement = select(TranscriptSegmentTable).where(TranscriptSegmentTable.media_id == media_id).order_by(TranscriptSegmentTable.start_time)
             records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()
+            if records:
+                return [
+                    {"start_time": r.start_time, "end_time": r.end_time, "text": r.text}
+                    for r in records
+                ]
+            
+            # Fallback: Query TranscriptChunkTable if TranscriptSegmentTable is empty
+            chunk_stmt = select(TranscriptChunkTable).where(TranscriptChunkTable.media_id == media_id).order_by(TranscriptChunkTable.start_time)
+            chunk_records = session.scalars(chunk_stmt).all() if hasattr(session, "scalars") else session.exec(chunk_stmt).all()
             return [
-                {"start_time": r.start_time, "end_time": r.end_time, "text": r.text}
-                for r in records
+                {"start_time": c.start_time, "end_time": c.end_time, "text": c.text}
+                for c in chunk_records
             ]
 
     def list_by_workspace(self, workspace_id: str) -> List[MediaItem]:

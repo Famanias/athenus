@@ -201,6 +201,46 @@ docker compose logs -f backend            # follow ingestion/transcription progr
 | **Complete Fresh Purge** | `docker compose down -v --rmi all --remove-orphans` | Deletes all containers, volumes, networks, and built Docker images. |
 | **Docker System Cleanup** | `docker system prune -a --volumes` | Removes all unused containers, images, and cached build layers. |
 
+### Updating Docker After Code Revisions
+
+The **development stack** (`docker-compose.yml`) bind-mounts source code into the
+containers, so most edits are picked up **without any rebuild**:
+
+- `backend` → `./backend:/app` mounted, started with `uvicorn --reload` → backend
+  code changes hot-reload automatically.
+- `frontend` → `./frontend:/app` mounted, started with `npm run dev` (HMR) →
+  frontend code changes hot-reload automatically.
+- `ollama` → pulled image, no build step.
+
+**When a rebuild IS required (dev stack):**
+- `backend/requirements.txt` changed (new Python dependency) → the `pip install`
+  layer must be rebuilt.
+- `frontend/package.json` / `package-lock.json` changed (new npm dependency) →
+  the `npm install` layer must be rebuilt.
+- You simply want to force-recreate from current code without trusting hot reload.
+
+| Revision | Command | Notes |
+| :--- | :--- | :--- |
+| **Backend only** (code) | `docker compose restart backend` | Hot reload already applies it; restart only if reload didn't fire. |
+| **Backend only** (new dep in `requirements.txt`) | `docker compose up -d --build backend` | Rebuilds the backend image's pip layer; containers recreated. |
+| **Frontend only** (code) | `docker compose restart frontend` | HMR already applies it; restart only if HMR missed it. |
+| **Frontend only** (new npm dep) | `docker compose up -d --build frontend` | Rebuilds the `npm install` layer. |
+| **Both backend + frontend** (code only) | `docker compose restart` | Graceful restart, no rebuild. |
+| **Both backend + frontend** (deps changed) | `docker compose up -d --build` | Full rebuild of both images, then recreates containers. |
+| **GPU stack** | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build` | Always use the GPU overlay form of any command above. |
+| **Production stack** | `docker compose -f docker-compose.prod.yml up -d --build` | Prod image has **no bind mounts** — every backend/frontend revision requires a rebuild. |
+
+> **Why rebuild is often unnecessary in dev:** because source is bind-mounted,
+> `docker compose up -d --build` re-copies code into the image but the mount
+> shadows it anyway. Only the dependency layers (`pip install` / `npm install`)
+> actually differ between rebuilds. After a revision, `git pull` + letting hot
+> reload work is the fastest loop; reserve `--build` for dependency changes.
+
+> **If a rebuild appears stuck** at `exporting layers`: the backend image is
+> ~10 GB (torch / faster-whisper / sentence-transformers), and exporting those
+> layers through Docker Desktop's WSL2 VM takes minutes with no progress output.
+> Wait — it is not frozen. Avoid unnecessary rebuilds to skip this cost.
+
 ---
 
 ## 8. Environment Configuration
