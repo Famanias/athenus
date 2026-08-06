@@ -15,6 +15,17 @@ from app.infrastructure.db.models import (
     ProcessingLogTable,
     KnowledgeConceptTable,
     KnowledgeRelationTable,
+    ConceptAliasTable,
+    ArtifactJobTable,
+    FlashcardDeckTable,
+    FlashcardTable,
+    FlashcardReviewTable,
+    QuizTable,
+    QuizQuestionTable,
+    QuizAttemptTable,
+    WorkspaceAnalyticsTable,
+    ConceptMasteryTable,
+    StudySessionTable,
     WorkspaceTable,
     SystemSettings,
 )
@@ -57,18 +68,29 @@ class SystemResetService:
             except Exception:
                 pass
 
-            # 3. Purge SQLite Tables (preserving table structures)
+            # 3. Purge ALL SQLite Tables (preserving table structures)
             if engine and Session:
                 try:
                     with Session(engine) as session:
                         for table in [
+                            FlashcardReviewTable,
+                            FlashcardTable,
+                            FlashcardDeckTable,
+                            QuizAttemptTable,
+                            QuizQuestionTable,
+                            QuizTable,
+                            ConceptMasteryTable,
+                            WorkspaceAnalyticsTable,
+                            StudySessionTable,
+                            ConceptAliasTable,
+                            KnowledgeRelationTable,
+                            KnowledgeConceptTable,
+                            ArtifactJobTable,
                             ChatMessageTable,
                             ChatSessionTable,
                             TranscriptSegmentTable,
                             TranscriptChunkTable,
                             ProcessingLogTable,
-                            KnowledgeRelationTable,
-                            KnowledgeConceptTable,
                             MediaItemTable,
                             WorkspaceTable,
                             SystemSettings,

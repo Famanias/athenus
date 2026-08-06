@@ -23,6 +23,7 @@ from app.infrastructure.db.session import engine
 from app.infrastructure.events.event_bus import DomainEvent, EventBus
 
 try:
+    # pyrefly: ignore [missing-import]
     from sqlmodel import Session, select
 except ImportError:
     from sqlalchemy import select

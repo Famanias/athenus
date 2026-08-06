@@ -5,6 +5,17 @@ from app.infrastructure.db.models import (
     MediaItemTable,
     ChatMessageTable,
     WorkspaceTable,
+    FlashcardDeckTable,
+    FlashcardTable,
+    FlashcardReviewTable,
+    QuizTable,
+    QuizQuestionTable,
+    QuizAttemptTable,
+    KnowledgeConceptTable,
+    KnowledgeRelationTable,
+    WorkspaceAnalyticsTable,
+    ConceptMasteryTable,
+    StudySessionTable,
 )
 from app.application.events.progress_store import progress_store
 from app.main import app
@@ -28,23 +39,40 @@ def test_system_clear_data_factory_reset():
 
     assert os.path.exists(dummy_file)
 
-    # 1. Populate database records
+    # 1. Populate database records across media, chat, flashcards, quizzes, concepts & analytics
     with Session(engine) as session:
-        m_item = MediaItemTable(
+        session.merge(WorkspaceTable(id="default", name="Default Workspace"))
+        session.add(MediaItemTable(
             id="med_purge_1",
             workspace_id="default",
             title="Test Video to Delete",
             file_path=dummy_file
-        )
-        session.add(m_item)
-        c_msg = ChatMessageTable(
+        ))
+        session.add(ChatMessageTable(
             id="msg_purge_1",
             session_id="sess_1",
             workspace_id="default",
             sender="user",
             content="Delete me"
-        )
-        session.add(c_msg)
+        ))
+        
+        # Flashcards
+        session.add(FlashcardDeckTable(id="deck_purge_1", workspace_id="default", name="Purge Deck", version=1))
+        session.add(FlashcardTable(id="card_purge_1", deck_id="deck_purge_1", workspace_id="default", front="Q", back="A"))
+        session.add(FlashcardReviewTable(id="rev_purge_1", flashcard_id="card_purge_1", workspace_id="default", rating=3))
+        
+        # Quizzes
+        session.add(QuizTable(id="quiz_purge_1", workspace_id="default", title="Purge Quiz", version=1))
+        session.add(QuizQuestionTable(id="q_purge_1", quiz_id="quiz_purge_1", workspace_id="default", question_text="Q?", options_json="[]", explanation="E"))
+        session.add(QuizAttemptTable(id="att_purge_1", quiz_id="quiz_purge_1", workspace_id="default", score=100.0))
+
+        # Concepts & Analytics
+        session.add(KnowledgeConceptTable(id="con_purge_1", workspace_id="default", name="React"))
+        session.add(KnowledgeRelationTable(id="rel_purge_1", workspace_id="default", source_concept="con_purge_1", target_concept="con_purge_1"))
+        session.merge(WorkspaceAnalyticsTable(workspace_id="default", total_media=1, total_concepts=1))
+        session.merge(ConceptMasteryTable(concept_id="con_purge_1", workspace_id="default", mastery_level=0.8))
+        session.add(StudySessionTable(id="stud_purge_1", workspace_id="default", activity_type="review"))
+
         session.commit()
 
     # Populate progress store
@@ -56,13 +84,25 @@ def test_system_clear_data_factory_reset():
     data = res.json()
     assert data["status"] == "ok"
 
-    # 3. Assert database records purged
+    # 3. Assert ALL database tables purged
     with Session(engine) as session:
-        m_records = session.scalars(select(MediaItemTable)).all() if hasattr(session, "scalars") else session.exec(select(MediaItemTable)).all()
-        assert len(m_records) == 0
-
-        msg_records = session.scalars(select(ChatMessageTable)).all() if hasattr(session, "scalars") else session.exec(select(ChatMessageTable)).all()
-        assert len(msg_records) == 0
+        for model in [
+            MediaItemTable,
+            ChatMessageTable,
+            FlashcardDeckTable,
+            FlashcardTable,
+            FlashcardReviewTable,
+            QuizTable,
+            QuizQuestionTable,
+            QuizAttemptTable,
+            KnowledgeConceptTable,
+            KnowledgeRelationTable,
+            WorkspaceAnalyticsTable,
+            ConceptMasteryTable,
+            StudySessionTable,
+        ]:
+            records = session.scalars(select(model)).all() if hasattr(session, "scalars") else session.exec(select(model)).all()
+            assert len(records) == 0, f"Table {model.__tablename__} was not purged!"
 
         # Assert only the default workspace is re-created
         ws_records = session.scalars(select(WorkspaceTable)).all() if hasattr(session, "scalars") else session.exec(select(WorkspaceTable)).all()
@@ -80,3 +120,4 @@ def test_system_clear_data_factory_reset():
 
     # 6. Assert progress store reset
     assert len(progress_store._snapshots) == 0
+
