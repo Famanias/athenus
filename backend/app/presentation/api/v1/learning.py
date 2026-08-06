@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from app.domain.learning.entities import FlashcardCard, FlashcardDeck
+from app.domain.learning.entities import FlashcardCard, FlashcardDeck, QuizContainer, QuizQuestionItem
 from app.domain.learning.flashcard_service import FlashcardService
+from app.domain.learning.quiz_service import QuizService
 from app.infrastructure.exporters.anki_exporter import (
     export_deck_apkg,
     export_deck_csv,
@@ -16,6 +17,7 @@ from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 router = APIRouter()
 
 flashcard_service = FlashcardService(graph_service=KnowledgeGraphService())
+quiz_service = QuizService(graph_service=KnowledgeGraphService())
 
 
 class CardResponse(BaseModel):
@@ -63,6 +65,55 @@ class ReviewResponse(BaseModel):
     ease_factor: float
     interval_days: int
     repetitions: int
+
+
+# ---------------------------------------------------------------------------
+# Adaptive Comprehension Quiz Studio
+# ---------------------------------------------------------------------------
+class QuizItemResponse(BaseModel):
+    id: str
+    quiz_id: str
+    concept_id: Optional[str] = None
+    concept_name: Optional[str] = None
+    question_text: str
+    options: List[str] = []
+    correct_index: int = 0
+    explanation: str = ""
+    media_id: Optional[str] = None
+    source_chunk_ids: List[str] = []
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+
+
+class QuizContainerResponse(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    version: int
+    status: str
+    concept_ids: List[str] = []
+    question_count: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class QuizAttemptResponse(BaseModel):
+    id: str
+    quiz_id: str
+    workspace_id: str
+    version: int
+    score: float
+    total_questions: int
+    correct_count: int
+    answers: Optional[dict] = None
+    time_taken: float = 0.0
+    created_at: Optional[str] = None
+
+
+class GradeAttemptRequest(BaseModel):
+    workspace_id: str
+    answers: dict
+    time_taken: float = 0.0
 
 
 def _deck_to_response(deck: FlashcardDeck) -> DeckResponse:
@@ -183,6 +234,122 @@ def export_deck(deck_id: str, format: str = "csv"):
             headers={"Content-Disposition": f'attachment; filename="{deck_id}.apkg"'},
         )
     raise HTTPException(status_code=400, detail="format must be csv or apkg")
+
+
+# ---------------------------------------------------------------------------
+# Adaptive Comprehension Quiz Studio endpoints
+# ---------------------------------------------------------------------------
+def _quiz_to_response(quiz: QuizContainer) -> QuizContainerResponse:
+    return QuizContainerResponse(
+        id=quiz.id,
+        workspace_id=quiz.workspace_id,
+        title=quiz.title,
+        version=quiz.version,
+        status=quiz.status,
+        concept_ids=quiz.concept_ids,
+        question_count=quiz.question_count,
+        created_at=quiz.created_at.isoformat() if quiz.created_at else None,
+        updated_at=quiz.updated_at.isoformat() if quiz.updated_at else None,
+    )
+
+
+def _question_to_response(q: QuizQuestionItem) -> QuizItemResponse:
+    return QuizItemResponse(
+        id=q.id,
+        quiz_id=q.quiz_id,
+        concept_id=q.concept_id,
+        concept_name=q.concept_name,
+        question_text=q.question_text,
+        options=q.options,
+        correct_index=q.correct_index,
+        explanation=q.explanation,
+        media_id=q.media_id,
+        source_chunk_ids=q.source_chunk_ids,
+        start_time=q.start_time,
+        end_time=q.end_time,
+    )
+
+
+@router.post("/learning/quizzes/{workspace_id}/generate", response_model=QuizContainerResponse)
+async def generate_quiz(
+    workspace_id: str,
+    max_questions: int = 10,
+    force_new_version: bool = False,
+):
+    try:
+        quiz = await quiz_service.generate_quiz(
+            workspace_id=workspace_id,
+            max_questions=max_questions,
+            force_new_version=force_new_version,
+        )
+        return _quiz_to_response(quiz)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/learning/quizzes/workspace/{workspace_id}", response_model=List[QuizContainerResponse])
+def list_quizzes(workspace_id: str):
+    quizzes = quiz_service.list_quizzes(workspace_id)
+    return [_quiz_to_response(q) for q in quizzes]
+
+
+@router.get("/learning/quizzes/workspace/{workspace_id}/version/{version}", response_model=QuizContainerResponse)
+def get_quiz_version(workspace_id: str, version: int):
+    quiz = quiz_service.get_workspace_quiz(workspace_id, version=version)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz version not found")
+    return _quiz_to_response(quiz)
+
+
+@router.get("/learning/quizzes/container/{quiz_id}/questions", response_model=List[QuizItemResponse])
+def get_quiz_questions(quiz_id: str):
+    questions = quiz_service.get_quiz_questions(quiz_id)
+    return [_question_to_response(q) for q in questions]
+
+
+@router.post("/learning/quizzes/{quiz_id}/grade", response_model=QuizAttemptResponse)
+def grade_quiz(quiz_id: str, request: GradeAttemptRequest):
+    try:
+        attempt = quiz_service.grade_attempt(
+            quiz_id=quiz_id,
+            workspace_id=request.workspace_id,
+            answers=request.answers,
+            time_taken=request.time_taken,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return QuizAttemptResponse(
+        id=attempt.id,
+        quiz_id=attempt.quiz_id,
+        workspace_id=attempt.workspace_id,
+        version=attempt.version,
+        score=attempt.score,
+        total_questions=attempt.total_questions,
+        correct_count=attempt.correct_count,
+        answers=attempt.answers,
+        time_taken=attempt.time_taken,
+        created_at=attempt.created_at.isoformat() if attempt.created_at else None,
+    )
+
+
+@router.get("/learning/quizzes/workspace/{workspace_id}/attempts", response_model=List[QuizAttemptResponse])
+def list_quiz_attempts(workspace_id: str, limit: int = 20):
+    attempts = quiz_service.get_attempts(workspace_id, limit=limit)
+    return [
+        QuizAttemptResponse(
+            id=a.id,
+            quiz_id=a.quiz_id,
+            workspace_id=a.workspace_id,
+            version=a.version,
+            score=a.score,
+            total_questions=a.total_questions,
+            correct_count=a.correct_count,
+            answers=a.answers,
+            time_taken=a.time_taken,
+            created_at=a.created_at.isoformat() if a.created_at else None,
+        )
+        for a in attempts
+    ]
 
 
 # ---------------------------------------------------------------------------
