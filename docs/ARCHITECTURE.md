@@ -100,6 +100,7 @@ graph TD
 | **[ADR 0012](file:///e:/repos/athenus/docs/adr/0012-event-driven-precomputed-learning-analytics.md)** | Event-Driven Precomputed Learning Analytics | Subscribed to learning events to maintain denormalized counters in SQLite for real-time mastery and streak metrics. |
 | **[ADR 0013](file:///e:/repos/athenus/docs/adr/0013-atomic-21-table-factory-reset-engine.md)** | Atomic 21-Table Factory Reset Engine | Implemented a complete 21-table child-to-parent deletion transaction, Qdrant collection reset, and disk file purge. |
 | **[ADR 0014](file:///e:/repos/athenus/docs/adr/0014-strict-workspace-media-and-artifact-boundary-isolation.md)** | Strict Workspace Media & Artifact Boundary Isolation | Enforced workspace validation across store, hooks, and API endpoints to prevent cross-workspace media rendering. |
+| **[ADR 0015](file:///e:/repos/athenus/docs/adr/0015-generic-background-task-runtime-and-multi-job-pipeline-engine.md)** | Generic BackgroundTaskRuntime Engine | Decoupled SSE lifecycles from Zustand, modeled multi-job registry (`jobs`), and implemented exponential backoff reconnects and polling fallbacks. |
 
 ---
 
