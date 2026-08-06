@@ -57,12 +57,14 @@ ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTrans
 # Global references (populated in lifespan)
 vector_store = None
 intelligence_manager = None
+persistent_ingestion_worker = None
 
 from app.application.events.progress_store import progress_store
 from app.bootstrap.event_subscribers import register_media_subscribers
 from app.presentation.api.v1.media import media_repository
 
 from app.services.workers.learning_evolution_worker import LearningEvolutionWorker
+from app.domain.ingestion.persistent_ingestion_queue import PersistentIngestionWorker
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,13 +82,16 @@ async def lifespan(app: FastAPI):
     # Register Domain Event subscribers to link EventBus with MediaRepository and ProgressStore
     register_media_subscribers(event_bus, media_repository, progress_store)
 
-    global vector_store, intelligence_manager
+    global vector_store, intelligence_manager, persistent_ingestion_worker
     vector_store = EmbeddedQdrantVectorStoreAdapter()
     
     transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
     embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
     graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=KnowledgeGraphService())
     learning_evolution_worker = LearningEvolutionWorker(event_bus)
+
+    persistent_ingestion_worker = PersistentIngestionWorker(event_bus)
+    persistent_ingestion_worker.boot_recovery()
 
     intelligence_manager = WorkspaceIntelligenceManager(
         ai_service_bus,

@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { uploadMedia, createMediaProcessingStream } from '@/services/mediaService';
+import { apiClient } from '@/services/apiClient';
 
 export interface PipelineStage {
   id: string;
@@ -33,21 +34,64 @@ export function useIngestion() {
     jobs,
     activeJobId,
     setActiveJobId,
+    inspectedJobId,
+    setInspectedJobId,
     upsertJob,
   } = useAppStore();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  // Poll workspace media jobs from backend
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const fetchJobs = async () => {
+      if (!activeWorkspaceId) return;
+      try {
+        const backendJobs = await apiClient<Array<any>>(
+          `/api/v1/media/workspace/${encodeURIComponent(activeWorkspaceId)}/jobs`
+        );
+        if (Array.isArray(backendJobs)) {
+          backendJobs.forEach((j) => {
+            upsertJob({
+              job_id: j.job_id,
+              media_id: j.media_id,
+              workspace_id: j.workspace_id,
+              job_type: 'ingestion',
+              stage: j.stage || 'queued',
+              progress: j.progress || 0,
+              status: j.status || 'pending',
+              message: j.message || '',
+              error: j.error_message || undefined,
+              startedAt: j.created_at || new Date().toISOString(),
+              updatedAt: j.updated_at || new Date().toISOString(),
+            });
+          });
+        }
+      } catch (_e) {}
+    };
+
+    fetchJobs();
+    timer = setInterval(fetchJobs, 4000);
+    return () => clearInterval(timer);
+  }, [activeWorkspaceId, upsertJob]);
+
+  // List of all workspace jobs for UI queue panel
+  const workspaceJobs = Object.values(jobs)
+    .filter((j) => j.workspace_id === (activeWorkspaceId || 'default'))
+    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+
   // Find active job for current workspace / media item
+  const activeProcessingJob =
+    workspaceJobs.find((j) => j.status === 'processing' || j.status === 'pending') ||
+    (activeJobId ? jobs[activeJobId] : undefined);
+
+  // Job selected for inspection in the detailed stage stepper
   const currentJob =
-    (activeJobId && jobs[activeJobId]) ||
-    Object.values(jobs).find(
-      (j) => j.workspace_id === (activeWorkspaceId || 'default') && j.status === 'processing'
-    ) ||
-    (activeMediaId
-      ? Object.values(jobs).find((j) => j.media_id === activeMediaId)
-      : undefined);
+    (inspectedJobId && jobs[inspectedJobId]) ||
+    activeProcessingJob ||
+    (activeMediaId ? jobs[`ingestion_${activeMediaId}`] : undefined) ||
+    workspaceJobs[0];
 
   // Map job state to visual stages array
   const stages: PipelineStage[] = (() => {
@@ -55,7 +99,7 @@ export function useIngestion() {
 
     const { stage, progress, status } = currentJob;
 
-    if (status === 'completed' || stage === 'completed') {
+    if (status === 'completed' || stage === 'completed' || stage === 'ready') {
       return [
         { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
         { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
@@ -71,6 +115,15 @@ export function useIngestion() {
         if (idx === activeStageIdx) return { ...s, status: 'failed', progress: 0 };
         return { ...s, status: 'pending', progress: 0 };
       });
+    }
+
+    if (stage === 'queued') {
+      return [
+        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'processing', progress: 15 },
+        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'pending', progress: 0 },
+        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
+        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
+      ];
     }
 
     // Dynamic stage progression
@@ -107,7 +160,7 @@ export function useIngestion() {
     return INITIAL_STAGES;
   })();
 
-  const isUploading = currentJob ? currentJob.status === 'processing' || currentJob.status === 'pending' : false;
+  const isUploading = currentJob ? currentJob.status === 'processing' || currentJob.status === 'pending' || currentJob.status === 'queued' : false;
   const errorMessage = localError || currentJob?.error || null;
 
   const handleFileUpload = async (file: File) => {
@@ -116,21 +169,22 @@ export function useIngestion() {
 
     try {
       const data = await uploadMedia(file, activeWorkspaceId || 'default');
-      const jobId = `job_${data.media_id}`;
+      const jobId = `ingestion_${data.media_id}`;
 
       setActiveMediaId(data.media_id);
       setActiveJobId(jobId);
+      setInspectedJobId(jobId);
 
-      // Register job in background task runtime
+      // Register job in store
       upsertJob({
         job_id: jobId,
         media_id: data.media_id,
         workspace_id: activeWorkspaceId || 'default',
         job_type: 'ingestion',
-        stage: 'uploaded',
-        progress: 15,
-        status: 'processing',
-        message: 'File uploaded. Initiating background ASR pipeline.',
+        stage: 'queued',
+        progress: 5,
+        status: 'queued',
+        message: 'File uploaded. Enqueued in persistent ingestion queue.',
         startedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
@@ -146,5 +200,9 @@ export function useIngestion() {
     errorMessage,
     handleFileUpload,
     setActiveView,
+    workspaceJobs,
+    currentJob,
+    inspectedJobId,
+    setInspectedJobId,
   };
 }

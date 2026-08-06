@@ -196,6 +196,12 @@ export const KnowledgeGraphCanvas: React.FC = () => {
           {artifact?.message && (
             <span className="text-on-surface-variant truncate">{artifact.message}</span>
           )}
+          <div className="flex-1 h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+            <div
+              className="h-full rounded-full bg-secondary transition-all"
+              style={{ width: `${artifact?.progress ?? 0}%` }}
+            />
+          </div>
         </div>
 
         {/* Canvas */}

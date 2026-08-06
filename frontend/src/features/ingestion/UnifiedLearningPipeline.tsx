@@ -43,8 +43,18 @@ const PIPELINE_LINKS: PipelineLink[] = [
 ];
 
 export const UnifiedLearningPipeline: React.FC = () => {
-  const { stages, isUploading, selectedFile, errorMessage, handleFileUpload, setActiveView } =
-    useIngestion();
+  const {
+    stages,
+    isUploading,
+    selectedFile,
+    errorMessage,
+    handleFileUpload,
+    setActiveView,
+    workspaceJobs,
+    currentJob,
+    inspectedJobId,
+    setInspectedJobId,
+  } = useIngestion();
   const { workspace } = useAnalytics();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -100,11 +110,61 @@ export const UnifiedLearningPipeline: React.FC = () => {
         </Button>
       </div>
 
+      {/* Multi-Video Ingestion Queue Panel */}
+      {workspaceJobs && workspaceJobs.length > 0 && (
+        <div className="p-4 bg-surface-container-low border border-outline-variant rounded-lg space-y-3">
+          <div className="flex justify-between items-center">
+            <h4 className="font-bold text-xs uppercase tracking-wider text-on-surface-variant font-mono">
+              Workspace Video Ingestion Queue ({workspaceJobs.length} Total)
+            </h4>
+            <span className="text-[10px] text-on-surface-variant/60 font-mono">
+              Click video to inspect stage stepper
+            </span>
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+            {workspaceJobs.map((j, idx) => {
+              const isSelected = currentJob?.job_id === j.job_id;
+              return (
+                <div
+                  key={j.job_id}
+                  onClick={() => setInspectedJobId(j.job_id)}
+                  className={`p-2.5 rounded border text-xs font-mono flex justify-between items-center cursor-pointer transition-all ${
+                    isSelected
+                      ? 'border-secondary bg-secondary/10 text-on-surface font-semibold shadow-sm'
+                      : 'border-outline-variant/60 bg-surface-container hover:bg-surface-container-high text-on-surface-variant'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 truncate pr-2">
+                    <span className="material-symbols-outlined text-sm text-secondary shrink-0">
+                      {j.status === 'completed' ? 'check_circle' : j.status === 'processing' ? 'sync' : 'hourglass_top'}
+                    </span>
+                    <span className="truncate">{j.title}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                        j.status === 'completed'
+                          ? 'bg-emerald-950/60 border border-emerald-500/40 text-emerald-300'
+                          : j.status === 'processing'
+                          ? 'bg-amber-950/60 border border-amber-500/40 text-amber-300 animate-pulse'
+                          : 'bg-surface-container-high border border-outline-variant text-on-surface-variant'
+                      }`}
+                    >
+                      {j.status === 'queued' ? `Queued (#${idx} in Line)` : j.status}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Pipeline Status Monitor */}
       <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
         <div className="flex justify-between items-center">
           <h4 className="font-bold text-sm text-on-surface">
-            Ingestion Pipeline: {selectedFile ? selectedFile.name : 'Sample_Lecture.mp4'}
+            Inspected Pipeline: {currentJob ? currentJob.title : selectedFile ? selectedFile.name : 'Sample_Lecture.mp4'}
           </h4>
           {isUploading && (
             <span className="font-mono text-xs text-secondary animate-pulse">

@@ -12,10 +12,11 @@ export interface BackgroundJob {
   job_id: string;
   media_id: string;
   workspace_id: string;
+  title?: string;
   job_type: 'ingestion' | 'graph_extraction' | 'flashcard_gen' | 'quiz_gen';
-  stage: 'uploaded' | 'audio_extraction' | 'transcription' | 'chunking' | 'vector_indexing' | 'graph_extraction' | 'completed' | 'failed';
+  stage: 'queued' | 'uploaded' | 'audio_extraction' | 'transcription' | 'chunking' | 'vector_indexing' | 'graph_extraction' | 'ready' | 'completed' | 'failed';
   progress: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued';
   message: string;
   error?: string;
   startedAt: string;
@@ -40,6 +41,7 @@ interface UISlice {
   // Background Task Engine Jobs Registry
   jobs: Record<string, BackgroundJob>;
   activeJobId: string | null;
+  inspectedJobId: string | null;
 
   // Settings
   llmProvider: string;
@@ -66,6 +68,7 @@ interface UISlice {
   removeJob: (jobId: string) => void;
   setJobHistory: (jobId: string, history: Array<{ stage: string; progress: number; status: string; timestamp: string }>) => void;
   setActiveJobId: (jobId: string | null) => void;
+  setInspectedJobId: (jobId: string | null) => void;
 
   // 9-Step Workspace Lifecycle Actions
   switchWorkspace: (workspaceId: string) => void;
@@ -135,6 +138,7 @@ export const useAppStore = create<AppState>()((...args) => {
     // Background Job Registry State
     jobs: {},
     activeJobId: null,
+    inspectedJobId: null,
 
     llmProvider: 'ollama',
     selectedOllamaModel: '',
@@ -180,6 +184,7 @@ export const useAppStore = create<AppState>()((...args) => {
         return {
           jobs: newJobs,
           activeJobId: state.activeJobId === jobId ? null : state.activeJobId,
+          inspectedJobId: state.inspectedJobId === jobId ? null : state.inspectedJobId,
         };
       }),
 
@@ -192,6 +197,7 @@ export const useAppStore = create<AppState>()((...args) => {
       })),
 
     setActiveJobId: (jobId) => set({ activeJobId: jobId }),
+    setInspectedJobId: (jobId) => set({ inspectedJobId: jobId }),
 
     setCurrentTime: (time) => set({ currentTime: time }),
     setTargetSeekSeconds: (seconds) => set({ targetSeekSeconds: seconds }),

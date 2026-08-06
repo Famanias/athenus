@@ -69,18 +69,22 @@ async def upload_media(
     media_repository.upsert(media_item)
     workspace_service.add_media_to_workspace(workspace_id, media_id)
 
-    async def trigger_event():
-        await event_bus.publish(DomainEvent(
-            event_type="MediaUploadedEvent",
-            aggregate_id=media_id,
-            payload={
-                "media_id": media_id,
-                "workspace_id": workspace_id,
-                "file_path": file_location
-            }
-        ))
-
-    background_tasks.add_task(trigger_event)
+    # Enqueue job in persistent SQLite ingestion worker
+    from app.main import persistent_ingestion_worker
+    if persistent_ingestion_worker:
+        persistent_ingestion_worker.enqueue_media(media_id, workspace_id, file_location)
+    else:
+        async def trigger_event():
+            await event_bus.publish(DomainEvent(
+                event_type="MediaUploadedEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": workspace_id,
+                    "file_path": file_location
+                }
+            ))
+        background_tasks.add_task(trigger_event)
 
     return MediaUploadResponse(
         media_id=media_id,
@@ -88,6 +92,63 @@ async def upload_media(
         title=item_title,
         status=media_item.status.value
     )
+
+class MediaJobResponse(BaseModel):
+    job_id: str
+    media_id: str
+    workspace_id: str
+    title: str
+    status: str
+    stage: str
+    progress: int
+    message: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+@router.get("/media/workspace/{workspace_id}/jobs", response_model=List[MediaJobResponse])
+def get_workspace_media_jobs(workspace_id: str):
+    """Retrieve all persistent ingestion jobs for a workspace sorted by created_at."""
+    if not engine or not Session or not select:
+        return []
+    try:
+        from app.infrastructure.db.models import ArtifactJobTable, MediaItemTable
+        with Session(engine) as session:
+            stmt = (
+                select(ArtifactJobTable)
+                .where(
+                    ArtifactJobTable.workspace_id == workspace_id,
+                    ArtifactJobTable.artifact_type == "ingestion",
+                )
+                .order_by(ArtifactJobTable.created_at.desc())
+            )
+            jobs = session.scalars(stmt).all() if hasattr(session, "scalars") else session.exec(stmt).all()
+            
+            media_map = {}
+            media_items = media_repository.list_workspace_media(workspace_id)
+            for m in media_items:
+                media_map[m.id] = m.title
+
+            res = []
+            for j in jobs:
+                res.append(
+                    MediaJobResponse(
+                        job_id=j.id,
+                        media_id=j.target_key,
+                        workspace_id=j.workspace_id,
+                        title=media_map.get(j.target_key, f"Video {j.target_key[:8]}"),
+                        status=j.status,
+                        stage=j.stage or "queued",
+                        progress=j.progress,
+                        message=j.message,
+                        error_message=j.error_message,
+                        created_at=j.created_at.isoformat() if j.created_at else None,
+                        updated_at=j.updated_at.isoformat() if j.updated_at else None,
+                    )
+                )
+            return res
+    except Exception:
+        return []
 
 @router.get("/media/{media_id}/status", response_model=MediaStatusResponse)
 def get_media_status(media_id: str):
