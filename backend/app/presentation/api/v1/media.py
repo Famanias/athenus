@@ -109,6 +109,13 @@ class MediaJobResponse(BaseModel):
 @router.get("/media/workspace/{workspace_id}/jobs", response_model=List[MediaJobResponse])
 def get_workspace_media_jobs(workspace_id: str):
     """Retrieve all persistent ingestion jobs for a workspace sorted by created_at."""
+    from app.infrastructure.db.session import engine
+    try:
+        from sqlmodel import Session, select
+    except ImportError:
+        from sqlalchemy import select
+        from sqlalchemy.orm import Session
+
     if not engine or not Session or not select:
         return []
     try:
