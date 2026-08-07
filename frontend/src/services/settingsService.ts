@@ -82,11 +82,19 @@ export async function patchProviderSettings(
 
 export interface ProviderCatalogModelDTO {
   id: string;
+  name?: string;
+  context_window?: number;
+  size_bytes?: number;
 }
 
 export interface ProviderCatalogProviderDTO {
   id: string;
   label: string;
+  is_local?: boolean;
+  is_configured?: boolean;
+  is_available?: boolean;
+  active_model?: string;
+  error?: string;
   models: ProviderCatalogModelDTO[];
 }
 
@@ -100,8 +108,22 @@ export interface ProviderCatalogResponse {
   providers: ProviderCatalogProviderDTO[];
 }
 
+export interface TestConnectionResponse {
+  provider_id: string;
+  is_available: boolean;
+  is_configured: boolean;
+  active_model: string;
+  error?: string;
+}
+
 export async function getProviderCatalog(): Promise<ProviderCatalogResponse> {
   return apiClient<ProviderCatalogResponse>('/api/v1/settings/providers/catalog');
+}
+
+export async function testProviderConnection(providerId: string): Promise<TestConnectionResponse> {
+  return apiClient<TestConnectionResponse>(`/api/v1/settings/providers/${providerId}/test`, {
+    method: 'POST',
+  });
 }
 
 export async function getLocalProviderStatus(providerId: string): Promise<LocalProviderStatusDTO> {

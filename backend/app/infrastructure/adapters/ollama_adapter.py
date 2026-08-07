@@ -38,6 +38,10 @@ class OllamaTextGenAdapter(BaseLLMProvider):
     def is_local(self) -> bool:
         return True
 
+    def set_model(self, model: str) -> None:
+        """Update active default model at runtime."""
+        self.default_model = model
+
     def _get_client(self) -> httpx.AsyncClient:
         return self._http_client or httpx.AsyncClient(timeout=10.0)
 

@@ -12,11 +12,13 @@ import {
   getProviderCatalog,
   getLocalProviderStatus,
   getLocalProviderModels,
+  testProviderConnection,
   clearAllData,
   OllamaSettingsResponse,
   ProviderCatalogProviderDTO,
   LocalProviderStatusDTO,
   CatalogModelDTO,
+  TestConnectionResponse,
 } from '@/services/settingsService';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -45,6 +47,10 @@ export const SystemSettings: React.FC = () => {
   const [ollamaStatus, setOllamaStatus] = useState<LocalProviderStatusDTO | null>(null);
   const [liveOllamaModels, setLiveOllamaModels] = useState<CatalogModelDTO[]>([]);
   const [isRefreshingDaemon, setIsRefreshingDaemon] = useState<boolean>(false);
+
+  // Connection Testing State
+  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
 
   // Local Model Storage (Host Filesystem) State
   const [ollamaDir, setOllamaDir] = useState<string>('');
@@ -79,7 +85,9 @@ export const SystemSettings: React.FC = () => {
     const p = (providerStr || '').toLowerCase();
     if (p.includes('groq')) return 'groq';
     if (p.includes('openrouter')) return 'openrouter';
-    return 'ollama';
+    if (p.includes('openai')) return 'openai';
+    if (p.includes('anthropic')) return 'anthropic';
+    return p || 'ollama';
   };
 
   const updateTimestamp = () => {
@@ -158,6 +166,9 @@ export const SystemSettings: React.FC = () => {
 
         if (catalogRes) {
           setCatalogProviders(catalogRes.providers);
+          if (catalogRes.active?.provider) {
+            setSelectedLlm(catalogRes.active.provider);
+          }
         }
 
         // Establish baseline of confirmed saved values to prevent spurious autosaves
@@ -175,7 +186,6 @@ export const SystemSettings: React.FC = () => {
         // Fall back to store / cached state if backend is booting
       } finally {
         setIsInitialLoading(false);
-        // Enable autosave ONLY after initial hydration finishes completely
         setTimeout(() => {
           isHydratedRef.current = true;
         }, 150);
@@ -202,251 +212,229 @@ export const SystemSettings: React.FC = () => {
     };
   }, [refreshCatalog]);
 
-  // Core Provider Autosave Execution Function
-  const executeProviderAutosave = useCallback(
-    async (targetState: {
-      llm: string;
-      ollamaModel: string;
-      stt: string;
-      gpu: boolean;
-      apiKey: string;
+  // Centralized Server Sync Handler for Core Settings
+  const executeServerSync = useCallback(
+    async (overrideValues?: {
+      llm?: string;
+      ollamaModel?: string;
+      stt?: string;
+      gpu?: boolean;
+      apiKey?: string;
     }) => {
       if (!isHydratedRef.current) return;
 
-      const baseline = lastSavedRef.current;
-      const modelToSave = targetState.llm === 'ollama' ? targetState.ollamaModel : undefined;
+      const currentValues = {
+        llm: overrideValues?.llm ?? selectedLlm,
+        ollamaModel: overrideValues?.ollamaModel ?? selectedOllamaModel,
+        stt: overrideValues?.stt ?? selectedStt,
+        gpu: overrideValues?.gpu ?? gpuEnabled,
+        apiKey: overrideValues?.apiKey ?? apiKey,
+      };
 
-      // Diff check: prevent redundant API requests if values match baseline
-      const hasChanged =
-        targetState.llm !== baseline.llm ||
-        targetState.stt !== baseline.stt ||
-        targetState.gpu !== baseline.gpu ||
-        targetState.apiKey !== baseline.apiKey ||
-        (targetState.llm === 'ollama' && targetState.ollamaModel !== baseline.ollamaModel);
+      // Skip save if values match current baseline
+      const isUnchanged =
+        currentValues.llm === lastSavedRef.current.llm &&
+        currentValues.ollamaModel === lastSavedRef.current.ollamaModel &&
+        currentValues.stt === lastSavedRef.current.stt &&
+        currentValues.gpu === lastSavedRef.current.gpu &&
+        currentValues.apiKey === lastSavedRef.current.apiKey;
 
-      if (!hasChanged) return;
+      if (isUnchanged && saveStatus !== 'error') {
+        return;
+      }
 
       const requestId = ++saveRequestIdRef.current;
       setSaveStatus('saving');
       setSaveErrorMessage(null);
 
       try {
-        const updated = await patchProviderSettings({
-          default_llm: targetState.llm,
-          selected_ollama_model: modelToSave,
-          default_stt: targetState.stt,
-          gpu_acceleration: targetState.gpu,
-          api_key: targetState.apiKey,
-        });
+        const payload: Record<string, any> = {
+          default_llm: currentValues.llm,
+          selected_ollama_model: currentValues.ollamaModel,
+          default_stt: currentValues.stt,
+          gpu_acceleration: currentValues.gpu,
+        };
+        if (currentValues.apiKey && currentValues.apiKey.trim()) {
+          payload.api_key = currentValues.apiKey.trim();
+        }
 
-        // Ignore stale response if a newer request was dispatched concurrently
+        const patchData = await patchProviderSettings(payload);
+
         if (requestId !== saveRequestIdRef.current) return;
 
-        const confirmedModel =
-          updated.selected_ollama_model ||
-          (targetState.llm === 'ollama' ? targetState.ollamaModel : '');
-
-        // Confirmed Save: Update Zustand store & localStorage cache ONLY after backend HTTP 200 confirmation
         setProviderSettings(
-          updated.default_llm,
-          updated.default_stt,
-          updated.gpu_acceleration,
-          confirmedModel
+          patchData.default_llm,
+          patchData.default_stt,
+          patchData.gpu_acceleration,
+          patchData.selected_ollama_model || currentValues.ollamaModel
         );
 
-        // Update baseline
         lastSavedRef.current = {
-          ...lastSavedRef.current,
-          llm: updated.default_llm,
-          ollamaModel: confirmedModel,
-          stt: updated.default_stt,
-          gpu: updated.gpu_acceleration,
-          apiKey: targetState.apiKey,
+          llm: patchData.default_llm,
+          ollamaModel: patchData.selected_ollama_model || currentValues.ollamaModel,
+          stt: patchData.default_stt,
+          gpu: patchData.gpu_acceleration,
+          apiKey: currentValues.apiKey,
+          dir: lastSavedRef.current.dir,
         };
 
         setSaveStatus('saved');
         refreshCatalog();
+        setTimeout(() => {
+          if (saveRequestIdRef.current === requestId) {
+            setSaveStatus('idle');
+          }
+        }, 2000);
       } catch (err: any) {
         if (requestId !== saveRequestIdRef.current) return;
         setSaveStatus('error');
-        setSaveErrorMessage(err.message || 'Failed to persist settings to backend');
+        setSaveErrorMessage(err.message || 'Failed to update provider settings.');
       }
     },
-    [setProviderSettings, refreshCatalog]
+    [apiKey, gpuEnabled, selectedLlm, selectedOllamaModel, selectedStt, setProviderSettings, saveStatus]
   );
 
-  // Core Directory Path Autosave Execution Function
-  const executeDirectoryAutosave = useCallback(
-    async (targetDir: string) => {
-      if (!isHydratedRef.current) return;
-      const cleanDir = targetDir.trim();
+  // Centralized Server Sync Handler for Ollama Directory Path
+  const executeDirServerSync = useCallback(async (dirToSave: string) => {
+    if (!isHydratedRef.current) return;
 
-      // Diff check: only save if directory path changed
-      if (cleanDir === lastSavedRef.current.dir) return;
+    if (dirToSave === lastSavedRef.current.dir && saveStatus !== 'error') {
+      return;
+    }
 
-      const requestId = ++dirSaveRequestIdRef.current;
-      setSaveStatus('saving');
-      setSaveErrorMessage(null);
+    const requestId = ++dirSaveRequestIdRef.current;
+    setSaveStatus('saving');
+    setSaveErrorMessage(null);
+    setOllamaDirError(null);
 
-      try {
-        const res = await updateOllamaDirectory(cleanDir);
+    try {
+      const res = await updateOllamaDirectory(dirToSave);
 
-        if (requestId !== dirSaveRequestIdRef.current) return;
+      if (requestId !== dirSaveRequestIdRef.current) return;
 
-        setOllamaConfig(res);
-        setOllamaDirError(null);
-        if (res.configured_dir) {
-          setOllamaDir(res.configured_dir);
-        }
+      setOllamaConfig(res);
 
-        lastSavedRef.current = {
-          ...lastSavedRef.current,
-          dir: cleanDir,
-        };
-
+      if (res.error) {
+        setOllamaDirError(res.error);
+        setSaveStatus('error');
+        setSaveErrorMessage(res.error);
+      } else {
+        lastSavedRef.current.dir = dirToSave;
         setSaveStatus('saved');
-        refreshCatalog();
-      } catch (err: any) {
-        if (requestId !== dirSaveRequestIdRef.current) return;
-
-        const message = err?.message || 'Failed to save local model storage directory';
-        const isContainerBoundaryError =
-          message.toLowerCase().includes('docker') || message.includes('cannot access it');
-
-        if (isContainerBoundaryError) {
-          // Keep the top-bar autosave indicator clean; surface the container
-          // boundary guidance inline within the Local Model Storage card instead.
-          setSaveStatus('idle');
-          setSaveErrorMessage(null);
-          setOllamaDirError(DOCKER_MODE_DIR_ERROR);
-        } else {
-          setSaveStatus('error');
-          setSaveErrorMessage(message);
-        }
+        setTimeout(() => {
+          if (dirSaveRequestIdRef.current === requestId) {
+            setSaveStatus('idle');
+          }
+        }, 2000);
       }
-    },
-    [refreshCatalog]
-  );
+    } catch (err: any) {
+      if (requestId !== dirSaveRequestIdRef.current) return;
+      setOllamaDirError(err.message || 'Failed to update models directory.');
+      setSaveStatus('error');
+      setSaveErrorMessage(err.message || 'Failed to update models directory.');
+    }
+  }, [saveStatus]);
 
-  // Discrete Control Change Handlers (Immediate Autosave)
-  const handleLlmChange = (newLlm: string) => {
-    setSelectedLlm(newLlm);
-    executeProviderAutosave({
-      llm: newLlm,
-      ollamaModel: selectedOllamaModel,
-      stt: selectedStt,
-      gpu: gpuEnabled,
-      apiKey,
-    });
+  // Handler for LLM Provider Switch
+  const handleLlmChange = (newVal: string) => {
+    setSelectedLlm(newVal);
+    setTestResult(null);
+    executeServerSync({ llm: newVal });
   };
 
-  const handleOllamaModelChange = (newModel: string) => {
-    setSelectedOllamaModel(newModel);
-    executeProviderAutosave({
-      llm: selectedLlm,
-      ollamaModel: newModel,
-      stt: selectedStt,
-      gpu: gpuEnabled,
-      apiKey,
-    });
+  // Handler for Ollama Model Switch
+  const handleOllamaModelChange = (newVal: string) => {
+    setSelectedOllamaModel(newVal);
+    executeServerSync({ ollamaModel: newVal });
   };
 
-  const handleSttChange = (newStt: string) => {
-    setSelectedStt(newStt);
-    executeProviderAutosave({
-      llm: selectedLlm,
-      ollamaModel: selectedOllamaModel,
-      stt: newStt,
-      gpu: gpuEnabled,
-      apiKey,
-    });
+  // Handler for STT Provider Switch
+  const handleSttChange = (newVal: string) => {
+    setSelectedStt(newVal);
+    executeServerSync({ stt: newVal });
   };
 
-  const handleGpuToggle = (newGpu: boolean) => {
-    setGpuEnabled(newGpu);
-    executeProviderAutosave({
-      llm: selectedLlm,
-      ollamaModel: selectedOllamaModel,
-      stt: selectedStt,
-      gpu: newGpu,
-      apiKey,
-    });
+  // Handler for GPU Acceleration Toggle Switch
+  const handleGpuToggle = (newVal: boolean) => {
+    setGpuEnabled(newVal);
+    executeServerSync({ gpu: newVal });
   };
 
-  // Text Input Handlers (Debounced Autosave)
-  const handleApiKeyChange = (newKey: string) => {
-    setApiKey(newKey);
-
+  // Debounced API Key Change Handler
+  const handleApiKeyChange = (newVal: string) => {
+    setApiKey(newVal);
     if (apiKeyDebounceTimerRef.current) {
       clearTimeout(apiKeyDebounceTimerRef.current);
     }
-
     apiKeyDebounceTimerRef.current = setTimeout(() => {
-      executeProviderAutosave({
-        llm: selectedLlm,
-        ollamaModel: selectedOllamaModel,
-        stt: selectedStt,
-        gpu: gpuEnabled,
-        apiKey: newKey,
-      });
+      executeServerSync({ apiKey: newVal });
     }, 600);
   };
 
-  const handleOllamaDirChange = (newDir: string) => {
-    setOllamaDir(newDir);
-
+  // Debounced Directory Path Change Handler
+  const handleDirChange = (newVal: string) => {
+    setOllamaDir(newVal);
     if (dirDebounceTimerRef.current) {
       clearTimeout(dirDebounceTimerRef.current);
     }
-
     dirDebounceTimerRef.current = setTimeout(() => {
-      executeDirectoryAutosave(newDir);
-    }, 750);
+      executeDirServerSync(newVal);
+    }, 800);
   };
 
-  const handleBrowseFolder = async () => {
-    try {
-      const dialog = await import('@tauri-apps/api/dialog');
-      const selected = await dialog.open({ directory: true, multiple: false });
-      if (typeof selected === 'string') {
-        setOllamaDir(selected);
-        executeDirectoryAutosave(selected);
-      }
-    } catch {
-      // Browser fallback (manual paste)
-    }
-  };
-
+  // Manual Retry Handler for Autosave Failures
   const handleRetrySave = () => {
-    executeProviderAutosave({
-      llm: selectedLlm,
-      ollamaModel: selectedOllamaModel,
-      stt: selectedStt,
-      gpu: gpuEnabled,
-      apiKey,
-    });
-    if (ollamaDir.trim() !== lastSavedRef.current.dir) {
-      executeDirectoryAutosave(ollamaDir);
+    executeServerSync();
+    if (ollamaDir !== lastSavedRef.current.dir) {
+      executeDirServerSync(ollamaDir);
     }
   };
 
-  const handleRefreshOllamaDir = async () => {
-    if (isScanningOllama) return;
-    setIsScanningOllama(true);
+  // Interactive Test Connection Action Handler
+  const handleTestConnection = async () => {
+    setIsTestingConnection(true);
+    setTestResult(null);
+    try {
+      const res = await testProviderConnection(selectedLlm);
+      setTestResult(res);
+    } catch (err: any) {
+      setTestResult({
+        provider_id: selectedLlm,
+        is_available: false,
+        is_configured: false,
+        active_model: 'unknown',
+        error: err.message || 'Connection test failed',
+      });
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
 
+  // Manual Trigger for Scanning Local Storage Models
+  const handleScanOllamaModels = async () => {
+    setIsScanningOllama(true);
+    setOllamaDirError(null);
     try {
       const res = await scanOllamaModels();
       setOllamaConfig(res);
-      refreshCatalog();
-    } catch (_err) {
-      // Ignore scan error
+      if (res.error) {
+        setOllamaDirError(res.error);
+      }
+    } catch (err: any) {
+      setOllamaDirError(err.message || 'Scanning models directory failed.');
     } finally {
       setIsScanningOllama(false);
     }
   };
 
-  const handleExecuteReset = async () => {
-    if (confirmInputText.trim() !== 'CLEAR MY DATA') return;
+  // Danger Zone Data Reset Handlers
+  const handleOpenResetModal = () => {
+    setIsResetModalOpen(true);
+    setConfirmInputText('');
+  };
+
+  const handleConfirmReset = async () => {
+    if (confirmInputText !== 'DELETE ATHENUS DATA') return;
     setIsResetting(true);
 
     try {
@@ -479,8 +467,9 @@ export const SystemSettings: React.FC = () => {
     return `${mb.toFixed(0)} MB`;
   };
 
-  const isCloudProvider = selectedLlm === 'openrouter' || selectedLlm === 'groq';
-  const ollamaCatalogModels = catalogProviders.find((p) => p.id === 'ollama')?.models ?? [];
+  const activeProviderObj = catalogProviders.find((p) => p.id === selectedLlm);
+  const activeModels = activeProviderObj?.models ?? [];
+  const isCloudProvider = selectedLlm !== 'ollama';
 
   // Check if saved Ollama model is missing from live daemon catalog
   const isSelectedModelMissing =
@@ -494,7 +483,6 @@ export const SystemSettings: React.FC = () => {
   // Runtime environment detection
   const isNativeHost = typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
 
-  // Simplify verbose container-boundary backend errors into a single friendly guidance message
   const simplifyOllamaDirError = (msg?: string): string => {
     if (msg && (msg.toLowerCase().includes('docker') || msg.includes('cannot access it'))) {
       return DOCKER_MODE_DIR_ERROR;
@@ -512,7 +500,7 @@ export const SystemSettings: React.FC = () => {
               AI System Settings & Capability Bus
             </h2>
             <p className="text-xs text-on-surface-variant mt-1">
-              Configure provider routing, inspect local Ollama model storage, and monitor system health.
+              Configure provider routing, inspect credential health, and monitor system capabilities.
             </p>
           </div>
 
@@ -579,15 +567,15 @@ export const SystemSettings: React.FC = () => {
 
           {/* Discovered Models Count */}
           <div className="space-y-0.5">
-            <span className="text-[10px] text-on-surface-variant uppercase tracking-wider block">Live Models</span>
-            <span className="font-bold text-secondary">{liveOllamaModels.length} Installed</span>
+            <span className="text-[10px] text-on-surface-variant uppercase tracking-wider block">Catalog Providers</span>
+            <span className="font-bold text-secondary">{catalogProviders.length} Registered</span>
           </div>
 
           {/* Active LLM Model */}
           <div className="space-y-0.5 truncate">
             <span className="text-[10px] text-on-surface-variant uppercase tracking-wider block">Active LLM</span>
             <span className="font-bold text-on-surface truncate block">
-              {selectedLlm === 'ollama' ? selectedOllamaModel || 'Not Selected' : selectedLlm.toUpperCase()}
+              {selectedLlm.toUpperCase()}
             </span>
           </div>
 
@@ -599,7 +587,7 @@ export const SystemSettings: React.FC = () => {
         </div>
       </div>
 
-      {/* 1. AI Provider Configuration Card (Auto-Saving Enabled) */}
+      {/* 1. AI Provider Configuration Inspector Card */}
       <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-5">
         <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
           <div className="flex items-center gap-2">
@@ -610,15 +598,27 @@ export const SystemSettings: React.FC = () => {
           </div>
           <span className="text-[10px] font-mono text-emerald-400 font-semibold flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            Autosave Active
+            Hot-Swappable
           </span>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-on-surface mb-1.5 font-mono uppercase">
-              Text Generation Provider (LLM)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-bold text-on-surface font-mono uppercase">
+                Text Generation Provider (LLM)
+              </label>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleTestConnection}
+                disabled={isTestingConnection}
+                className="text-xs py-1 px-3"
+              >
+                {isTestingConnection ? '🧪 Testing...' : '🧪 Test Connection'}
+              </Button>
+            </div>
+
             <select
               value={selectedLlm}
               onChange={(e) => handleLlmChange(e.target.value)}
@@ -627,85 +627,146 @@ export const SystemSettings: React.FC = () => {
               {catalogProviders.length > 0 ? (
                 catalogProviders.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.label}
+                    {p.label} {p.is_configured ? '🟢' : '⚪'}
                   </option>
                 ))
               ) : (
                 <>
                   <option value="ollama">Ollama (Local)</option>
-                  <option value="groq">Groq API (Cloud LPU)</option>
                   <option value="openrouter">OpenRouter API (Cloud Universal)</option>
+                  <option value="groq">Groq API (Cloud LPU)</option>
+                  <option value="openai">OpenAI API</option>
+                  <option value="anthropic">Anthropic Claude API</option>
                 </>
               )}
             </select>
           </div>
 
-          {/* Dynamic Active Ollama Model Dropdown */}
-          {selectedLlm === 'ollama' && (
-            <div className="space-y-2">
-              <label className="block text-xs font-bold text-on-surface mb-1 font-mono uppercase">
-                Active Ollama Local Model
-              </label>
-              <select
-                value={selectedOllamaModel}
-                onChange={(e) => handleOllamaModelChange(e.target.value)}
-                className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
+          {/* Test Connection Result Banner */}
+          {testResult && (
+            <div
+              className={`p-3.5 rounded border text-xs flex items-center justify-between ${
+                testResult.is_available && testResult.is_configured
+                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+                  : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-base">
+                  {testResult.is_available ? 'check_circle' : 'error'}
+                </span>
+                <span>
+                  <strong>{selectedLlm.toUpperCase()}:</strong>{' '}
+                  {testResult.is_available
+                    ? `Available & Configured (Active Model: ${testResult.active_model})`
+                    : testResult.error || 'Connection Unreachable'}
+                </span>
+              </div>
+              <button
+                onClick={() => setTestResult(null)}
+                className="text-xs hover:text-white font-bold px-2 py-0.5 rounded"
               >
-                <option value="" disabled>
-                  -- Select an Ollama Model --
-                </option>
+                ✕
+              </button>
+            </div>
+          )}
 
-                {/* If selected model is not in standard list, maintain option */}
-                {selectedOllamaModel && !ollamaCatalogModels.some((m) => m.id === selectedOllamaModel) && (
-                  <option key={selectedOllamaModel} value={selectedOllamaModel}>
-                    {selectedOllamaModel} (Custom / Saved)
-                  </option>
-                )}
-
-                {ollamaCatalogModels.map((m) => (
+          {/* Dynamic Active Model Selector Dropdown */}
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-on-surface mb-1 font-mono uppercase">
+              Active Model Selection ({selectedLlm.toUpperCase()})
+            </label>
+            <select
+              value={selectedOllamaModel || activeProviderObj?.active_model || ''}
+              onChange={(e) => handleOllamaModelChange(e.target.value)}
+              className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
+            >
+              {activeModels.length > 0 ? (
+                activeModels.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.id}
+                    {m.name || m.id} {m.size_bytes ? `(${formatSizeBytes(m.size_bytes)})` : ''}
                   </option>
-                ))}
-              </select>
-
-              {/* Warning if model selected is missing from live daemon */}
-              {isSelectedModelMissing && (
-                <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded text-xs text-amber-300 flex items-center gap-2">
-                  <span className="material-symbols-outlined text-sm shrink-0">warning</span>
-                  <span>
-                    Saved model <code className="font-mono bg-amber-900/50 px-1 rounded">{selectedOllamaModel}</code> is not currently installed on your running Ollama service daemon.
-                  </span>
-                </div>
+                ))
+              ) : (
+                <option value="">-- Configured Default Model --</option>
               )}
+            </select>
 
-              {!selectedOllamaModel && (
-                <div className="p-3 bg-surface-container border border-outline-variant rounded text-xs text-on-surface-variant italic">
-                  💡 Tip: Select an installed Ollama model above (e.g. llama3:8b) to use for text generation.
-                </div>
-              )}
+            {isSelectedModelMissing && (
+              <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded text-xs text-amber-300 flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm shrink-0">warning</span>
+                <span>
+                  Saved model <code className="font-mono bg-amber-900/50 px-1 rounded">{selectedOllamaModel}</code> is not currently installed on your running Ollama service daemon.
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 2. Registered Providers Credential Overview & Health Matrix */}
+      <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-secondary text-base">shield_lock</span>
+            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
+              Provider Credential & Capability Overview
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono text-on-surface-variant">Read-only Inspector</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {catalogProviders.map((p) => (
+            <div
+              key={p.id}
+              className={`p-3.5 border rounded-lg flex flex-col justify-between space-y-2 ${
+                p.id === selectedLlm
+                  ? 'bg-surface-container border-secondary/50 ring-1 ring-secondary/30'
+                  : 'bg-surface-container-low border-outline-variant/50'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xs text-on-surface font-mono">{p.label}</span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
+                    p.is_configured
+                      ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-rose-950/70 text-rose-300 border border-rose-500/40'
+                  }`}
+                >
+                  {p.is_configured ? '🟢 Configured' : '🔴 Key missing in .env'}
+                </span>
+              </div>
+
+              <div className="text-[11px] font-mono text-on-surface-variant flex items-center justify-between">
+                <span>Discovered Models: {p.models?.length ?? 0}</span>
+                <span className="text-[10px] opacity-75">{p.is_local ? 'Local Daemon' : 'Cloud API'}</span>
+              </div>
             </div>
-          )}
+          ))}
+        </div>
 
-          {/* Dynamic API Key Input for Cloud Providers */}
-          {isCloudProvider && (
-            <div className="p-4 bg-surface-container border border-secondary/30 rounded space-y-2">
-              <label className="block text-xs font-bold text-secondary font-mono uppercase">
-                🔑 {selectedLlm.toUpperCase()} API Key
-              </label>
-              <input
-                type="password"
-                placeholder={`Enter your ${selectedLlm.toUpperCase()} API Key (e.g. sk-or-v1-...)`}
-                value={apiKey}
-                onChange={(e) => handleApiKeyChange(e.target.value)}
-                className="w-full bg-surface-container-low border border-outline-variant rounded p-2.5 text-xs text-on-surface font-mono focus:border-secondary focus:outline-none"
-              />
-              <p className="text-[11px] text-on-surface-variant">
-                Key is stored securely in memory for dynamic cloud provider routing. Saves automatically as you type.
-              </p>
-            </div>
-          )}
+        <div className="p-3 bg-surface-container border border-outline-variant/60 rounded text-xs text-on-surface-variant flex items-start gap-2">
+          <span className="material-symbols-outlined text-secondary text-base shrink-0 mt-0.5">info</span>
+          <span>
+            <strong>Credential Security Notice:</strong> API keys are loaded securely from process environment variables or your local <code className="font-mono bg-surface-container-high px-1 py-0.5 rounded text-secondary">.env</code> file. Changing the active provider takes effect instantly without server restarts.
+          </span>
+        </div>
+      </div>
 
+      {/* 3. Speech-to-Text & GPU Acceleration Controls */}
+      <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-5">
+        <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-secondary text-base">mic</span>
+            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
+              Speech-to-Text & Compute Acceleration
+            </h3>
+          </div>
+        </div>
+
+        <div className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-on-surface mb-1.5 font-mono uppercase">
               Speech-to-Text Provider (STT)
@@ -715,328 +776,101 @@ export const SystemSettings: React.FC = () => {
               onChange={(e) => handleSttChange(e.target.value)}
               className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs text-on-surface focus:border-secondary focus:outline-none"
             >
-              <option value="faster-whisper">Faster-Whisper (Local CTranslate2 Engine)</option>
+              <option value="faster_whisper">Faster-Whisper (Local CPU/GPU Engine)</option>
+              <option value="whisper_cpp">Whisper.cpp (Embedded C++ Engine)</option>
             </select>
           </div>
-        </div>
-      </div>
 
-      {/* 2. System Health Summary Card ("Can I use it?") */}
-      <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
-        <div className="flex items-center gap-2 pb-2 border-b border-outline-variant/40">
-          <span className="material-symbols-outlined text-emerald-400 text-base">health_metrics</span>
-          <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
-            System Health Checklist
-          </h3>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
-          {/* Health Check 1: Ollama Daemon */}
-          <div className="p-3 bg-surface-container border border-outline-variant/40 rounded flex items-center justify-between">
-            <span className="text-on-surface-variant">Ollama Service Daemon:</span>
-            {ollamaStatus?.connected ? (
-              <span className="text-emerald-400 font-bold">✓ Reachable</span>
-            ) : (
-              <span className="text-rose-400 font-bold">✕ Offline</span>
-            )}
-          </div>
-
-          {/* Health Check 2: Active Model */}
-          <div className="p-3 bg-surface-container border border-outline-variant/40 rounded flex items-center justify-between truncate pr-2">
-            <span className="text-on-surface-variant">Active LLM Model:</span>
-            {selectedLlm !== 'ollama' ? (
-              <span className="text-emerald-400 font-bold">✓ Cloud ({selectedLlm.toUpperCase()})</span>
-            ) : selectedOllamaModel && !isSelectedModelMissing ? (
-              <span className="text-emerald-400 font-bold truncate ml-2">✓ Ready ({selectedOllamaModel})</span>
-            ) : isSelectedModelMissing ? (
-              <span className="text-amber-400 font-bold">⚠️ Model Missing</span>
-            ) : (
-              <span className="text-amber-400 font-bold">⚠️ Unselected</span>
-            )}
-          </div>
-
-          {/* Health Check 3: Faster-Whisper ASR */}
-          <div className="p-3 bg-surface-container border border-outline-variant/40 rounded flex items-center justify-between">
-            <span className="text-on-surface-variant">Speech-to-Text Engine:</span>
-            <span className="text-emerald-400 font-bold">✓ Faster-Whisper Ready</span>
-          </div>
-
-          {/* Health Check 4: Local Storage Path */}
-          <div className="p-3 bg-surface-container border border-outline-variant/40 rounded flex items-center justify-between">
-            <span className="text-on-surface-variant">Local Storage Path:</span>
-            {ollamaConfig?.valid ? (
-              <span className="text-emerald-400 font-bold">✓ Accessible</span>
-            ) : ollamaDir ? (
-              <span className="text-amber-400 font-bold">⚠️ Invalid Directory</span>
-            ) : (
-              <span className="text-on-surface-variant">Not Configured</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Live Ollama Service (Diagnostic + Control) */}
-      <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-secondary text-base">terminal</span>
-            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
-              Live Ollama Service Daemon (REST API)
-            </h3>
-          </div>
-
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={refreshCatalog}
-            disabled={isRefreshingDaemon}
-          >
-            {isRefreshingDaemon ? 'Refreshing...' : 'Refresh Models'}
-          </Button>
-        </div>
-
-        <p className="text-xs text-on-surface-variant">
-          Queries Ollama's REST API (<code className="font-mono text-secondary">/api/version</code> & <code className="font-mono text-secondary">/api/tags</code>) for active model serving.
-        </p>
-
-        {/* Service Endpoint Info */}
-        <div className="p-3 bg-surface-container/60 border border-outline-variant/40 rounded text-xs font-mono flex justify-between items-center">
-          <div className="flex items-center gap-2 text-on-surface-variant truncate pr-2">
-            <span className="text-secondary font-semibold">Service Endpoint:</span>
-            <span className="truncate">{ollamaStatus?.base_url || 'http://localhost:11434'}</span>
-          </div>
-          {restLatencyMs !== null && (
-            <span className="text-[10px] text-on-surface-variant shrink-0">
-              Response: <strong className="text-emerald-400">{restLatencyMs} ms</strong>
-            </span>
-          )}
-        </div>
-
-        {/* Live Discovered Models Grid */}
-        <div className="pt-2 border-t border-outline-variant/30 space-y-2">
-          <h4 className="text-[11px] font-mono text-secondary uppercase font-semibold">
-            Live Serving Models ({liveOllamaModels.length})
-          </h4>
-
-          {liveOllamaModels.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar p-1">
-              {liveOllamaModels.map((m) => {
-                const isActive = selectedLlm === 'ollama' && (selectedOllamaModel === m.full_id || selectedOllamaModel === m.name);
-                return (
-                  <div
-                    key={m.full_id}
-                    className={`p-2.5 bg-surface-container border rounded flex justify-between items-center text-xs transition-colors ${isActive ? 'border-secondary bg-secondary/10' : 'border-outline-variant'
-                      }`}
-                  >
-                    <div className="flex items-center gap-2 truncate pr-2">
-                      <span className="material-symbols-outlined text-xs text-secondary shrink-0">
-                        smart_toy
-                      </span>
-                      <span className="font-bold text-on-surface truncate">{m.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0 font-mono text-[10px]">
-                      {isActive && (
-                        <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.5 rounded font-bold">
-                          ✓ Active
-                        </span>
-                      )}
-                      {m.size_bytes ? (
-                        <span className="text-on-surface-variant text-[9px]">
-                          {formatSizeBytes(m.size_bytes)}
-                        </span>
-                      ) : null}
-                      <span className="bg-secondary/15 text-secondary border border-secondary/30 px-1.5 py-0.5 rounded font-semibold">
-                        :{m.tag}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+          <div className="flex items-center justify-between pt-2">
+            <div>
+              <span className="block text-xs font-bold text-on-surface font-mono uppercase">
+                Hardware GPU Acceleration
+              </span>
+              <span className="text-[11px] text-on-surface-variant">
+                Enable CUDA / Apple Silicon Metal acceleration for whisper & embeddings
+              </span>
             </div>
-          ) : (
-            <div className="p-4 text-center border border-dashed border-outline-variant/40 rounded text-xs text-on-surface-variant italic">
-              {ollamaStatus?.connected
-                ? 'Ollama service is connected, but no models have been pulled yet.'
-                : 'Start your local Ollama service daemon to discover installed models automatically.'}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 4. Local Model Storage (Host Filesystem Management) */}
-      <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-secondary text-base">folder_managed</span>
-            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
-              Local Model Storage (Disk Path Management)
-            </h3>
-          </div>
-
-          {/* Status Badge */}
-          {ollamaConfig && (
-            <span
-              className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${ollamaConfig.valid
-                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-                }`}
-            >
-              {ollamaConfig.valid ? `✓ Valid (${ollamaConfig.models_count} offline manifests)` : '✕ Invalid Path'}
-            </span>
-          )}
-        </div>
-
-        <p className="text-xs text-on-surface-variant">
-          Inspect and configure physical host model directory paths (e.g. <code className="font-mono text-secondary">E:\ollama\models</code>) for native offline manifest scanning. Saves automatically.
-        </p>
-
-        <div className="space-y-2">
-          <label className="block text-[11px] text-on-surface-variant font-mono uppercase font-semibold">
-            Directory Path
-          </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={ollamaDir}
-              onChange={(e) => handleOllamaDirChange(e.target.value)}
-              placeholder="e.g. E:\ollama\models"
-              className="flex-1 bg-surface-container border border-outline-variant rounded px-3 py-2 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
-            />
-            <Button type="button" variant="secondary" size="sm" onClick={handleBrowseFolder}>
-              Browse
-            </Button>
-          </div>
-        </div>
-
-        {/* Configured vs Resolved Directory Paths Display */}
-        {ollamaConfig && ollamaConfig.valid && (
-          <div className="p-3 bg-surface-container/60 border border-outline-variant/40 rounded space-y-1.5 text-[11px] font-mono">
-            <div className="flex items-center justify-between text-on-surface-variant">
-              <div className="flex items-center gap-2 truncate pr-2">
-                <span className="text-secondary font-semibold">Configured Path:</span>
-                <span className="truncate">{ollamaConfig.configured_dir}</span>
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="text-[10px] py-0.5 px-2"
-                onClick={handleRefreshOllamaDir}
-                disabled={isScanningOllama}
-              >
-                {isScanningOllama ? 'Scanning...' : 'Rescan Path'}
-              </Button>
-            </div>
-            <div className="flex items-center gap-2 text-on-surface-variant">
-              <span className="text-secondary font-semibold">Resolved Path:</span>
-              <span className="truncate">{ollamaConfig.resolved_dir}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Error Details if Invalid / Container Boundary Guidance */}
-        {(ollamaDirError || (ollamaConfig && !ollamaConfig.valid && ollamaConfig.error)) && (
-          <div className="p-3 bg-rose-950/40 border border-rose-500/30 rounded text-xs text-rose-300">
-            {ollamaDirError || simplifyOllamaDirError(ollamaConfig?.error)}
-          </div>
-        )}
-      </div>
-
-      {/* 5. Hardware Acceleration Card */}
-      <div className="p-6 bg-surface-container-low border border-outline-variant rounded-lg space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-secondary text-base">memory</span>
-            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
-              Hardware Acceleration & GPU Diagnostic
-            </h3>
-          </div>
-
-          <span
-            className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold ${gpuEnabled ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' : 'bg-surface-container text-on-surface-variant'
+            <button
+              onClick={() => handleGpuToggle(!gpuEnabled)}
+              className={`w-12 h-6 rounded-full transition-colors relative ${
+                gpuEnabled ? 'bg-secondary' : 'bg-surface-container-high border border-outline-variant'
               }`}
-          >
-            {gpuEnabled ? 'CUDA Active' : 'CPU Only'}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between p-3 bg-surface-container/60 border border-outline-variant/40 rounded">
-          <div>
-            <span className="text-xs font-bold text-on-surface block">
-              NVIDIA CUDA Acceleration
-            </span>
-            <span className="text-[11px] text-on-surface-variant block mt-0.5">
-              Utilize CUDA tensor cores for Faster-Whisper transcription & matrix operations.
-            </span>
+            >
+              <span
+                className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${
+                  gpuEnabled ? 'right-1' : 'left-1'
+                }`}
+              />
+            </button>
           </div>
-          <input
-            type="checkbox"
-            checked={gpuEnabled}
-            onChange={(e) => handleGpuToggle(e.target.checked)}
-            className="rounded accent-secondary w-4 h-4"
-          />
         </div>
       </div>
 
-      {/* 6. Danger Zone: Application Factory Reset */}
+      {/* 4. Danger Zone Data Reset */}
       <div className="p-6 bg-rose-950/20 border border-rose-500/30 rounded-lg space-y-4">
-        <div className="flex items-center gap-2 text-rose-400">
-          <span className="material-symbols-outlined text-base">warning</span>
-          <h3 className="font-bold text-xs font-mono uppercase tracking-wider">
-            Danger Zone: Factory Reset
-          </h3>
-        </div>
-        <p className="text-xs text-on-surface-variant">
-          Permanently delete all SQLite database records, uploaded media files, interactive transcripts, chat sessions, and vector indices.
-        </p>
-
-        {!isResetModalOpen ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="text-rose-400 hover:bg-rose-950/40 border-rose-500/40"
-            onClick={() => setIsResetModalOpen(true)}
-          >
-            Clear All Data
-          </Button>
-        ) : (
-          <div className="p-4 bg-surface-container border border-rose-500/40 rounded space-y-3">
-            <p className="text-xs font-semibold text-rose-300">
-              Type <code className="bg-rose-950 px-1.5 py-0.5 rounded font-mono text-rose-200">CLEAR MY DATA</code> to confirm permanent deletion:
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-sm text-rose-300 font-carvist uppercase tracking-wider">
+              Danger Zone — Reset Application State
+            </h3>
+            <p className="text-xs text-rose-200/70 mt-0.5">
+              Clear all SQLite databases, local vector stores, and application caches.
             </p>
-            <input
-              type="text"
-              value={confirmInputText}
-              onChange={(e) => setConfirmInputText(e.target.value)}
-              placeholder="CLEAR MY DATA"
-              className="w-full bg-surface-container-low border border-rose-500/40 rounded p-2 text-xs font-mono text-on-surface focus:outline-none"
-            />
-            <div className="flex gap-2 justify-end">
+          </div>
+          <Button variant="outline" size="sm" onClick={handleOpenResetModal} className="border-rose-500/50 text-rose-300 hover:bg-rose-950/50">
+            Reset All Data
+          </Button>
+        </div>
+      </div>
+
+      {/* Danger Zone Reset Confirmation Modal */}
+      {isResetModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-container-low border border-rose-500/50 rounded-lg p-6 max-w-md w-full space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-rose-400">
+              <span className="material-symbols-outlined text-2xl">warning</span>
+              <h4 className="font-bold text-lg font-carvist">Confirm Irreversible Reset</h4>
+            </div>
+
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              This action will permanently delete all processed media items, transcripts, knowledge graph nodes, vector embeddings, and persistent settings.
+            </p>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-rose-300 font-mono">
+                Type <code className="bg-rose-950 px-1 py-0.5 rounded">DELETE ATHENUS DATA</code> to confirm:
+              </label>
+              <input
+                type="text"
+                value={confirmInputText}
+                onChange={(e) => setConfirmInputText(e.target.value)}
+                placeholder="DELETE ATHENUS DATA"
+                className="w-full bg-surface-container border border-rose-500/40 rounded p-2.5 text-xs font-mono text-rose-200 focus:outline-none focus:border-rose-400"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  setIsResetModalOpen(false);
-                  setConfirmInputText('');
-                }}
+                onClick={() => setIsResetModalOpen(false)}
+                disabled={isResetting}
               >
                 Cancel
               </Button>
               <Button
-                variant="secondary"
+                variant="primary"
                 size="sm"
-                className="bg-rose-600 hover:bg-rose-700 text-white font-bold border-none"
-                onClick={handleExecuteReset}
-                disabled={confirmInputText.trim() !== 'CLEAR MY DATA' || isResetting}
+                onClick={handleConfirmReset}
+                disabled={confirmInputText !== 'DELETE ATHENUS DATA' || isResetting}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
               >
-                {isResetting ? 'Purging All Data...' : 'Confirm Reset'}
+                {isResetting ? 'Deleting...' : 'Permanently Delete'}
               </Button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

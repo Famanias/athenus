@@ -77,6 +77,10 @@ class ILLMProvider(ABC):
 class BaseLLMProvider(ILLMProvider):
     """Abstract base provider supplying sensible default implementations for common methods."""
 
+    def set_model(self, model: str) -> None:
+        """Update active default model at runtime."""
+        self.default_model = model
+
     async def get_capabilities(self) -> LLMProviderCapabilities:
         return LLMProviderCapabilities(supports_streaming=True, supports_model_discovery=True)
 
@@ -97,7 +101,12 @@ class BaseLLMProvider(ILLMProvider):
         try:
             models = await self.list_models()
             is_avail = len(models) > 0
-            active_m = models[0].id if models else default_m
+            model_ids = [m.id for m in models]
+            def_m = getattr(self, "default_model", None)
+            if def_m and (not models or def_m in model_ids):
+                active_m = def_m
+            else:
+                active_m = models[0].id if models else default_m
             return ProviderHealthDTO(
                 provider_id=self.provider_id,
                 is_available=is_avail,

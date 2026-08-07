@@ -95,13 +95,16 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         "gpu_acceleration": payload.gpu_acceleration,
     })
 
-    # Dynamically update backend config resolver & adapters
+    # Dynamically update backend config resolver & target adapter
     try:
-        from app.main import config_resolver, openrouter_adapter, groq_adapter, router_policy
+        from app.main import config_resolver, llm_provider_registry, router_policy
         config_resolver.set_active_provider_id(provider)
-        if payload.api_key:
-            openrouter_adapter.set_api_key(payload.api_key)
-            groq_adapter.set_api_key(payload.api_key)
+        active_adapter = llm_provider_registry.get(provider)
+        if active_adapter:
+            if payload.api_key and payload.api_key.strip() and hasattr(active_adapter, "set_api_key"):
+                active_adapter.set_api_key(payload.api_key.strip())
+            if payload.selected_ollama_model and hasattr(active_adapter, "set_model"):
+                active_adapter.set_model(payload.selected_ollama_model)
         router_policy.policy.prefer_local = provider == "ollama"
     except Exception:
         pass
@@ -120,16 +123,10 @@ def patch_provider_settings(payload: ProviderSettingsPatchDTO):
     global _transient_api_key
     updates = payload.model_dump(exclude_unset=True)
 
+    key_override: Optional[str] = None
     if "api_key" in updates:
-        key = updates.pop("api_key")
-        _transient_api_key = key
-        if key:
-            try:
-                from app.main import openrouter_adapter, groq_adapter
-                openrouter_adapter.set_api_key(key)
-                groq_adapter.set_api_key(key)
-            except Exception:
-                pass
+        key_override = updates.pop("api_key")
+        _transient_api_key = key_override or ""
 
     if "default_llm" in updates:
         updates["default_llm"] = _normalize_provider(updates["default_llm"])
@@ -138,11 +135,18 @@ def patch_provider_settings(payload: ProviderSettingsPatchDTO):
 
     # Sync router policy & config resolver
     try:
-        from app.main import config_resolver, router_policy
-        new_provider = updates.get("default_llm")
+        from app.main import config_resolver, llm_provider_registry, router_policy
+        new_provider = db_rec.default_llm
         if new_provider is not None:
             config_resolver.set_active_provider_id(new_provider)
             router_policy.policy.prefer_local = new_provider == "ollama"
+            active_adapter = llm_provider_registry.get(new_provider)
+            if active_adapter:
+                if key_override and key_override.strip() and hasattr(active_adapter, "set_api_key"):
+                    active_adapter.set_api_key(key_override.strip())
+                selected_m = updates.get("selected_ollama_model") or updates.get("selected_model")
+                if selected_m and hasattr(active_adapter, "set_model"):
+                    active_adapter.set_model(selected_m)
     except Exception:
         pass
 
@@ -188,6 +192,11 @@ class CatalogModelDTO(BaseModel):
 class CatalogProviderDTO(BaseModel):
     id: str
     label: str
+    is_local: bool = False
+    is_configured: bool = False
+    is_available: bool = False
+    active_model: Optional[str] = None
+    error: Optional[str] = None
     models: List[CatalogModelDTO] = []
 
 class CatalogSelectionDTO(BaseModel):
@@ -235,17 +244,15 @@ async def get_provider_catalog():
         providers = []
         for p in raw_catalog:
             models = [CatalogModelDTO(id=m["id"]) for m in p.get("models", [])]
-            if p["id"] == "ollama" and db_rec.ollama_models_dir:
-                fs_res = _scan_and_build_response(db_rec.ollama_models_dir)
-                existing_ids = {m.id for m in models}
-                for fs_m in fs_res.models:
-                    if fs_m.full_id not in existing_ids:
-                        models.append(CatalogModelDTO(id=fs_m.full_id))
-                        existing_ids.add(fs_m.full_id)
 
             providers.append(CatalogProviderDTO(
                 id=p["id"],
                 label=p["name"],
+                is_local=p.get("is_local", False),
+                is_configured=p.get("is_configured", False),
+                is_available=p.get("is_available", False),
+                active_model=p.get("active_model"),
+                error=p.get("error"),
                 models=models
             ))
 
@@ -255,9 +262,9 @@ async def get_provider_catalog():
         for p in providers:
             if p.id == active_provider:
                 if active_provider == "ollama":
-                    active_model = db_rec.selected_ollama_model
-                elif p.models:
-                    active_model = p.models[0].id
+                    active_model = db_rec.selected_ollama_model or p.active_model
+                else:
+                    active_model = p.active_model
                 break
 
         return ProviderCatalogResponse(
@@ -276,110 +283,3 @@ async def get_provider_catalog():
             active=CatalogSelectionDTO(provider=db_rec.default_llm or "ollama", model=None),
             providers=providers,
         )
-
-# --- Ollama Local Models Directory Settings ---
-
-from app.services.ollama_scanner import (
-    OllamaModelScanner,
-    DirectoryNotFoundError,
-    InvalidOllamaDirectoryError,
-)
-
-ollama_scanner = OllamaModelScanner()
-
-class DiscoveredModelDTO(BaseModel):
-    full_id: str
-    model_name: str
-    tag: str
-    provider: str = "ollama"
-    size_bytes: Optional[int] = None
-
-class UpdateOllamaDirectoryDTO(BaseModel):
-    models_dir: str
-
-class OllamaSettingsResponse(BaseModel):
-    configured_dir: Optional[str] = None
-    resolved_dir: Optional[str] = None
-    valid: bool = False
-    models_count: int = 0
-    models: List[DiscoveredModelDTO] = []
-    error: Optional[str] = None
-
-def _scan_and_build_response(models_dir: Optional[str]) -> OllamaSettingsResponse:
-    if not models_dir:
-        return OllamaSettingsResponse(
-            configured_dir=None,
-            resolved_dir=None,
-            valid=False,
-            models_count=0,
-            models=[],
-            error=None
-        )
-
-    try:
-        config_dir, res_dir, models = ollama_scanner.scan(models_dir)
-        dto_models = [
-            DiscoveredModelDTO(
-                full_id=m.full_id,
-                model_name=m.model_name,
-                tag=m.tag,
-                provider=m.provider,
-                size_bytes=m.size_bytes
-            )
-            for m in models
-        ]
-        return OllamaSettingsResponse(
-            configured_dir=config_dir,
-            resolved_dir=res_dir,
-            valid=True,
-            models_count=len(dto_models),
-            models=dto_models,
-            error=None
-        )
-    except DirectoryNotFoundError as e:
-        return OllamaSettingsResponse(
-            configured_dir=models_dir,
-            resolved_dir=None,
-            valid=False,
-            models_count=0,
-            models=[],
-            error=str(e)
-        )
-    except InvalidOllamaDirectoryError as e:
-        return OllamaSettingsResponse(
-            configured_dir=models_dir,
-            resolved_dir=None,
-            valid=False,
-            models_count=0,
-            models=[],
-            error=str(e)
-        )
-    except Exception as e:
-        return OllamaSettingsResponse(
-            configured_dir=models_dir,
-            resolved_dir=None,
-            valid=False,
-            models_count=0,
-            models=[],
-            error=f"Scanning failed: {str(e)}"
-        )
-
-@router.get("/settings/ollama", response_model=OllamaSettingsResponse)
-def get_ollama_settings():
-    db_rec = settings_service.get_settings()
-    return _scan_and_build_response(db_rec.ollama_models_dir)
-
-@router.put("/settings/ollama", response_model=OllamaSettingsResponse)
-def update_ollama_directory(payload: UpdateOllamaDirectoryDTO):
-    db_rec = settings_service.update_settings({"ollama_models_dir": payload.models_dir})
-    res = _scan_and_build_response(db_rec.ollama_models_dir)
-    if not res.valid and res.error:
-        raise HTTPException(status_code=400, detail=res.error)
-    return res
-
-@router.post("/settings/ollama/scan", response_model=OllamaSettingsResponse)
-def scan_ollama_models():
-    db_rec = settings_service.get_settings()
-    if not db_rec.ollama_models_dir:
-        raise HTTPException(status_code=400, detail="No Ollama models directory is currently configured.")
-    return _scan_and_build_response(db_rec.ollama_models_dir)

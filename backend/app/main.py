@@ -129,13 +129,16 @@ async def lifespan(app: FastAPI):
     # Boot sequence: initialize SQLite schema & load models
     init_db()
     
-    # Explicitly load persistent settings from SQLite and sync router policy
+    # Explicitly load persistent settings from SQLite and sync router policy & model selections
     from app.domain.settings.settings_service import SettingsService
     settings_rec = SettingsService().get_settings()
     if settings_rec.default_llm and settings_rec.default_llm.lower() == "ollama":
         router_policy.policy.prefer_local = True
     else:
         router_policy.policy.prefer_local = False
+
+    if settings_rec.selected_ollama_model:
+        ollama_adapter.set_model(settings_rec.selected_ollama_model)
 
     # Register Domain Event subscribers to link EventBus with MediaRepository and ProgressStore
     register_media_subscribers(event_bus, media_repository, progress_store)

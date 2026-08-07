@@ -65,27 +65,23 @@ def test_patch_provider_settings_invalid_provider():
 
 def test_provider_catalog_lists_ollama_models_and_active_selection():
     init_db()
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        models_dir = _setup_ollama_dir(tmp_dir)
-        SettingsService().update_settings({
-            "ollama_models_dir": models_dir,
-            "selected_ollama_model": "phi3:mini",
-            "default_llm": "ollama",
-        })
+    SettingsService().update_settings({
+        "selected_ollama_model": "phi3:mini",
+        "default_llm": "ollama",
+    })
 
-        res = client.get("/api/v1/settings/providers/catalog")
-        assert res.status_code == 200
-        data = res.json()
-        assert data["active"]["provider"] == "ollama"
-        assert data["active"]["model"] == "phi3:mini"
+    res = client.get("/api/v1/settings/providers/catalog")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["active"]["provider"] == "ollama"
+    assert data["active"]["model"] == "phi3:mini"
 
-        by_id = {p["id"]: p for p in data["providers"]}
-        assert "ollama" in by_id
-        assert "phi3:mini" in [m["id"] for m in by_id["ollama"]["models"]]
-        assert "groq" in by_id
-        assert len(by_id["groq"]["models"]) > 0
-        assert "openrouter" in by_id
-        assert len(by_id["openrouter"]["models"]) > 0
+    by_id = {p["id"]: p for p in data["providers"]}
+    assert "ollama" in by_id
+    assert "groq" in by_id
+    assert len(by_id["groq"]["models"]) > 0
+    assert "openrouter" in by_id
+    assert len(by_id["openrouter"]["models"]) > 0
 
 
 def test_provider_catalog_active_reflects_cloud_provider():

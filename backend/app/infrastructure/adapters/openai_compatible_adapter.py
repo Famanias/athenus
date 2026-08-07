@@ -36,7 +36,8 @@ class OpenAICompatibleProviderAdapter(BaseLLMProvider):
         self._provider_id = provider_id.lower()
         self._name = name
         self.base_url = base_url.rstrip("/")
-        self.api_key = api_key or ""
+        self._env_api_key = (api_key or "").strip()
+        self.api_key = self._env_api_key
         self.default_model = default_model
         self._is_local = is_local
         self.extra_headers = extra_headers or {}
@@ -56,9 +57,12 @@ class OpenAICompatibleProviderAdapter(BaseLLMProvider):
     def is_local(self) -> bool:
         return self._is_local
 
-    def set_api_key(self, api_key: str) -> None:
-        """Update API key at runtime."""
-        self.api_key = api_key
+    def set_api_key(self, api_key: Optional[str]) -> None:
+        """Update API key at runtime (uses transient key if provided, else falls back to .env key)."""
+        if api_key and api_key.strip():
+            self.api_key = api_key.strip()
+        else:
+            self.api_key = self._env_api_key
         # Clear model cache on key update
         self._model_cache = []
         self._cache_timestamp = 0.0

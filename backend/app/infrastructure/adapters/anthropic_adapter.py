@@ -14,7 +14,8 @@ class AnthropicProviderAdapter(BaseLLMProvider):
         default_model: str = "claude-3-5-sonnet-latest",
         http_client: Optional[httpx.AsyncClient] = None
     ) -> None:
-        self.api_key = api_key or ""
+        self._env_api_key = (api_key or "").strip()
+        self.api_key = self._env_api_key
         self.base_url = base_url.rstrip("/")
         self.default_model = default_model
         self._http_client = http_client
@@ -31,8 +32,11 @@ class AnthropicProviderAdapter(BaseLLMProvider):
     def is_local(self) -> bool:
         return False
 
-    def set_api_key(self, api_key: str) -> None:
-        self.api_key = api_key
+    def set_api_key(self, api_key: Optional[str]) -> None:
+        if api_key and api_key.strip():
+            self.api_key = api_key.strip()
+        else:
+            self.api_key = self._env_api_key
 
     def set_model(self, model: str) -> None:
         self.default_model = model

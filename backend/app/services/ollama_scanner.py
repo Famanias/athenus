@@ -21,7 +21,9 @@ class DiscoveredModel:
     size_bytes: Optional[int] = None
 
 class OllamaModelScanner:
-    """100% Filesystem-based scanner for local Ollama model directories."""
+    """DEPRECATED: Filesystem-based scanner for local Ollama model directories.
+    Deprecated in favor of the native Ollama service daemon HTTP API (/api/tags).
+    """
 
     def __init__(self, fs_service: Optional[FilesystemService] = None) -> None:
         self.fs_service = fs_service or default_fs_service
