@@ -17,7 +17,7 @@ const selectClass =
 
 export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
   const llmProvider = useAppStore((s) => s.llmProvider);
-  const selectedOllamaModel = useAppStore((s) => s.selectedOllamaModel);
+  const activeModel = useAppStore((s) => s.activeModel);
   const setProviderSettings = useAppStore((s) => s.setProviderSettings);
 
   const [catalog, setCatalog] = useState<ProviderCatalogProviderDTO[]>([]);
@@ -33,9 +33,8 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
       setCatalog(res.providers);
       const state = useAppStore.getState();
       const nextProvider = res.active.provider;
-      const nextModel =
-        res.active.provider === 'ollama' ? res.active.model || state.selectedOllamaModel : state.selectedOllamaModel;
-      if (nextProvider !== state.llmProvider || (nextModel && nextModel !== state.selectedOllamaModel)) {
+      const nextModel = res.active.model || state.activeModel;
+      if (nextProvider !== state.llmProvider || (nextModel && nextModel !== state.activeModel)) {
         setProviderSettings(nextProvider, state.sttProvider, state.gpuAcceleration, nextModel);
       }
     } catch {
@@ -53,14 +52,11 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
   const ollamaModels = activeProvider?.id === 'ollama' ? activeProvider.models : [];
   const isStaleOllamaModel =
     activeProvider?.id === 'ollama' &&
-    !!selectedOllamaModel &&
+    !!activeModel &&
     ollamaModels.length > 0 &&
-    !ollamaModels.some((m) => m.id === selectedOllamaModel);
+    !ollamaModels.some((m) => m.id === activeModel);
 
-  const modelValue =
-    activeProvider?.id === 'ollama'
-      ? selectedOllamaModel
-      : activeProvider?.models[0]?.id ?? '';
+  const modelValue = activeProvider ? activeModel : '';
 
   const handleProviderChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const provider = e.target.value;
@@ -73,7 +69,7 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
         res.default_llm,
         res.default_stt,
         res.gpu_acceleration,
-        res.selected_ollama_model || ''
+        res.selected_model || ''
       );
     } catch {
       setError('Failed to switch provider');
@@ -90,13 +86,13 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
     try {
       const res = await patchProviderSettings({
         default_llm: llmProvider,
-        selected_ollama_model: llmProvider === 'ollama' ? model : undefined,
+        selected_model: model,
       });
       setProviderSettings(
         res.default_llm,
         res.default_stt,
         res.gpu_acceleration,
-        res.selected_ollama_model || ''
+        res.selected_model || ''
       );
     } catch {
       setError('Failed to switch model');
@@ -142,18 +138,18 @@ export const ModelSwitcher: React.FC<ModelSwitcherProps> = ({ className }) => {
       <select
         value={modelValue}
         onChange={handleModelChange}
-        disabled={isSaving || (activeProvider.models.length === 0 && !selectedOllamaModel)}
+        disabled={isSaving || (activeProvider.models.length === 0 && !activeModel)}
         className={selectClass}
         title="Active model"
       >
-        {!selectedOllamaModel && activeProvider.id === 'ollama' && (
+        {!activeModel && activeProvider.id === 'ollama' && (
           <option value="" disabled>
             -- Select a model --
           </option>
         )}
-        {selectedOllamaModel && !activeProvider.models.some((m) => m.id === selectedOllamaModel) && (
-          <option key={selectedOllamaModel} value={selectedOllamaModel}>
-            {selectedOllamaModel}
+        {activeModel && !activeProvider.models.some((m) => m.id === activeModel) && (
+          <option key={activeModel} value={activeModel}>
+            {activeModel}
           </option>
         )}
         {activeProvider.models.map((m) => (

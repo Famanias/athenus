@@ -1,7 +1,7 @@
 import asyncio
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Dict, List, Optional
 from app.core.config import settings
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.settings.settings_service import SettingsService
@@ -23,6 +23,8 @@ _transient_api_key: str = ""
 class ProviderSettingsDTO(BaseModel):
     default_llm: str
     selected_ollama_model: Optional[str] = None
+    selected_model: Optional[str] = None
+    active_models: Optional[Dict[str, str]] = None
     default_stt: str
     gpu_acceleration: bool
     api_key: Optional[str] = ""
@@ -30,6 +32,8 @@ class ProviderSettingsDTO(BaseModel):
 class ProviderSettingsResponse(BaseModel):
     default_llm: str
     selected_ollama_model: Optional[str] = None
+    selected_model: Optional[str] = None
+    active_models: Optional[Dict[str, str]] = None
     default_stt: str
     default_embedding: str
     gpu_acceleration: bool
@@ -39,9 +43,33 @@ class ProviderSettingsResponse(BaseModel):
 class ProviderSettingsPatchDTO(BaseModel):
     default_llm: Optional[str] = None
     selected_ollama_model: Optional[str] = None
+    selected_model: Optional[str] = None
+    active_models: Optional[Dict[str, str]] = None
     default_stt: Optional[str] = None
     gpu_acceleration: Optional[bool] = None
     api_key: Optional[str] = None
+
+def _active_model_for(db_rec, provider_id: str) -> Optional[str]:
+    """Resolve the persisted active model for a provider from the per-provider map."""
+    models = getattr(db_rec, "active_models", None) or {}
+    return models.get(provider_id) or None
+
+def _merge_selected_model(updates: dict, provider_id: str) -> dict:
+    """Fold a convenience `selected_model` value into the per-provider active_models map."""
+    if "selected_model" not in updates:
+        return updates
+    merged = dict(updates)
+    selected = merged.pop("selected_model")
+    active_models = dict(merged.get("active_models") or {})
+    if selected:
+        active_models[provider_id] = selected
+    merged["active_models"] = active_models
+    return merged
+
+def _apply_model_to_adapter(adapter, model: Optional[str]) -> None:
+    """Hot-swap the in-memory default model on an adapter without a restart."""
+    if model and adapter and hasattr(adapter, "set_model"):
+        adapter.set_model(model)
 
 def _normalize_provider(raw: str) -> str:
     provider_map = {
@@ -74,6 +102,8 @@ def get_provider_settings():
     return ProviderSettingsResponse(
         default_llm=db_rec.default_llm,
         selected_ollama_model=db_rec.selected_ollama_model,
+        selected_model=_active_model_for(db_rec, db_rec.default_llm),
+        active_models=db_rec.active_models or {},
         default_stt=db_rec.default_stt,
         default_embedding=db_rec.default_embedding,
         gpu_acceleration=db_rec.gpu_acceleration,
@@ -88,12 +118,19 @@ def update_provider_settings(payload: ProviderSettingsDTO):
     if payload.api_key is not None:
         _transient_api_key = payload.api_key
 
-    db_rec = settings_service.update_settings({
+    updates = {
         "default_llm": provider,
         "selected_ollama_model": payload.selected_ollama_model,
         "default_stt": payload.default_stt,
         "gpu_acceleration": payload.gpu_acceleration,
-    })
+    }
+    if payload.selected_model or payload.active_models:
+        active_models = dict(payload.active_models or {})
+        if payload.selected_model:
+            active_models[provider] = payload.selected_model
+        updates["active_models"] = active_models
+
+    db_rec = settings_service.update_settings(updates)
 
     # Dynamically update backend config resolver & target adapter
     try:
@@ -103,8 +140,7 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         if active_adapter:
             if payload.api_key and payload.api_key.strip() and hasattr(active_adapter, "set_api_key"):
                 active_adapter.set_api_key(payload.api_key.strip())
-            if payload.selected_ollama_model and hasattr(active_adapter, "set_model"):
-                active_adapter.set_model(payload.selected_ollama_model)
+            _apply_model_to_adapter(active_adapter, _active_model_for(db_rec, provider))
         router_policy.policy.prefer_local = provider == "ollama"
     except Exception:
         pass
@@ -112,6 +148,8 @@ def update_provider_settings(payload: ProviderSettingsDTO):
     return ProviderSettingsResponse(
         default_llm=db_rec.default_llm,
         selected_ollama_model=db_rec.selected_ollama_model,
+        selected_model=_active_model_for(db_rec, db_rec.default_llm),
+        active_models=db_rec.active_models or {},
         default_stt=db_rec.default_stt,
         default_embedding=db_rec.default_embedding,
         gpu_acceleration=db_rec.gpu_acceleration,
@@ -131,6 +169,10 @@ def patch_provider_settings(payload: ProviderSettingsPatchDTO):
     if "default_llm" in updates:
         updates["default_llm"] = _normalize_provider(updates["default_llm"])
 
+    # Determine the provider the selected_model applies to (new or current default)
+    target_provider = updates.get("default_llm") or settings_service.get_settings().default_llm
+    updates = _merge_selected_model(updates, target_provider)
+
     db_rec = settings_service.update_settings(updates)
 
     # Sync router policy & config resolver
@@ -144,15 +186,15 @@ def patch_provider_settings(payload: ProviderSettingsPatchDTO):
             if active_adapter:
                 if key_override and key_override.strip() and hasattr(active_adapter, "set_api_key"):
                     active_adapter.set_api_key(key_override.strip())
-                selected_m = updates.get("selected_ollama_model") or updates.get("selected_model")
-                if selected_m and hasattr(active_adapter, "set_model"):
-                    active_adapter.set_model(selected_m)
+                _apply_model_to_adapter(active_adapter, _active_model_for(db_rec, new_provider))
     except Exception:
         pass
 
     return ProviderSettingsResponse(
         default_llm=db_rec.default_llm,
         selected_ollama_model=db_rec.selected_ollama_model,
+        selected_model=_active_model_for(db_rec, db_rec.default_llm),
+        active_models=db_rec.active_models or {},
         default_stt=db_rec.default_stt,
         default_embedding=db_rec.default_embedding,
         gpu_acceleration=db_rec.gpu_acceleration,
@@ -261,10 +303,7 @@ async def get_provider_catalog():
         
         for p in providers:
             if p.id == active_provider:
-                if active_provider == "ollama":
-                    active_model = db_rec.selected_ollama_model or p.active_model
-                else:
-                    active_model = p.active_model
+                active_model = _active_model_for(db_rec, active_provider) or p.active_model
                 break
 
         return ProviderCatalogResponse(

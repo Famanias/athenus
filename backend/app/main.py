@@ -137,8 +137,14 @@ async def lifespan(app: FastAPI):
     else:
         router_policy.policy.prefer_local = False
 
-    if settings_rec.selected_ollama_model:
-        ollama_adapter.set_model(settings_rec.selected_ollama_model)
+    # Restore the persisted per-provider model selections onto their adapters
+    active_models = settings_rec.active_models or {}
+    for provider_id, model_name in active_models.items():
+        if not model_name:
+            continue
+        adapter = llm_provider_registry.get(provider_id)
+        if adapter and hasattr(adapter, "set_model"):
+            adapter.set_model(model_name)
 
     # Register Domain Event subscribers to link EventBus with MediaRepository and ProgressStore
     register_media_subscribers(event_bus, media_repository, progress_store)

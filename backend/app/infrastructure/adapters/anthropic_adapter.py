@@ -41,6 +41,18 @@ class AnthropicProviderAdapter(BaseLLMProvider):
     def set_model(self, model: str) -> None:
         self.default_model = model
 
+    def _resolve_model(self) -> str:
+        """Resolve the active model from persisted per-provider settings, falling back to default."""
+        try:
+            from app.domain.settings.settings_service import SettingsService
+            active_models = SettingsService().get_settings().active_models
+            selected = (active_models or {}).get(self.provider_id)
+            if selected:
+                return selected
+        except Exception:
+            pass
+        return self.default_model
+
     def _get_client(self) -> httpx.AsyncClient:
         return self._http_client or httpx.AsyncClient(timeout=30.0)
 
@@ -80,7 +92,7 @@ class AnthropicProviderAdapter(BaseLLMProvider):
         url = f"{self.base_url}/messages"
         headers = self._build_headers()
         payload = {
-            "model": self.default_model,
+            "model": self._resolve_model(),
             "system": request.system_prompt or "You are Athenus AI Assistant.",
             "messages": [{"role": "user", "content": request.prompt}],
             "max_tokens": request.max_tokens or 1024,
@@ -128,7 +140,7 @@ class AnthropicProviderAdapter(BaseLLMProvider):
         url = f"{self.base_url}/messages"
         headers = self._build_headers()
         payload = {
-            "model": self.default_model,
+            "model": self._resolve_model(),
             "system": request.system_prompt or "You are Athenus AI Assistant.",
             "messages": [{"role": "user", "content": request.prompt}],
             "max_tokens": request.max_tokens or 1024,

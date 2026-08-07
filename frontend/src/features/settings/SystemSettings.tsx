@@ -20,9 +20,9 @@ import {
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export const SystemSettings: React.FC = () => {
-  const { llmProvider, sttProvider, gpuAcceleration, selectedOllamaModel: storeOllamaModel, setProviderSettings, setActiveMediaId } = useAppStore();
+  const { llmProvider, sttProvider, gpuAcceleration, activeModel: storeActiveModel, setProviderSettings, setActiveMediaId } = useAppStore();
   const [selectedLlm, setSelectedLlm] = useState<string>(llmProvider);
-  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>(storeOllamaModel);
+  const [selectedModel, setSelectedModel] = useState<string>(storeActiveModel);
   const [selectedStt, setSelectedStt] = useState<string>(sttProvider);
   const [gpuEnabled, setGpuEnabled] = useState<boolean>(gpuAcceleration);
   const [apiKey, setApiKey] = useState<string>('');
@@ -60,7 +60,7 @@ export const SystemSettings: React.FC = () => {
 
   const lastSavedRef = useRef({
     llm: '',
-    ollamaModel: '',
+    model: '',
     stt: '',
     gpu: false,
     apiKey: '',
@@ -135,21 +135,24 @@ export const SystemSettings: React.FC = () => {
         setGpuEnabled(data.gpu_acceleration);
         setApiKey(data.api_key || '');
 
-        const backendSavedModel = data.selected_ollama_model || storeOllamaModel || '';
-        setSelectedOllamaModel(backendSavedModel);
+        const backendSavedModel = data.selected_model || data.selected_ollama_model || storeActiveModel || '';
+        setSelectedModel(backendSavedModel);
         setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration, backendSavedModel);
 
         if (catalogRes) {
           setCatalogProviders(catalogRes.providers);
           if (catalogRes.active?.provider) {
             setSelectedLlm(catalogRes.active.provider);
+            if (catalogRes.active.model) {
+              setSelectedModel(catalogRes.active.model);
+            }
           }
         }
 
         // Establish baseline of confirmed saved values to prevent spurious autosaves
         lastSavedRef.current = {
           llm: normLlm,
-          ollamaModel: backendSavedModel,
+          model: backendSavedModel,
           stt: data.default_stt,
           gpu: data.gpu_acceleration,
           apiKey: data.api_key || '',
@@ -167,7 +170,7 @@ export const SystemSettings: React.FC = () => {
     }
 
     hydrateSettings();
-  }, [fetchOllamaDaemonInfo, setProviderSettings, storeOllamaModel]);
+  }, [fetchOllamaDaemonInfo, setProviderSettings, storeActiveModel]);
 
   // Event Listeners: Window Focus & 45-Second Fallback Polling Interval
   useEffect(() => {
@@ -190,16 +193,19 @@ export const SystemSettings: React.FC = () => {
   const executeServerSync = useCallback(
     async (overrideValues?: {
       llm?: string;
-      ollamaModel?: string;
+      model?: string;
       stt?: string;
       gpu?: boolean;
       apiKey?: string;
     }) => {
       if (!isHydratedRef.current) return;
 
+      // On a provider switch, never carry the previous provider's model into the new one
+      const isProviderChange = !!overrideValues?.llm && overrideValues.llm !== selectedLlm;
+
       const currentValues = {
         llm: overrideValues?.llm ?? selectedLlm,
-        ollamaModel: overrideValues?.ollamaModel ?? selectedOllamaModel,
+        model: isProviderChange ? '' : (overrideValues?.model ?? selectedModel),
         stt: overrideValues?.stt ?? selectedStt,
         gpu: overrideValues?.gpu ?? gpuEnabled,
         apiKey: overrideValues?.apiKey ?? apiKey,
@@ -208,7 +214,7 @@ export const SystemSettings: React.FC = () => {
       // Skip save if values match current baseline
       const isUnchanged =
         currentValues.llm === lastSavedRef.current.llm &&
-        currentValues.ollamaModel === lastSavedRef.current.ollamaModel &&
+        currentValues.model === lastSavedRef.current.model &&
         currentValues.stt === lastSavedRef.current.stt &&
         currentValues.gpu === lastSavedRef.current.gpu &&
         currentValues.apiKey === lastSavedRef.current.apiKey;
@@ -224,7 +230,7 @@ export const SystemSettings: React.FC = () => {
       try {
         const payload: Record<string, any> = {
           default_llm: currentValues.llm,
-          selected_ollama_model: currentValues.ollamaModel,
+          selected_model: currentValues.model,
           default_stt: currentValues.stt,
           gpu_acceleration: currentValues.gpu,
         };
@@ -236,16 +242,20 @@ export const SystemSettings: React.FC = () => {
 
         if (requestId !== saveRequestIdRef.current) return;
 
+        // Keep the local model mirror aligned with the server's per-provider selection
+        const serverModel = patchData.selected_model || '';
+        setSelectedModel(serverModel || currentValues.model);
+
         setProviderSettings(
           patchData.default_llm,
           patchData.default_stt,
           patchData.gpu_acceleration,
-          patchData.selected_ollama_model || currentValues.ollamaModel
+          serverModel || currentValues.model
         );
 
         lastSavedRef.current = {
           llm: patchData.default_llm,
-          ollamaModel: patchData.selected_ollama_model || currentValues.ollamaModel,
+          model: serverModel || currentValues.model,
           stt: patchData.default_stt,
           gpu: patchData.gpu_acceleration,
           apiKey: currentValues.apiKey,
@@ -264,7 +274,7 @@ export const SystemSettings: React.FC = () => {
         setSaveErrorMessage(err.message || 'Failed to update provider settings.');
       }
     },
-    [apiKey, gpuEnabled, selectedLlm, selectedOllamaModel, selectedStt, setProviderSettings, saveStatus]
+    [apiKey, gpuEnabled, selectedLlm, selectedModel, selectedStt, setProviderSettings, saveStatus]
   );
 
   // Handler for LLM Provider Switch
@@ -274,10 +284,10 @@ export const SystemSettings: React.FC = () => {
     executeServerSync({ llm: newVal });
   };
 
-  // Handler for Ollama Model Switch
-  const handleOllamaModelChange = (newVal: string) => {
-    setSelectedOllamaModel(newVal);
-    executeServerSync({ ollamaModel: newVal });
+  // Handler for Active Model Switch
+  const handleModelChange = (newVal: string) => {
+    setSelectedModel(newVal);
+    executeServerSync({ model: newVal });
   };
 
   // Handler for STT Provider Switch
@@ -375,10 +385,10 @@ export const SystemSettings: React.FC = () => {
   // Check if saved Ollama model is missing from live daemon catalog
   const isSelectedModelMissing =
     selectedLlm === 'ollama' &&
-    Boolean(selectedOllamaModel) &&
+    Boolean(selectedModel) &&
     liveOllamaModels.length > 0 &&
     !liveOllamaModels.some(
-      (m) => m.full_id === selectedOllamaModel || m.name === selectedOllamaModel || `${m.name}:${m.tag}` === selectedOllamaModel
+      (m) => m.full_id === selectedModel || m.name === selectedModel || `${m.name}:${m.tag}` === selectedModel
     );
 
   // Runtime environment detection
@@ -571,8 +581,8 @@ export const SystemSettings: React.FC = () => {
               Active Model Selection ({selectedLlm.toUpperCase()})
             </label>
             <select
-              value={selectedOllamaModel || activeProviderObj?.active_model || ''}
-              onChange={(e) => handleOllamaModelChange(e.target.value)}
+              value={selectedModel || activeProviderObj?.active_model || ''}
+              onChange={(e) => handleModelChange(e.target.value)}
               className="w-full bg-surface-container border border-outline-variant rounded p-2.5 text-xs font-mono text-on-surface focus:border-secondary focus:outline-none"
             >
               {activeModels.length > 0 ? (
@@ -590,7 +600,7 @@ export const SystemSettings: React.FC = () => {
               <div className="p-3 bg-amber-950/40 border border-amber-500/30 rounded text-xs text-amber-300 flex items-center gap-2">
                 <span className="material-symbols-outlined text-sm shrink-0">warning</span>
                 <span>
-                  Saved model <code className="font-mono bg-amber-900/50 px-1 rounded">{selectedOllamaModel}</code> is not currently installed on your running Ollama service daemon.
+                  Saved model <code className="font-mono bg-amber-900/50 px-1 rounded">{selectedModel}</code> is not currently installed on your running Ollama service daemon.
                 </span>
               </div>
             )}

@@ -71,6 +71,18 @@ class OpenAICompatibleProviderAdapter(BaseLLMProvider):
         """Update active default model at runtime."""
         self.default_model = model
 
+    def _resolve_model(self) -> str:
+        """Resolve the active model from persisted per-provider settings, falling back to default."""
+        try:
+            from app.domain.settings.settings_service import SettingsService
+            active_models = SettingsService().get_settings().active_models
+            selected = (active_models or {}).get(self.provider_id)
+            if selected:
+                return selected
+        except Exception:
+            pass
+        return self.default_model
+
     def _get_client(self) -> httpx.AsyncClient:
         return self._http_client or httpx.AsyncClient(timeout=30.0)
 
@@ -148,7 +160,7 @@ class OpenAICompatibleProviderAdapter(BaseLLMProvider):
         url = f"{self.base_url}/chat/completions"
         headers = self._build_headers()
         payload = {
-            "model": request.stop_sequences[0] if getattr(request, "model_id", None) else self.default_model,
+            "model": self._resolve_model(),
             "messages": [
                 {"role": "system", "content": request.system_prompt or "You are Athenus AI Assistant."},
                 {"role": "user", "content": request.prompt}
@@ -200,7 +212,7 @@ class OpenAICompatibleProviderAdapter(BaseLLMProvider):
         url = f"{self.base_url}/chat/completions"
         headers = self._build_headers()
         payload = {
-            "model": self.default_model,
+            "model": self._resolve_model(),
             "messages": [
                 {"role": "system", "content": request.system_prompt or "You are Athenus AI Assistant."},
                 {"role": "user", "content": request.prompt}

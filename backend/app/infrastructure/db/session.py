@@ -67,6 +67,11 @@ try:
                     cols = [c["name"] for c in inspector.get_columns("artifact_jobs")]
                     if "stage" not in cols:
                         conn.execute(text("ALTER TABLE artifact_jobs ADD COLUMN stage VARCHAR DEFAULT 'queued'"))
+
+                if inspector.has_table("system_settings"):
+                    cols = [c["name"] for c in inspector.get_columns("system_settings")]
+                    if "active_models" not in cols:
+                        conn.execute(text("ALTER TABLE system_settings ADD COLUMN active_models TEXT"))
                 conn.commit()
         except Exception as e:
             print("MIGRATION ERROR:", e)

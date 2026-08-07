@@ -3,6 +3,8 @@ import { apiClient } from './apiClient';
 export interface ProviderSettingsDTO {
   default_llm: string;
   selected_ollama_model?: string;
+  selected_model?: string;
+  active_models?: Record<string, string>;
   default_stt: string;
   gpu_acceleration: boolean;
   api_key?: string;
@@ -11,6 +13,8 @@ export interface ProviderSettingsDTO {
 export interface ProviderSettingsResponse {
   default_llm: string;
   selected_ollama_model?: string;
+  selected_model?: string;
+  active_models?: Record<string, string>;
   default_stt: string;
   default_embedding: string;
   gpu_acceleration: boolean;

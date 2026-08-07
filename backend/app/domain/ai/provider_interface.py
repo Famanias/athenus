@@ -102,11 +102,19 @@ class BaseLLMProvider(ILLMProvider):
             models = await self.list_models()
             is_avail = len(models) > 0
             model_ids = [m.id for m in models]
-            def_m = getattr(self, "default_model", None)
-            if def_m and (not models or def_m in model_ids):
-                active_m = def_m
+            def_m = getattr(self, "default_model", "unknown")
+            # Prefer the persisted/resolved selection so the catalog reflects source of truth
+            resolve_fn = getattr(self, "_resolve_model", None)
+            resolved_m = def_m
+            if callable(resolve_fn):
+                try:
+                    resolved_m = resolve_fn() or def_m
+                except Exception:
+                    pass
+            if resolved_m and (not models or resolved_m in model_ids):
+                active_m = resolved_m
             else:
-                active_m = models[0].id if models else default_m
+                active_m = models[0].id if models else resolved_m
             return ProviderHealthDTO(
                 provider_id=self.provider_id,
                 is_available=is_avail,

@@ -9,6 +9,7 @@ try:
         id: str = Field(default="global", primary_key=True)
         default_llm: str = "ollama"
         selected_ollama_model: Optional[str] = None
+        active_models: Optional[str] = None
         ollama_models_dir: Optional[str] = None
         default_stt: str = "faster-whisper"
         default_embedding: str = "BAAI/bge-small-en-v1.5"
@@ -285,6 +286,7 @@ except ImportError:
         id = Column(String, primary_key=True, default="global")
         default_llm = Column(String, default="ollama")
         selected_ollama_model = Column(String, nullable=True)
+        active_models = Column(Text, nullable=True)
         ollama_models_dir = Column(String, nullable=True)
         default_stt = Column(String, default="faster-whisper")
         default_embedding = Column(String, default="BAAI/bge-small-en-v1.5")
