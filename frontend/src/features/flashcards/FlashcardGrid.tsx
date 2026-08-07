@@ -4,19 +4,6 @@ import React, { useState } from 'react';
 import { useFlashcards, FlashcardCardDTO } from './useFlashcards';
 import { Button } from '@/components/ui/Button';
 
-interface ReviewRating {
-  label: string;
-  rating: number;
-  hint: string;
-}
-
-const RATINGS: ReviewRating[] = [
-  { label: 'Again', rating: 1, hint: 'Missed recall' },
-  { label: 'Hard', rating: 2, hint: 'Fuzzy recall' },
-  { label: 'Good', rating: 3, hint: 'Recalled' },
-  { label: 'Easy', rating: 4, hint: 'Trivial recall' },
-];
-
 function cardFrontText(card: FlashcardCardDTO): string {
   if (card.card_type === 'cloze' && card.cloze_text) return card.cloze_text;
   return card.front || card.concept_name || '';
@@ -41,22 +28,14 @@ export const FlashcardGrid: React.FC = () => {
     toastMessage,
     generateDeck,
     selectVersion,
-    recordReview,
     updateSettings,
-    jumpToSource,
     setActiveView,
   } = useFlashcards();
 
   const [flippedMap, setFlippedMap] = useState<Record<string, boolean>>({});
-  const [ratedMap, setRatedMap] = useState<Record<string, boolean>>({});
 
   const toggleFlip = (id: string) => {
     setFlippedMap((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const handleRate = async (card: FlashcardCardDTO, rating: number) => {
-    await recordReview(card.id, rating);
-    setRatedMap((prev) => ({ ...prev, [card.id]: true }));
   };
 
   return (
@@ -199,7 +178,6 @@ export const FlashcardGrid: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {cards.map((card) => {
             const isFlipped = !!flippedMap[card.id];
-            const isRated = !!ratedMap[card.id];
             return (
               <div key={card.id} className="flex flex-col gap-2">
                 <div
@@ -220,57 +198,20 @@ export const FlashcardGrid: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Answer Back */}
+                    {/* Answer Back (Physical Card UX - Answer ONLY) */}
                     <div className="flashcard-back">
                       <span className="font-mono text-[10px] text-secondary uppercase tracking-wider font-semibold">
-                        ANSWER &amp; RECALL
+                        ANSWER
                       </span>
                       <p className="text-xs font-mono font-semibold text-center my-auto leading-relaxed">
                         {cardBackText(card)}
                       </p>
-                      <div className="text-[10px] font-mono text-secondary text-center flex justify-between pt-2 border-t border-secondary/30">
-                        <span>Ease: {card.ease_factor.toFixed(2)}</span>
-                        <span>Ivl: {card.interval_days}d</span>
-                      </div>
+                      <span className="text-[10px] text-on-surface-variant/50 font-mono text-center">
+                        Click to flip 🔄
+                      </span>
                     </div>
                   </div>
                 </div>
-
-                {/* SM-2 Rating buttons */}
-                {isFlipped && (
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {RATINGS.map((r) => (
-                      <button
-                        key={r.rating}
-                        title={r.hint}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRate(card, r.rating);
-                        }}
-                        className={`text-[10px] font-mono px-1 py-1.5 rounded border transition-colors ${
-                          isRated && card.ease_factor >= 2.5 && r.rating >= 3
-                            ? 'bg-secondary/20 text-secondary border-secondary/40'
-                            : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:bg-secondary/15 hover:text-secondary'
-                        }`}
-                      >
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Provenance / timestamp jump */}
-                {isFlipped && card.media_id && card.start_time != null && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      jumpToSource(card.media_id, card.start_time);
-                    }}
-                    className="text-[10px] font-mono text-secondary/80 hover:text-secondary text-left underline underline-offset-2"
-                  >
-                    Jump to source at {card.start_time.toFixed(1)}s ⏱
-                  </button>
-                )}
               </div>
             );
           })}
