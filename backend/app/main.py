@@ -25,9 +25,12 @@ import app.presentation.api.v1.chat as chat_module
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.ai.provider_router import ProviderRouter
 from app.domain.ai.service_bus import AIServiceBus
+from app.domain.ai.config_resolver import ProviderConfigResolver
+from app.domain.ai.provider_registry import LLMProviderRegistry
 from app.infrastructure.events.event_bus import event_bus
 from app.infrastructure.adapters.ollama_adapter import OllamaTextGenAdapter
-from app.infrastructure.adapters.cloud_llm_adapter import CloudTextGenAdapter
+from app.infrastructure.adapters.openai_compatible_adapter import OpenAICompatibleProviderAdapter
+from app.infrastructure.adapters.anthropic_adapter import AnthropicProviderAdapter
 from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
 from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
 from app.services.workers.transcript_worker import TranscriptWorker
@@ -38,19 +41,74 @@ from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
 from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
 
+# Initialize ProviderConfigResolver & LLMProviderRegistry
+config_resolver = ProviderConfigResolver()
+llm_provider_registry = LLMProviderRegistry(config_resolver=config_resolver)
+
+# Instantiate Core Provider Adapters
+ollama_adapter = OllamaTextGenAdapter()
+openrouter_adapter = OpenAICompatibleProviderAdapter(
+    provider_id="openrouter",
+    name="OpenRouter API (Cloud Universal)",
+    base_url=settings.OPENROUTER_BASE_URL,
+    api_key=settings.OPENROUTER_API_KEY,
+    default_model=settings.OPENROUTER_DEFAULT_MODEL
+)
+groq_adapter = OpenAICompatibleProviderAdapter(
+    provider_id="groq",
+    name="Groq API (Cloud LPU)",
+    base_url=settings.GROQ_BASE_URL,
+    api_key=settings.GROQ_API_KEY,
+    default_model=settings.GROQ_DEFAULT_MODEL
+)
+openai_adapter = OpenAICompatibleProviderAdapter(
+    provider_id="openai",
+    name="OpenAI API",
+    base_url=settings.OPENAI_BASE_URL,
+    api_key=settings.OPENAI_API_KEY,
+    default_model=settings.OPENAI_DEFAULT_MODEL
+)
+anthropic_adapter = AnthropicProviderAdapter(
+    api_key=settings.ANTHROPIC_API_KEY,
+    base_url=settings.ANTHROPIC_BASE_URL,
+    default_model=settings.ANTHROPIC_DEFAULT_MODEL
+)
+
+# Register Adapters in Registry
+llm_provider_registry.register(ollama_adapter)
+llm_provider_registry.register(openrouter_adapter)
+llm_provider_registry.register(groq_adapter)
+llm_provider_registry.register(openai_adapter)
+llm_provider_registry.register(anthropic_adapter)
+
+# Register custom providers from CUSTOM_LLM_PROVIDERS json string in .env
+if getattr(settings, "CUSTOM_LLM_PROVIDERS", None):
+    try:
+        import json
+        custom_list = json.loads(settings.CUSTOM_LLM_PROVIDERS)
+        for p in custom_list:
+            custom_adapter = OpenAICompatibleProviderAdapter(
+                provider_id=p["id"],
+                name=p.get("name", p["id"]),
+                base_url=p["base_url"],
+                api_key=p.get("api_key", ""),
+                default_model=p.get("default_model", "default")
+            )
+            llm_provider_registry.register(custom_adapter)
+    except Exception:
+        pass
+
 # System AI Service Bus singleton
 registry = ModelRegistry()
 router_policy = ProviderRouter(registry)
-ai_service_bus = AIServiceBus(registry, router_policy)
+ai_service_bus = AIServiceBus(registry, router_policy, llm_registry=llm_provider_registry)
 
-# Instantiated Cloud Adapters
-openrouter_adapter = CloudTextGenAdapter("OpenRouter", "https://openrouter.ai/api/v1", settings.OPENROUTER_DEFAULT_MODEL)
-groq_adapter = CloudTextGenAdapter("Groq", "https://api.groq.com/openai/v1", settings.GROQ_DEFAULT_MODEL)
-
-# Register Adapters
-ai_service_bus.register_text_adapter("ollama", OllamaTextGenAdapter())
+# Register text & multimodal adapters
+ai_service_bus.register_text_adapter("ollama", ollama_adapter)
 ai_service_bus.register_text_adapter("openrouter", openrouter_adapter)
 ai_service_bus.register_text_adapter("groq", groq_adapter)
+ai_service_bus.register_text_adapter("openai", openai_adapter)
+ai_service_bus.register_text_adapter("anthropic", anthropic_adapter)
 ai_service_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
 ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
 
@@ -109,7 +167,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for local Tauri desktop shell & dev server
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -118,18 +176,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register Routers
-app.include_router(health_router, prefix=settings.API_V1_PREFIX, tags=["Health"])
-app.include_router(media_router, prefix=settings.API_V1_PREFIX, tags=["Media"])
-app.include_router(chat_router, prefix=settings.API_V1_PREFIX, tags=["Chat"])
-app.include_router(workspaces_router, prefix=settings.API_V1_PREFIX, tags=["Workspaces"])
-app.include_router(graph_router, prefix=settings.API_V1_PREFIX, tags=["Knowledge Graph"])
-app.include_router(learning_router, prefix=settings.API_V1_PREFIX, tags=["Learning Tools"])
-app.include_router(analytics_router, prefix=settings.API_V1_PREFIX, tags=["Learning Analytics"])
-app.include_router(agents_router, prefix=settings.API_V1_PREFIX, tags=["Agentic AI"])
-app.include_router(settings_router, prefix=settings.API_V1_PREFIX, tags=["Settings"])
-app.include_router(system_router, prefix=settings.API_V1_PREFIX, tags=["System"])
+# Include Routers
+app.include_router(health_router, prefix=settings.API_V1_PREFIX)
+app.include_router(media_router, prefix=settings.API_V1_PREFIX)
+app.include_router(chat_router, prefix=settings.API_V1_PREFIX)
+app.include_router(workspaces_router, prefix=settings.API_V1_PREFIX)
+app.include_router(graph_router, prefix=settings.API_V1_PREFIX)
+app.include_router(learning_router, prefix=settings.API_V1_PREFIX)
+app.include_router(analytics_router, prefix=settings.API_V1_PREFIX)
+app.include_router(agents_router, prefix=settings.API_V1_PREFIX)
+app.include_router(settings_router, prefix=settings.API_V1_PREFIX)
+app.include_router(system_router, prefix=settings.API_V1_PREFIX)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

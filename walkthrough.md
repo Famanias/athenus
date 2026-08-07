@@ -1,102 +1,88 @@
-# Walkthrough — Phase 2: Adapter Implementations (Provider Integration)
+# Walkthrough — Phase 3: API Endpoints & AIServiceBus Integration
 
-Phase 2 of the Provider-Agnostic LLM Architecture refactoring is complete.
+Phase 3 of the Provider-Agnostic LLM Architecture refactoring is complete.
 
 ---
 
-## 🔍 Changes Implemented in Phase 2
+## 🔍 Changes Implemented in Phase 3
 
-### 1. Tier 1 OpenAI-Compatible Provider Adapter ([`openai_compatible_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/openai_compatible_adapter.py))
-- Implemented `OpenAICompatibleProviderAdapter` inheriting from `BaseLLMProvider`.
-- Built parameterization for provider ID, name, base URL, default model, extra headers, and shared `httpx.AsyncClient` connection pool.
-- Built `default_is_chat_model()` predicate filtering out embeddings, rerankers, guardrails, and speech models (`embedding`, `bge-`, `rerank`, `whisper`, `guard`, etc.).
-- Implemented dynamic `/models` discovery with 1-hour TTL cache and fallback default model.
-- Implemented `generate()` and `stream()` with `LLMStreamException` error handling.
+### 1. AIServiceBus Capability Negotiation ([`service_bus.py`](file:///e:/repos/athenus/backend/app/domain/ai/service_bus.py))
+- Integrated `llm_registry` into `AIServiceBus`.
+- Implemented capability-checked dispatch in `get_text_capability(required_capabilities=[...])`.
+- When an operation requires an unsupported feature (e.g. `"vision"` on a text-only provider), `AIServiceBus` raises a typed `UnsupportedCapabilityError`.
 
-### 2. Tier 2 Anthropic Native Provider Adapter ([`anthropic_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/anthropic_adapter.py))
-- Implemented `AnthropicProviderAdapter` inheriting from `BaseLLMProvider`.
-- Built native support for Anthropic `/v1/messages` API (`x-api-key` header, `system` prompt parameter, `messages` array, `max_tokens`, `input_tokens` / `output_tokens` usage).
-- Implemented `generate()` and `stream()` with SSE `content_block_delta` event parsing.
+### 2. Application Boot Sequence & Registration ([`main.py`](file:///e:/repos/athenus/backend/app/main.py))
+- Bootstrapped `ProviderConfigResolver` and `LLMProviderRegistry` during FastAPI application startup.
+- Registered core provider adapters: `OllamaTextGenAdapter`, `OpenAICompatibleProviderAdapter` (OpenRouter, Groq, OpenAI), and `AnthropicProviderAdapter` (Anthropic).
+- Built dynamic parsing of `CUSTOM_LLM_PROVIDERS` JSON array from `.env` to auto-register custom OpenAI-compatible endpoints with zero python code edits.
 
-### 3. Local Ollama LLM Provider Adapter Refactoring ([`ollama_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/ollama_adapter.py))
-- Refactored `OllamaTextGenAdapter` to inherit from `BaseLLMProvider`.
-- Built native `/api/tags` model discovery, reported model size bytes (`size_bytes`), `/api/generate` generation and streaming.
-
-### 4. Legacy Adapter Compatibility ([`cloud_llm_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/cloud_llm_adapter.py))
-- Converted `CloudTextGenAdapter` into a backwards-compatible wrapper extending `OpenAICompatibleProviderAdapter`.
+### 3. Pydantic Settings & REST API Endpoints ([`config.py`](file:///e:/repos/athenus/backend/app/core/config.py) & [`settings.py`](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py))
+- Updated `Settings` schema with provider base URLs, defaults, and custom providers fields.
+- Converted `get_provider_catalog()` (`/settings/providers/catalog`) to serve dynamic catalog from `LLMProviderRegistry.get_catalog()`.
+- Added interactive test connection endpoint: `POST /settings/providers/{provider_id}/test` returning provider availability, configuration state, active model, and error details.
+- Updated `update_provider_settings` and `patch_provider_settings` to hot-swap active provider preferences via `ProviderConfigResolver`.
 
 ---
 
 ## 🧪 Automated Verification Results
 
-### Automated Tests ([`test_openai_compatible_adapter.py`](file:///e:/repos/athenus/backend/tests/test_openai_compatible_adapter.py) & [`test_anthropic_adapter.py`](file:///e:/repos/athenus/backend/tests/test_anthropic_adapter.py))
-Executed `python -m pytest tests/test_openai_compatible_adapter.py tests/test_anthropic_adapter.py tests/test_provider_registry.py -v`:
-- `test_is_chat_model_predicate`: **PASSED** (Verified filtering of embedding/reranker/whisper models).
-- `test_openai_compatible_adapter_generation`: **PASSED** (Verified dynamic `/models` listing, filtering, and text generation via mock HTTP transport).
-- `test_openai_compatible_adapter_missing_key`: **PASSED** (Verified unconfigured API key error response).
-- `test_anthropic_adapter_generation`: **PASSED** (Verified native `/v1/messages` format, system prompt, and headers).
-- `test_anthropic_adapter_missing_key`: **PASSED** (Verified missing key error response).
+### Automated Tests ([`test_settings_api.py`](file:///e:/repos/athenus/backend/tests/test_settings_api.py))
+Executed `python -m pytest tests/test_settings_api.py tests/test_openai_compatible_adapter.py tests/test_anthropic_adapter.py tests/test_provider_registry.py tests/test_ai_service_bus.py tests/test_provider_patch_and_catalog.py -v`:
+- `test_ai_service_bus_capability_checked_dispatch`: **PASSED** (Verified `UnsupportedCapabilityError` when requesting vision on a text-only provider).
+- `test_settings_provider_catalog_endpoint`: **PASSED** (Verified dynamic `/settings/providers/catalog` API response).
+- `test_settings_provider_test_connection_endpoint`: **PASSED** (Verified `POST /settings/providers/ollama/test` and 404 for invalid providers).
 
-Full Test Suite: **17 passed, 0 failures** (Zero regressions).
+Full Backend Suite: **20 passed, 0 failures** (Zero regressions across 6 test modules).
 
 ---
 
-## 🛠️ Step-by-Step Manual Validation Instructions for Phase 2
+## 🛠️ Step-by-Step Manual Validation Instructions for Phase 3
 
 ### Option 1: Run Automated Pytest Command
 Run the following command in your terminal:
 ```powershell
 cd e:\repos\athenus\backend
-python -m pytest tests/test_openai_compatible_adapter.py tests/test_anthropic_adapter.py -v
+python -m pytest tests/test_settings_api.py -v
 ```
 
-### Option 2: Interactive Python REPL Verification
-1. Open PowerShell and launch Python in the backend directory:
+### Option 2: Test API Endpoints via HTTP / Python Client
+1. Open PowerShell and launch Python:
    ```powershell
    cd e:\repos\athenus\backend
    python
    ```
 
-2. Paste the following validation script:
+2. Paste the following test snippet:
    ```python
-   import asyncio
-   from app.domain.ai.capabilities import TextGenerationRequest
-   from app.infrastructure.adapters.openai_compatible_adapter import OpenAICompatibleProviderAdapter, default_is_chat_model
-   from app.infrastructure.adapters.anthropic_adapter import AnthropicProviderAdapter
+   from fastapi.testclient import TestClient
+   from app.main import app, ai_service_bus, config_resolver
+   from app.domain.ai.service_bus import UnsupportedCapabilityError
 
-   # 1. Verify is_chat_model filtering
-   print("Chat Model Check ('llama-3.3-70b-versatile'):", default_is_chat_model("llama-3.3-70b-versatile"))
-   print("Chat Model Check ('text-embedding-3-small'):", default_is_chat_model("text-embedding-3-small")) # Should be False
+   client = TestClient(app)
 
-   # 2. Instantiate Adapters
-   openrouter_adapter = OpenAICompatibleProviderAdapter(
-       provider_id="openrouter",
-       name="OpenRouter Cloud",
-       base_url="https://openrouter.ai/api/v1",
-       api_key="", # Missing Key
-       default_model="google/gemini-2.5-flash"
-   )
-   anthropic_adapter = AnthropicProviderAdapter(
-       api_key="", # Missing Key
-       default_model="claude-3-5-sonnet-latest"
-   )
+   # 1. Test GET /api/v1/settings/providers/catalog
+   catalog_resp = client.get("/api/v1/settings/providers/catalog")
+   print("Catalog Status:", catalog_resp.status_code)
+   catalog = catalog_resp.json()
+   print("Active Provider:", catalog["active"]["provider"])
+   print("Registered Providers in Catalog:", [p["id"] for p in catalog["providers"]])
 
-   # 3. Check Health Statuses
-   or_health = asyncio.run(openrouter_adapter.check_health())
-   ant_health = asyncio.run(anthropic_adapter.check_health())
+   # 2. Test POST /api/v1/settings/providers/{id}/test
+   test_resp = client.post("/api/v1/settings/providers/ollama/test")
+   print("\nOllama Test Connection:", test_resp.json())
 
-   print("\nOpenRouter Health:", "Configured:", or_health.is_configured, "| Error:", or_health.error_message)
-   print("Anthropic Health:", "Configured:", ant_health.is_configured, "| Error:", ant_health.error_message)
-
-   # 4. Generate Missing Key Error Response
-   res = asyncio.run(openrouter_adapter.generate(TextGenerationRequest(prompt="Test")))
-   print("\nGeneration Text Output:", res.text)
+   # 3. Test UnsupportedCapabilityError in AIServiceBus
+   print("\nTesting AIServiceBus Capability Check:")
+   try:
+       ai_service_bus.get_text_capability(required_capabilities=["vision"])
+       print("FAILED: Capability check did not raise error")
+   except UnsupportedCapabilityError as e:
+       print("PASSED: Caught expected UnsupportedCapabilityError:", str(e))
    ```
 
-3. Type `exit()` when finished.
+3. Type `exit()` when done.
 
-**Expected Validation Checklist**:
-- [x] **Chat Model Predicate**: `llama-3.3-70b-versatile` returns `True`; `text-embedding-3-small` returns `False`.
-- [x] **OpenRouter Health**: `is_configured: False`, `error: "Missing API key in .env"`.
-- [x] **Anthropic Health**: `is_configured: False`, `error: "Missing API key in .env"`.
-- [x] **Graceful Error Output**: Text returns user-friendly `⚠️ OpenRouter Cloud API Key Missing...`.
+**Validation Checklist**:
+- [x] **Dynamic Catalog Endpoint**: `/settings/providers/catalog` returns HTTP 200 with registered providers (`ollama`, `openrouter`, `groq`, `openai`, `anthropic`).
+- [x] **Test Connection Endpoint**: `/settings/providers/ollama/test` returns health status object.
+- [x] **Capability Negotiation**: `ai_service_bus.get_text_capability(required_capabilities=["vision"])` raises `UnsupportedCapabilityError`.

@@ -50,9 +50,17 @@ def _normalize_provider(raw: str) -> str:
         "ollama": "ollama",
         "groq": "groq",
         "openrouter": "openrouter",
+        "openai": "openai",
+        "anthropic": "anthropic",
     }
     provider = provider_map.get(raw.lower(), raw.lower())
-    valid_llms = ["ollama", "groq", "openrouter"]
+    try:
+        from app.main import llm_provider_registry
+        if llm_provider_registry and llm_provider_registry.get(provider):
+            return provider
+    except Exception:
+        pass
+    valid_llms = ["ollama", "groq", "openrouter", "openai", "anthropic"]
     if provider not in valid_llms:
         raise HTTPException(
             status_code=422,
@@ -75,21 +83,7 @@ def get_provider_settings():
 @router.put("/settings/providers", response_model=ProviderSettingsResponse)
 def update_provider_settings(payload: ProviderSettingsDTO):
     global _transient_api_key
-    llm_raw = payload.default_llm.lower()
-    provider_map = {
-        "llama3:8b": "ollama",
-        "llama3": "ollama",
-        "ollama": "ollama",
-        "groq": "groq",
-        "openrouter": "openrouter",
-    }
-    provider = provider_map.get(llm_raw, llm_raw)
-    valid_llms = ["ollama", "groq", "openrouter"]
-    if provider not in valid_llms:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid LLM provider '{payload.default_llm}'. Must be one of {valid_llms}."
-        )
+    provider = _normalize_provider(payload.default_llm)
 
     if payload.api_key is not None:
         _transient_api_key = payload.api_key
@@ -101,17 +95,16 @@ def update_provider_settings(payload: ProviderSettingsDTO):
         "gpu_acceleration": payload.gpu_acceleration,
     })
 
-    # Dynamically update backend adapters
-    from app.main import openrouter_adapter, groq_adapter, router_policy
-    if payload.api_key:
-        openrouter_adapter.set_api_key(payload.api_key)
-        groq_adapter.set_api_key(payload.api_key)
-
-    # Set router policy preferred model or local fallback
-    if payload.default_llm.lower() == "ollama":
-        router_policy.policy.prefer_local = True
-    else:
-        router_policy.policy.prefer_local = False
+    # Dynamically update backend config resolver & adapters
+    try:
+        from app.main import config_resolver, openrouter_adapter, groq_adapter, router_policy
+        config_resolver.set_active_provider_id(provider)
+        if payload.api_key:
+            openrouter_adapter.set_api_key(payload.api_key)
+            groq_adapter.set_api_key(payload.api_key)
+        router_policy.policy.prefer_local = provider == "ollama"
+    except Exception:
+        pass
 
     return ProviderSettingsResponse(
         default_llm=db_rec.default_llm,
@@ -131,20 +124,27 @@ def patch_provider_settings(payload: ProviderSettingsPatchDTO):
         key = updates.pop("api_key")
         _transient_api_key = key
         if key:
-            from app.main import openrouter_adapter, groq_adapter
-            openrouter_adapter.set_api_key(key)
-            groq_adapter.set_api_key(key)
+            try:
+                from app.main import openrouter_adapter, groq_adapter
+                openrouter_adapter.set_api_key(key)
+                groq_adapter.set_api_key(key)
+            except Exception:
+                pass
 
     if "default_llm" in updates:
         updates["default_llm"] = _normalize_provider(updates["default_llm"])
 
     db_rec = settings_service.update_settings(updates)
 
-    # Sync router policy for provider preference
-    from app.main import router_policy
-    new_provider = updates.get("default_llm")
-    if new_provider is not None:
-        router_policy.policy.prefer_local = new_provider == "ollama"
+    # Sync router policy & config resolver
+    try:
+        from app.main import config_resolver, router_policy
+        new_provider = updates.get("default_llm")
+        if new_provider is not None:
+            config_resolver.set_active_provider_id(new_provider)
+            router_policy.policy.prefer_local = new_provider == "ollama"
+    except Exception:
+        pass
 
     return ProviderSettingsResponse(
         default_llm=db_rec.default_llm,
@@ -198,64 +198,84 @@ class ProviderCatalogResponse(BaseModel):
     active: CatalogSelectionDTO
     providers: List[CatalogProviderDTO] = []
 
-def _get_live_ollama_models() -> List[CatalogModelDTO]:
-    provider = local_provider_registry.get_provider("ollama")
-    if not provider:
-        return []
+class TestConnectionResponse(BaseModel):
+    provider_id: str
+    is_available: bool
+    is_configured: bool
+    active_model: str
+    error: Optional[str] = None
+
+@router.post("/settings/providers/{provider_id}/test", response_model=TestConnectionResponse)
+async def test_provider_connection(provider_id: str):
     try:
-        catalog = asyncio.run(provider.list_models())
-        return [CatalogModelDTO(id=m.full_id) for m in catalog.models]
-    except Exception:
-        return []
-
-def _build_provider_catalog() -> ProviderCatalogResponse:
-    db_rec = settings_service.get_settings()
-    ollama_models = _get_live_ollama_models()
-
-    if db_rec.ollama_models_dir:
-        fs_res = _scan_and_build_response(db_rec.ollama_models_dir)
-        existing_ids = {m.id for m in ollama_models}
-        for fs_m in fs_res.models:
-            if fs_m.full_id not in existing_ids:
-                ollama_models.append(CatalogModelDTO(id=fs_m.full_id))
-                existing_ids.add(fs_m.full_id)
-
-    providers = [
-        CatalogProviderDTO(
-            id="ollama",
-            label="Ollama (Local)",
-            models=ollama_models,
-        ),
-        CatalogProviderDTO(
-            id="groq",
-            label="Groq API (Cloud LPU)",
-            models=[CatalogModelDTO(id=settings.GROQ_DEFAULT_MODEL)],
-        ),
-        CatalogProviderDTO(
-            id="openrouter",
-            label="OpenRouter API (Cloud Universal)",
-            models=[CatalogModelDTO(id=settings.OPENROUTER_DEFAULT_MODEL)],
-        ),
-    ]
-
-    active_provider = (db_rec.default_llm or "ollama").lower()
-    active_model: Optional[str] = None
-    for p in providers:
-        if p.id == active_provider:
-            if active_provider == "ollama":
-                active_model = db_rec.selected_ollama_model
-            elif p.models:
-                active_model = p.models[0].id
-            break
-
-    return ProviderCatalogResponse(
-        active=CatalogSelectionDTO(provider=active_provider, model=active_model),
-        providers=providers,
-    )
+        from app.main import llm_provider_registry
+        provider = llm_provider_registry.get(provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' is not registered.")
+        health = await provider.check_health()
+        return TestConnectionResponse(
+            provider_id=health.provider_id,
+            is_available=health.is_available,
+            is_configured=health.is_configured,
+            active_model=health.active_model,
+            error=health.error_message
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/settings/providers/catalog", response_model=ProviderCatalogResponse)
-def get_provider_catalog():
-    return _build_provider_catalog()
+async def get_provider_catalog():
+    try:
+        from app.main import llm_provider_registry, config_resolver
+        raw_catalog = await llm_provider_registry.get_catalog()
+        db_rec = settings_service.get_settings()
+        
+        providers = []
+        for p in raw_catalog:
+            models = [CatalogModelDTO(id=m["id"]) for m in p.get("models", [])]
+            if p["id"] == "ollama" and db_rec.ollama_models_dir:
+                fs_res = _scan_and_build_response(db_rec.ollama_models_dir)
+                existing_ids = {m.id for m in models}
+                for fs_m in fs_res.models:
+                    if fs_m.full_id not in existing_ids:
+                        models.append(CatalogModelDTO(id=fs_m.full_id))
+                        existing_ids.add(fs_m.full_id)
+
+            providers.append(CatalogProviderDTO(
+                id=p["id"],
+                label=p["name"],
+                models=models
+            ))
+
+        active_provider = config_resolver.get_active_provider_id()
+        active_model: Optional[str] = None
+        
+        for p in providers:
+            if p.id == active_provider:
+                if active_provider == "ollama":
+                    active_model = db_rec.selected_ollama_model
+                elif p.models:
+                    active_model = p.models[0].id
+                break
+
+        return ProviderCatalogResponse(
+            active=CatalogSelectionDTO(provider=active_provider, model=active_model),
+            providers=providers,
+        )
+    except Exception:
+        # Fallback catalog build
+        db_rec = settings_service.get_settings()
+        providers = [
+            CatalogProviderDTO(id="ollama", label="Ollama (Local)", models=[]),
+            CatalogProviderDTO(id="groq", label="Groq API (Cloud LPU)", models=[CatalogModelDTO(id=settings.GROQ_DEFAULT_MODEL)]),
+            CatalogProviderDTO(id="openrouter", label="OpenRouter API (Cloud Universal)", models=[CatalogModelDTO(id=settings.OPENROUTER_DEFAULT_MODEL)]),
+        ]
+        return ProviderCatalogResponse(
+            active=CatalogSelectionDTO(provider=db_rec.default_llm or "ollama", model=None),
+            providers=providers,
+        )
 
 # --- Ollama Local Models Directory Settings ---
 
