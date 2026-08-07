@@ -104,6 +104,7 @@ graph TD
 | **[ADR 0016](file:///e:/repos/athenus/docs/adr/0016-centralized-telemetry-service-and-ingestion-stages-registry.md)** | Centralized Telemetry Service & Ingestion Stages Registry | Created `TelemetryService` and `INGESTION_STAGES` metadata registry writing directly to SQLite `ArtifactJobTable` as single system of record. |
 | **[ADR 0017](file:///e:/repos/athenus/docs/adr/0017-state-driven-frontend-job-lifecycle-and-rehydration-engine.md)** | State-Driven Frontend Job Lifecycle & Rehydration Engine | Added `'queued'` filter to active stream subscriptions and connected `useJob` state transitions to automatic transcript re-fetching. |
 | **[ADR 0018](file:///e:/repos/athenus/docs/adr/0018-version-seeded-variation-engine-and-physical-card-ux.md)** | Version-Seeded Variation Engine & Physical Card Studio UX | Resolved version content duplication via version-seeded pseudo-random generation, auto-selection of generated versions, completion toasts, and physical card UX. |
+| **[ADR 0019](file:///e:/repos/athenus/docs/adr/0019-provider-agnostic-llm-architecture-and-two-tier-adapters.md)** | Provider-Agnostic LLM Architecture & Two-Tier Adapters | Implemented provider-agnostic abstraction, two-tier classification (OpenAI-compatible & custom), ProviderConfigResolver, 30s health caching, and native HTTP daemon model discovery. |
 
 ---
 
