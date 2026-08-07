@@ -22,7 +22,10 @@ class ExtractedQuestion:
 # ---------------------------------------------------------------------------
 # LLM prompt assembly & response parsing
 # ---------------------------------------------------------------------------
-def build_quiz_prompt(concepts: List[dict], chunks: List[dict], max_questions: int = 10) -> str:
+import random
+
+
+def build_quiz_prompt(concepts: List[dict], chunks: List[dict], max_questions: int = 10, version: int = 1) -> str:
     concept_blob = "\n".join(
         f"- {c['name']}: {c.get('description', '')}  [chunks: {', '.join(c.get('source_chunk_ids', []))}]"
         for c in concepts
@@ -33,9 +36,9 @@ def build_quiz_prompt(concepts: List[dict], chunks: List[dict], max_questions: i
     )
     return f"""You are a comprehension-quiz author for an educational video transcript.
 
-Create {max_questions} multiple-choice comprehension questions that are:
+Create {max_questions} novel, concept-balanced Quiz Version {version} comprehension questions that are:
 - Grounded in the provided concepts and transcript chunks (distractors must be plausible but incorrect).
-- Concept-balanced: cover a spread of the extracted concepts rather than one topic.
+- Formulated from fresh angles (e.g. application scenarios, analytical relationships, or key definitions).
 - Answerable ONLY from the transcript material.
 
 Respond with ONLY a JSON object in exactly this shape:
@@ -99,9 +102,6 @@ def parse_llm_quiz(text: str) -> Optional[List[ExtractedQuestion]]:
     return questions or None
 
 
-# ---------------------------------------------------------------------------
-# Deterministic heuristic quiz fallback (no LLM required)
-# ---------------------------------------------------------------------------
 def _distractors_for(concept: dict, concepts: List[dict]) -> List[str]:
     """Pick up to 3 plausible-but-incorrect concept names as distractors."""
     others = [c for c in concepts if c["id"] != concept["id"]]
@@ -110,15 +110,28 @@ def _distractors_for(concept: dict, concepts: List[dict]) -> List[str]:
 
 
 def generate_quiz_heuristic(
-    concepts: List[dict], chunks: List[dict], max_questions: int = 10
+    concepts: List[dict], chunks: List[dict], max_questions: int = 10, version: int = 1
 ) -> List[ExtractedQuestion]:
-    """Deterministic concept-balanced multiple-choice generation for offline environments."""
+    """Concept-balanced multiple-choice generation with version variation for offline environments."""
     if not concepts:
         return []
 
+    rng = random.Random(version * 41 + 203)
     chunk_by_id = {c["id"]: c for c in chunks}
     questions: List[ExtractedQuestion] = []
-    for concept in concepts:
+
+    ordered_concepts = list(concepts)
+    if version > 1:
+        rng.shuffle(ordered_concepts)
+
+    QUESTION_TEMPLATES = [
+        "Which of the following is best described as: {description}",
+        "In this material, what is the primary role of '{name}'?",
+        "Which statement correctly characterizes '{name}'?",
+        "When studying this lecture, how is '{name}' defined?",
+    ]
+
+    for concept in ordered_concepts:
         if len(questions) >= max_questions:
             break
         name = str(concept.get("name", "")).strip()
@@ -136,12 +149,17 @@ def generate_quiz_heuristic(
         distractors = _distractors_for(concept, concepts)
         if distractors:
             options = [name, *distractors]
-            import random
             indices = list(range(len(options)))
-            random.Random(f"{name}-{len(questions)}").shuffle(indices)
+            rng.shuffle(indices)
             shuffled = [options[i] for i in indices]
             correct_index = indices.index(0)
-            question_text = f"Which of the following is best described as: {description}" if description else f"Which concept is described by '{name}'?"
+            
+            template = rng.choice(QUESTION_TEMPLATES)
+            if description and "{description}" in template:
+                question_text = template.format(description=description, name=name)
+            else:
+                question_text = template.format(name=name, description=description or name)
+
             questions.append(
                 ExtractedQuestion(
                     question_text=question_text,
@@ -156,9 +174,10 @@ def generate_quiz_heuristic(
                 )
             )
         else:
+            tf_q = f"True or False: '{name}' is a key concept covered in this material."
             questions.append(
                 ExtractedQuestion(
-                    question_text=f"Is '{name}' a key concept covered in this material?",
+                    question_text=tf_q,
                     options=["True", "False"],
                     correct_index=0,
                     explanation=f"'{name}' is identified as a key concept in the transcript.",

@@ -210,3 +210,25 @@ def test_apkg_export_valid_zip_with_anki2():
         assert n_notes == 2
         conn.close()
         os.remove(db_path)
+
+
+def test_consecutive_regeneration_produces_distinct_content():
+    init_db()
+    ws_id = f"ws_regen_{uuid.uuid4().hex[:8]}"
+    _seed_graph(ws_id)
+    service = FlashcardService()
+
+    deck1 = asyncio.run(service.generate_deck(ws_id, force_new_version=False))
+    cards1 = service.get_deck_cards(deck1.id)
+
+    deck2 = asyncio.run(service.generate_deck(ws_id, force_new_version=True))
+    cards2 = service.get_deck_cards(deck2.id)
+
+    assert deck1.version == 1
+    assert deck2.version == 2
+    assert deck1.id != deck2.id
+    # Assert card fronts/clozes vary between v1 and v2
+    fronts1 = [c.front or c.cloze_text for c in cards1]
+    fronts2 = [c.front or c.cloze_text for c in cards2]
+    assert fronts1 != fronts2
+

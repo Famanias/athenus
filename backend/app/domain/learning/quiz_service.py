@@ -234,7 +234,7 @@ class QuizService:
         update_job("llm_generation", 50, "Generating questions with AI model...")
         questions = await self._generate_with_llm(selected_concepts, prompt_chunks, max_questions)
         if not questions:
-            questions = generate_quiz_heuristic(selected_concepts, prompt_chunks, max_questions)
+            questions = generate_quiz_heuristic(selected_concepts, prompt_chunks, max_questions, version=version)
 
         update_job("persist", 85, "Saving questions to database...")
         saved = self._persist_questions(quiz_id, workspace_id, questions, concept_dicts)

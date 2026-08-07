@@ -253,7 +253,7 @@ class FlashcardService:
         update_job("llm_generation", 50, "Generating cards with AI model...")
         cards = await self._generate_with_llm(selected_concepts, prompt_chunks)
         if not cards:
-            cards = generate_flashcards_heuristic(selected_concepts, prompt_chunks, max_cards=max_cards)
+            cards = generate_flashcards_heuristic(selected_concepts, prompt_chunks, max_cards=max_cards, version=version)
 
         update_job("persist", 85, "Saving cards to database...")
         saved_count = self._persist_cards(

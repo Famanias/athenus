@@ -1,4 +1,5 @@
 import json
+import random
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -115,15 +116,36 @@ def _snippet_for_concept(concept_name: str, chunks: List[dict], max_len: int = 1
 
 
 def generate_flashcards_heuristic(
-    concepts: List[dict], chunks: List[dict], max_cards: int = 30
+    concepts: List[dict], chunks: List[dict], max_cards: int = 30, version: int = 1
 ) -> List[ExtractedFlashcard]:
-    """Deterministic concept-grounded card generation for offline environments."""
+    """Concept-grounded version-varied card generation for offline environments."""
     if not concepts:
         return []
 
+    rng = random.Random(version * 37 + 101)
     chunk_by_id = {c["id"]: c for c in chunks}
     cards: List[ExtractedFlashcard] = []
-    for concept in concepts:
+
+    # Shuffle or rotate concept order based on version seed
+    ordered_concepts = list(concepts)
+    if version > 1:
+        rng.shuffle(ordered_concepts)
+
+    BASIC_TEMPLATES = [
+        "What is {name}?",
+        "How is {name} defined in this material?",
+        "What is the key principle behind {name}?",
+        "What role does {name} play in this domain?",
+        "Why is {name} important?",
+    ]
+
+    CLOZE_TEMPLATES = [
+        "{name} is best described as {{{{c1::{description}}}}}.",
+        "In this material, {{{{c1::{name}}}}} is defined as {description}.",
+        "The core component {{{{c1::{name}}}}} operates by {description}.",
+    ]
+
+    for concept in ordered_concepts:
         if len(cards) >= max_cards:
             break
         name = str(concept.get("name", "")).strip()
@@ -147,30 +169,25 @@ def generate_flashcards_heuristic(
                 "end_time": end_time,
             }
 
+        snippet, s_start, s_end = _snippet_for_concept(name, chunks)
+        body = description or snippet or f"Key concept: {name}."
+
+        # Rotate card type priorities based on version
+        card_mode = (version + len(cards)) % 3
+
+        if card_mode == 0 and len(cards) < max_cards:
+            front_q = rng.choice(BASIC_TEMPLATES).format(name=name)
+            cards.append(ExtractedFlashcard(card_type="basic", front=front_q, back=body, **provenance()))
+        elif card_mode == 1 and len(cards) < max_cards:
+            cloze_fmt = rng.choice(CLOZE_TEMPLATES).format(name=name, description=body[:80])
+            cards.append(ExtractedFlashcard(card_type="cloze", front=f"Cloze: {name}", back=body, cloze_text=cloze_fmt, **provenance()))
+        elif len(cards) < max_cards:
+            cards.append(ExtractedFlashcard(card_type="definition", front=name, back=body, **provenance()))
+
         if len(cards) < max_cards:
-            snippet, s_start, s_end = _snippet_for_concept(name, chunks)
-            back = description or snippet or f"Key concept: {name}."
-            cards.append(ExtractedFlashcard(card_type="definition", front=name, back=back, **provenance()))
-        if len(cards) < max_cards and (description or snippet):
-            body = description or snippet
-            cards.append(
-                ExtractedFlashcard(
-                    card_type="basic",
-                    front=f"What is {name}?",
-                    back=body,
-                    **provenance(),
-                )
-            )
-        if len(cards) < max_cards:
-            cards.append(
-                ExtractedFlashcard(
-                    card_type="true_false",
-                    front=f"{name} is a key concept discussed in this material.",
-                    back="True",
-                    options=["True", "False"],
-                    **provenance(),
-                )
-            )
+            tf_q = f"True or False: {name} is a key concept discussed in this material."
+            cards.append(ExtractedFlashcard(card_type="true_false", front=tf_q, back="True", options=["True", "False"], **provenance()))
+
     return cards
 
 
