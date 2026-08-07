@@ -130,7 +130,7 @@ class SystemResetService:
             # 5. Re-create Clean Default Workspace in SQLite
             self.workspace_service._workspaces.clear()
             self.workspace_service.create_workspace(
-                name="Machine Learning & Deep Learning",
+                name="My Workspace",
                 description="Default learning workspace for indexed lecture videos.",
                 icon="psychology",
                 workspace_id="default"

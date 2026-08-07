@@ -45,14 +45,17 @@ export interface QuizItemDTO {
 
 export interface QuizAttemptDTO {
   id: string;
-  container_id: string;
+  quiz_id: string;
   workspace_id: string;
+  version: number;
   score: number;
-  total: number;
-  percentage: number;
-  passed: boolean;
-  time_seconds: number;
-  answers: Record<string, number>;
+  total_questions: number;
+  correct_count: number;
+  answers: Record<
+    string,
+    { user_answer: number | null; correct_index: number; is_correct: boolean; concept_id: string | null }
+  > | null;
+  time_taken: number;
   created_at: string | null;
 }
 
@@ -324,13 +327,13 @@ export function useQuiz(options: UseQuizOptions = {}) {
     if (!activeQuiz) return null;
     try {
       const res = await apiClient<QuizAttemptDTO>(
-        `/api/v1/learning/quizzes/container/${encodeURIComponent(activeQuiz.id)}/attempts`,
+        `/api/v1/learning/quizzes/${encodeURIComponent(activeQuiz.id)}/grade`,
         {
           method: 'POST',
           body: JSON.stringify({
             workspace_id: wsRef.current,
-            time_seconds: elapsed,
             answers,
+            time_taken: elapsed,
           }),
         }
       );

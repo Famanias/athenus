@@ -183,12 +183,12 @@ export const QuizStudio: React.FC = () => {
             Quiz Complete — {attempt.score.toFixed(0)}%
           </h3>
           <p className="text-xs text-on-surface-variant font-mono">
-            {attempt.score} of {attempt.total} correct · {formatTime(attempt.time_seconds)} elapsed
+            {attempt.correct_count} of {attempt.total_questions} correct · {formatTime(attempt.time_taken)} elapsed
           </p>
           <div className="w-full max-w-sm mx-auto h-2 rounded-full bg-surface-container-highest overflow-hidden">
             <div
               className="h-full rounded-full bg-secondary transition-all"
-              style={{ width: `${attempt.percentage || 0}%` }}
+              style={{ width: `${attempt.score || 0}%` }}
             />
           </div>
           <div className="pt-2">

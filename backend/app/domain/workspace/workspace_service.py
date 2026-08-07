@@ -36,7 +36,7 @@ class WorkspaceService:
         self._load_from_db()
         if not self._workspaces:
             self.create_workspace(
-                name="Machine Learning & Deep Learning",
+                name="My Workspace",
                 description="Default learning workspace for indexed lecture videos.",
                 icon="psychology",
                 workspace_id="default"

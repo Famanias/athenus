@@ -12,7 +12,7 @@ def ensure_default_workspace():
     workspaces = workspace_service.list_workspaces()
     if not workspaces:
         workspace_service.create_workspace(
-            name="Machine Learning & Deep Learning",
+            name="My Workspace",
             description="Default learning workspace for indexed lecture videos.",
             icon="psychology",
             workspace_id="default"
