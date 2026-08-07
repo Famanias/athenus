@@ -17,6 +17,8 @@ const VALID_STAGES = [
   'failed',
 ] as const;
 
+import { JobLifecycle } from './jobLifecycle';
+
 export const BackgroundTaskRuntime: React.FC = () => {
   const { jobs, upsertJob, setJobHistory } = useAppStore();
 
@@ -28,7 +30,7 @@ export const BackgroundTaskRuntime: React.FC = () => {
   const retryCountsRef = useRef<Record<string, number>>({});
 
   const activeJobEntries = Object.values(jobs).filter(
-    (j) => j.status === 'processing' || j.status === 'pending'
+    (j) => JobLifecycle.isActive(j.status)
   );
 
   useEffect(() => {
