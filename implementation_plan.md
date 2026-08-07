@@ -1,224 +1,114 @@
-# UI/UX Review & Implementation Roadmap: Flashcards & Quizzes Experience
+# Architectural Review & Implementation Plan: Provider-Agnostic LLM Architecture (Revised Edition)
 
-**Document Status:** Final Architecture Review & Implementation Plan (Approved Edition)  
-**Date:** August 7, 2026  
-**Target Component:** Athenus Learning Studio (Flashcards & Quiz Subsystems)  
-**Author:** Antigravity AI  
+Refactor the current text generation provider architecture from hardcoded, provider-specific logic (OpenRouter, Groq, Ollama) into a **scalable, provider-agnostic LLM architecture** based on a central **Provider Registry**, **Two-Tier Adapter Classification**, **Layered Configuration Resolver (`ProviderConfigResolver`)**, **Chat-Model Catalog Filtering (`is_chat_model()`)**, and **Concurrent Dynamic Model Discovery with TTL Caching**.
 
----
-
-## 1. Executive Summary
-
-This roadmap provides a comprehensive analysis and incremental implementation plan to upgrade the **Flashcards** and **Quizzes** user experience in Athenus. 
-
-Based on empirical code inspection across `useFlashcards.ts`, `useQuiz.ts`, `flashcard_service.py`, `quiz_service.py`, `FlashcardGrid.tsx`, and `QuizStudio.tsx`, we have diagnosed the root causes for UI stale state, version content duplication, button visual clutter, and card interface cognitive overload.
-
-Our plan proposes low-risk, incremental milestones that preserve the underlying knowledge graph and SM-2 spaced repetition architecture while delivering a physical card experience.
+Comprehensive architectural documentation has been updated in [`docs/LLM_PROVIDER_ARCHITECTURE_REVIEW.md`](file:///e:/repos/athenus/docs/LLM_PROVIDER_ARCHITECTURE_REVIEW.md).
 
 ---
 
-## 2. Architecture Analysis
+## Key Architectural Decisions (Revised per Independent Senior Review)
 
-```
-                                ATHENUS LEARNING STUDIO TOPOLOGY
-                                
-  ┌─────────────────────────────────────────────────────────────────────────────┐
-  │                         DOMAIN KNOWLEDGE ENGINE                             │
-  │     KnowledgeGraphService ──► ConceptImportanceAllocator ──► Chunks         │
-  └──────────────────────────────────────┬──────────────────────────────────────┘
-                                         │
-                   On-Demand Generation Requests (force_new_version)
-                                         │
-                                         ▼
-  ┌─────────────────────────────────────────────────────────────────────────────┐
-  │                 LEARNING SERVICES (flashcard_service / quiz_service)        │
-  │  - Deck vN+1 & Quiz vN+1 Persistence                                         │
-  │  - Single System of Record Telemetry Updates (ArtifactJobTable)             │
-  └──────────────────────────────────────┬──────────────────────────────────────┘
-                                         │
-                        SQLite Storage + REST Status Endpoints
-                                         │
-                                         ▼
-  ┌─────────────────────────────────────────────────────────────────────────────┐
-  │                    REACT STUDIO HOOKS (useFlashcards / useQuiz)             │
-  │  - Issue 1: Missing activeDeck / activeQuiz set on generation completion     │
-  │  - Issue 2: Regeneration pipeline investigation (LLM vs Heuristic vs Cache)│
-  └──────────────────────────────────────┬──────────────────────────────────────┘
-                                         │
-                                         ▼
-  ┌─────────────────────────────────────────────────────────────────────────────┐
-  │                    STUDIO UI (FlashcardGrid.tsx / QuizStudio.tsx)           │
-  │  - Issue 3: Wording noise ("Generate v3" -> "Regenerate")                  │
-  │  - Issue 5A: Minimal Physical Card Back (Question -> Answer ONLY)           │
-  │  - Future 5B: Dedicated Study/Review Session Mode for SM-2 Ratings          │
-  └─────────────────────────────────────────────────────────────────────────────┘
-```
+> [!IMPORTANT]
+> **Key Architecture Decisions:**
+> 1. **Two-Tier Adapter Classification**:
+>    - **Tier 1 (Zero-Code Extension)**: Generic `OpenAICompatibleProviderAdapter` serves all OpenAI-wire compatible providers (OpenRouter, Groq, OpenAI, DeepSeek, NVIDIA NIM, Together AI, Fireworks AI, LiteLLM, LM Studio, vLLM) with zero code changes.
+>    - **Tier 2 (Dedicated Provider Adapters)**: Specialized classes inheriting from `BaseLLMProvider` handle non-OpenAI wire formats: `AnthropicProviderAdapter` (native `/v1/messages` format) and `OllamaLLMAdapter` (native daemon API).
+> 2. **Layered Configuration Resolver (`ProviderConfigResolver`)**:
+>    - **Secrets Tier**: API keys live strictly in `.env` / process environment variables (never written to DB).
+>    - **Runtime State Tier**: Active provider selection (`LLM_PROVIDER`), selected model override (`LLM_MODEL`), and custom endpoint URLs are stored in SQLite and hot-swappable in the UI **without restarting the server**.
+> 3. **Chat-Model Filtering (`is_chat_model()`)**: Automatically filters out embedding, reranker, guardrail, and speech models from discovered `/models` catalogs, eliminating dropdown clutter on OpenRouter (200+ models) and NVIDIA NIM.
+> 4. **Concurrent Health Checks & TTL Caching**: `LLMProviderRegistry.get_catalog()` aggregates health checks concurrently via `asyncio.gather` with a 30s health TTL cache and 1-hour model discovery TTL cache, preventing settings page load lag.
+> 5. **Capability-Checked Dispatching**: `AIServiceBus` negotiates capabilities (`supports_vision`, `supports_function_calling`) before dispatching requests, throwing typed `UnsupportedCapabilityError` exceptions when feature requirements are missing.
 
 ---
 
-## 3. Root Cause Analysis & Investigation Strategy
+## Resolved Design Questions
 
-### RCA 1: UI Fails to Refresh Automatically After Generation
-- **Empirical Evidence**: In [`useFlashcards.ts`](file:///e:/repos/athenus/frontend/src/features/flashcards/useFlashcards.ts#L152-L171) and [`useQuiz.ts`](file:///e:/repos/athenus/frontend/src/features/quiz/useQuiz.ts#L167-L186), `generateDeck()` and `generateQuiz()` execute `POST /learning/decks/{ws}?force_new_version=true` and then call `await refreshDecks()` and `await refreshArtifactStatus()`.
-- **Confirmed Root Cause**: Neither hook invokes `selectVersion(newVersion)` or `setActiveDeck(newDeck)` / `loadQuiz(newQuiz)` upon request completion. Consequently, React local state (`activeDeck`, `cards`, `activeQuiz`, `questions`) remains pointing at the **previous version** until navigating away and back causes the component to unmount and run its initial `useEffect` fetch.
-
-### Investigation 2: Regeneration Duplication Analysis
-- **Observed Behavior**: Creating `v1`, `v2`, and `v3` produces identical cards/questions, even in multi-video workspaces.
-- **Investigation Strategy**: Before proposing code changes, empirically trace:
-  1. Whether `force_new_version=true` triggers a fresh LLM call vs heuristic generator vs returning cached SQL rows.
-  2. Whether prompts and temperature settings are identical across runs.
-  3. Whether LLM outputs are non-deterministic or fixed.
-- 🛑 **Mandatory Guardrail**: *Do not implement regeneration logic changes until the root cause has been confirmed through logs and execution tracing.*
+> [!NOTE]
+> **Resolution to Model Filtering**: Rather than forcing a choice between dumping 200+ unfiltered models or hardcoding static whitelists, the adapter applies an automated `is_chat_model()` predicate at discovery time, returning clean chat models to the UI. The UI includes client-side search/sort for smooth UX.
 
 ---
 
-## 4. Current UX Evaluation & Proposed UX Improvements
+## Proposed Component Changes
 
-| Dimension | Current UX Evaluation | Proposed UX Improvement |
-|---|---|---|
-| **Tab Refresh** | Stale UI requiring tab switching | Immediate state sync + completion toast (e.g. `✅ Flashcards regenerated (Version 3)`) |
-| **Regeneration** | Duplicate versions across `v1..v3` | Empirical pipeline trace $\rightarrow$ targeted fix |
-| **Button Wording** | Visual clutter (`Generate v3`) | Clean & concise button label (`Regenerate`) |
-| **Card Face (5A)** | Overcrowded with SM-2 numbers and buttons | **Physical Card UX**: Front = Question, Flip = Answer ONLY |
-| **Future Study Mode (5B)** | SM-2 ratings clutter primary grid | Future enhancement: Dedicated **"Study Session Mode"** for active recall practice |
+### Core Domain Abstraction (`app/domain/ai`)
 
----
+#### [NEW] [provider_interface.py](file:///e:/repos/athenus/backend/app/domain/ai/provider_interface.py)
+- Define `ILLMProvider` interface protocol and `BaseLLMProvider` abstract base class with default method contracts.
+- Implement `BaseLLMProvider.check_health()` to explicitly check credential presence (`api_key` or `is_local`) *before* invoking `list_models()`, ensuring unconfigured cloud providers accurately report `is_configured=False` and `is_available=False` (`🔴 Key missing in .env`).
+- Define DTOs: `LLMProviderCapabilities`, `LLMModelMetadataDTO`, `ProviderHealthDTO`.
 
-## 5. Milestone-by-Milestone Implementation Plan
+#### [NEW] [provider_registry.py](file:///e:/repos/athenus/backend/app/domain/ai/provider_registry.py)
+- Implement `LLMProviderRegistry` responsible for registering provider adapters, resolving active provider, exposing provider catalog via concurrent `asyncio.gather` health checks, and supporting 30s health TTL caching.
 
-### Milestone 1 — Flashcards/Quizzes UI Refresh After Generation & Completion Toast
+#### [NEW] [config_resolver.py](file:///e:/repos/athenus/backend/app/domain/ai/config_resolver.py)
+- Implement `ProviderConfigResolver` to cleanly separate `.env` secrets from hot-swappable SQLite runtime preferences.
 
-#### Proposed Solution
-Update `generateDeck` in `useFlashcards.ts` and `generateQuiz` in `useQuiz.ts` to automatically invoke `selectVersion(newDeck.version)` and `loadQuiz(newQuiz)` upon receiving the generated artifact, displaying a 2-second completion banner (`✅ Flashcards regenerated (Version X)`).
+#### [MODIFY] [service_bus.py](file:///e:/repos/athenus/backend/app/domain/ai/service_bus.py)
+- Update `AIServiceBus` to delegate text generation capabilities directly to `LLMProviderRegistry` with capability negotiation checks (`UnsupportedCapabilityError`).
 
-#### Implementation Steps
-1. In `useFlashcards.ts`:
-   ```ts
-   const created = await apiClient<FlashcardDeckDTO>(...);
-   await refreshDecks();
-   await refreshArtifactStatus();
-   if (created?.version) {
-     await selectVersion(created.version);
-     setToastMessage(`✅ Flashcards regenerated (Version ${created.version})`);
-   }
-   ```
-2. In `useQuiz.ts`:
-   ```ts
-   const created = await apiClient<QuizContainerDTO>(...);
-   await refreshQuizzes();
-   await refreshArtifactStatus();
-   if (created) {
-     await loadQuiz(created);
-     setToastMessage(`✅ Quiz regenerated (Version ${created.version})`);
-   }
-   ```
+#### [MODIFY] [model_registry.py](file:///e:/repos/athenus/backend/app/domain/ai/model_registry.py)
+- Refactor `ModelRegistry` to pull model metadata dynamically from registered provider capabilities instead of maintaining brittle static lists.
 
 ---
 
-### Milestone 2 — Regeneration Pipeline Investigation
+### Infrastructure Adapters (`app/infrastructure/adapters`)
 
-#### Investigation Protocol
-Trace `POST /api/v1/learning/decks/{ws}?force_new_version=true`:
-1. Verify if `_generate_with_llm` or `generate_flashcards_heuristic` is executed.
-2. Check LLM prompt logs to verify if temperature/seeds vary per version.
-3. Formulate targeted fix based on empirical log findings.
-> 🛑 *Do not implement regeneration logic changes until the root cause has been confirmed through logs and execution tracing.*
+#### [NEW] [openai_compatible_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/openai_compatible_adapter.py)
+- Implement Tier 1 `OpenAICompatibleProviderAdapter` implementing `BaseLLMProvider`.
+- Provide generic support for OpenRouter, Groq, OpenAI, DeepSeek, NVIDIA NIM, Together AI, LiteLLM, LM Studio, etc.
+- Implement dynamic `/models` endpoint discovery with `is_chat_model()` filtering, 1-hour TTL caching, shared `httpx.AsyncClient` connection pool, and fallback defaults.
 
----
+#### [NEW] [anthropic_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/anthropic_adapter.py)
+- Implement Tier 2 `AnthropicProviderAdapter` implementing `BaseLLMProvider` for native `/v1/messages` execution.
 
-### Milestone 3 — Simplify the Regenerate Button
+#### [MODIFY] [ollama_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/ollama_adapter.py)
+- Adapt `OllamaLLMAdapter` to implement `BaseLLMProvider` interface, supporting native daemon status, reported model size bytes, and model discovery.
 
-#### Proposed Solution
-Update button label rendering in `FlashcardGrid.tsx` and `QuizStudio.tsx`.
-
-#### Implementation Steps
-1. In `FlashcardGrid.tsx`: Replace `{generating ? 'Generating...' : 'Generate v' + ((activeDeck?.version || 1) + 1)}` with `{generating ? 'Generating...' : activeDeck ? 'Regenerate' : 'Generate Deck'}`.
-2. In `QuizStudio.tsx`: Replace `{generating ? 'Generating...' : 'Generate Quiz (v' + ...}` with `{generating ? 'Generating...' : activeQuiz ? 'Regenerate' : 'Generate Quiz'}`.
+#### [DELETE] [cloud_llm_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/cloud_llm_adapter.py)
+- Replaced by `OpenAICompatibleProviderAdapter` and `AnthropicProviderAdapter`.
 
 ---
 
-### Milestone 5A — Physical Card Experience (Minimal Card Back)
+### Configuration & Security (`app/core` & `app/main.py`)
 
-#### Proposed Solution
-Redesign the back of flashcards in `FlashcardGrid.tsx` to display only the answer text in a clean, minimal physical card layout.
+#### [MODIFY] [config.py](file:///e:/repos/athenus/backend/app/core/config.py)
+- Expand Pydantic `Settings` schema to support environment variables for all supported providers (`LLM_PROVIDER`, `LLM_MODEL`, `OPENROUTER_*`, `GROQ_*`, `OPENAI_*`, `ANTHROPIC_*`, `CUSTOM_LLM_PROVIDERS`).
 
-#### Implementation Steps
-1. Render front (Question) $\rightarrow$ flip $\rightarrow$ back (Answer ONLY).
-2. Remove SM-2 numbers (`Ease`, `Interval`), 4 rating buttons (`Again`, `Hard`, `Good`, `Easy`), and timestamp links from the primary grid view.
+#### [NEW] [redaction_middleware.py](file:///e:/repos/athenus/backend/app/core/redaction_middleware.py)
+- Implement HTTP log and traceback redaction middleware sanitizing `Authorization` and `x-api-key` headers (`[REDACTED_API_KEY]`).
 
----
-
-### Milestone 4 — Refine Auto-Evolve & Generation Settings UI
-
-#### Technical Breakdown
-- `auto_evolve_flashcards` / `auto_evolve_quizzes`: Workspace configuration flags governing background analytics updates.
-- Target Budget (`~10`, `~20`, `~40`): Pagerank & graph centrality importance allocation per concept node.
+#### [MODIFY] [main.py](file:///e:/repos/athenus/backend/app/main.py)
+- Initialize `LLMProviderRegistry` and `ProviderConfigResolver` during application boot.
+- Dynamically register Tier 1 and Tier 2 provider adapters with shared `httpx` connection pool.
 
 ---
 
-### Future Enhancement — Dedicated Study & Spaced Repetition Session Mode (Future 5B)
+### Presentation API & Frontend UI (`app/presentation/api/v1` & `frontend`)
 
-#### Proposed Solution
-Create an optional **"Study Session Mode"** modal/toggle where SM-2 recall rating buttons (`Again`, `Hard`, `Good`, `Easy`), ease factors, interval scheduling, and timestamp links are accessible for active recall practice.
+#### [MODIFY] [settings.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py)
+- Refactor `/api/v1/settings/providers` and `/settings/providers/catalog` endpoints to query `LLMProviderRegistry`.
+- Support hot-swapping active provider in SQLite via `ProviderConfigResolver`.
+- Expose `/api/v1/settings/providers/{id}/test` connection endpoint.
 
----
+#### [MODIFY] [settingsService.ts](file:///e:/repos/athenus/frontend/src/services/settingsService.ts)
+- Update TypeScript DTO interfaces to match dynamic provider catalog, model metadata, model sizes, and health status structures.
 
-## 6. Recommended Implementation Order
-
-1. **Milestone 1**: UI Refresh After Generation & Completion Toast (Highest user impact, minimal risk).
-2. **Milestone 2**: Regeneration Pipeline Investigation (Investigation before code changes).
-3. **Milestone 3**: Simplify Button Labels (`Regenerate`).
-4. **Milestone 5A**: Physical Card Experience (Clean Question $\rightarrow$ Answer back).
-5. **Milestone 4**: Refine Auto-Evolve & Generation Settings UI.
-6. **Future Enhancement**: Dedicated Study Session Mode (Future 5B).
-
-# Implementation Plan — Learning Studio UI/UX & Regeneration Optimization
-
-This implementation plan details the step-by-step execution to upgrade the **Flashcards** and **Quizzes** experience in Athenus based on [`FLASHCARDS_QUIZZES_UI_UX_ROADMAP.md`](FLASHCARDS_QUIZZES_UI_UX_ROADMAP.md).
+#### [MODIFY] [SystemSettings.tsx](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx)
+- Redesign Settings UI into an interactive configuration inspector and hot-swappable provider selector.
+- Render dynamic provider options, model dropdowns, model sizes, health badges, and an interactive `Test Connection` button.
 
 ---
 
-## 📋 Recommended Implementation Order
+## Verification Plan
 
-1. **Milestone 1**: UI Refresh After Generation & Completion Toast (Highest user impact, minimal risk).
-2. **Milestone 2**: Regeneration Pipeline Investigation (Empirically trace LLM vs Heuristic vs Caching).
-3. **Milestone 3**: Simplify Button Labels (`Regenerate`).
-4. **Milestone 5A**: Physical Card Experience (Clean Question $\rightarrow$ Answer back).
-5. **Milestone 4**: Refine Auto-Evolve & Generation Settings UI.
-6. **Future Enhancement**: Dedicated Study Session Mode (Future 5B).
+### Automated Tests
+- `pytest backend/tests/test_provider_registry.py` (Verify provider registration, fallback logic, active provider resolution, and concurrent health checks)
+- `pytest backend/tests/test_openai_compatible_adapter.py` (Verify text generation, streaming, `is_chat_model()` filtering, TTL caching using `respx` mock HTTP transports)
+- `pytest backend/tests/test_anthropic_adapter.py` (Verify Anthropic native `/v1/messages` format)
+- `pytest backend/tests/test_ai_service_bus.py` (Verify capability-checked dispatch and `UnsupportedCapabilityError` handling)
 
----
-
-## 🛠️ Milestone Details
-
-### Milestone 1 — Flashcards/Quizzes UI Refresh & Completion Toast Banner
-- **Target Files**: [`useFlashcards.ts`](file:///e:/repos/athenus/frontend/src/features/flashcards/useFlashcards.ts) & [`useQuiz.ts`](file:///e:/repos/athenus/frontend/src/features/quiz/useQuiz.ts)
-- **Change**: Invoke `selectVersion(newDeck.version)` and `loadQuiz(newQuiz)` immediately after `POST` request completes, rendering a 2-second completion banner (`✅ Flashcards regenerated (Version X)`).
-
-### Milestone 2 — Regeneration Pipeline Investigation
-- **Target Files**: [`flashcard_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/flashcard_service.py) & [`quiz_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/quiz_service.py)
-- **Action**: Empirically trace LLM execution logs and prompt arguments for `v1`, `v2`, `v3` to determine why output is identical before proposing code fixes.
-- 🛑 **Guardrail**: *Do not implement regeneration logic changes until the root cause has been confirmed through logs and execution tracing.*
-
-### Milestone 3 — Simplify Regenerate Button Label
-- **Target Files**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx) & [`QuizStudio.tsx`](file:///e:/repos/athenus/frontend/src/features/quiz/QuizStudio.tsx)
-- **Change**: Rename button label to `'Regenerate'` (or `'Generate Deck'` / `'Generate Quiz'` when empty).
-
-### Milestone 5A — Physical Card Experience
-- **Target File**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx)
-- **Change**: Render Question front $\rightarrow$ Answer back ONLY. Remove SM-2 numbers and 4 rating buttons from the main grid view.
-
-### Milestone 4 — Refine Auto-Evolve & Generation Settings UI
-- **Target Files**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx) & [`QuizStudio.tsx`](file:///e:/repos/athenus/frontend/src/features/quiz/QuizStudio.tsx)
-- **Change**: Clarify settings header labels (`Auto-Sync Concepts` & `Target Budget`).
-
-### Future Enhancement — Dedicated Study Session Mode (Future 5B)
-- **Target File**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx)
-- **Change**: Add an optional **"Study Mode"** toggle/modal where SM-2 recall rating buttons (`Again`, `Hard`, `Good`, `Easy`) and timestamps are accessible for active review practice.
-
----
-
-## 🧪 Verification Plan
-
-- Run backend test suite: `python -m pytest tests/test_flashcards.py` & `python -m pytest tests/test_quiz.py`.
-- Run frontend type check: `npx tsc --noEmit`.
+### Manual Verification
+- Test hot-swapping active provider between Ollama, OpenRouter, Groq, and Anthropic in the Settings UI without server restart.
+- Verify log outputs to confirm `Authorization` headers are sanitized as `[REDACTED_API_KEY]`.
+- Test adding a custom OpenAI-compatible provider via `CUSTOM_LLM_PROVIDERS` in `.env` with zero code modifications.
