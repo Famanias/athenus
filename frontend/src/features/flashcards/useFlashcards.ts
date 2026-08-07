@@ -84,6 +84,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
   const [loading, setLoading] = useState<boolean>(false);
   const [generating, setGenerating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const wsRef = useRef(activeWorkspaceId);
   wsRef.current = activeWorkspaceId;
@@ -149,27 +150,6 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     }
   }, []);
 
-  const generateDeck = useCallback(async () => {
-    const ws = wsRef.current;
-    if (!ws) return null;
-    setGenerating(true);
-    setError(null);
-    try {
-      const deck = await apiClient<FlashcardDeckDTO>(
-        `/api/v1/learning/decks/${encodeURIComponent(ws)}?force_new_version=true`,
-        { method: 'POST' }
-      );
-      await refreshDecks();
-      await refreshArtifactStatus();
-      return deck;
-    } catch (_err) {
-      setError('Failed to generate flashcard deck. Ensure concepts have been extracted.');
-      return null;
-    } finally {
-      setGenerating(false);
-    }
-  }, [refreshDecks, refreshArtifactStatus]);
-
   const selectVersion = useCallback(async (version: number) => {
     const ws = wsRef.current;
     setSelectedVersion(version);
@@ -192,6 +172,33 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
       setLoading(false);
     }
   }, []);
+
+  const generateDeck = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws) return null;
+    setGenerating(true);
+    setError(null);
+    setToastMessage(null);
+    try {
+      const deck = await apiClient<FlashcardDeckDTO>(
+        `/api/v1/learning/decks/${encodeURIComponent(ws)}?force_new_version=true`,
+        { method: 'POST' }
+      );
+      await refreshDecks();
+      await refreshArtifactStatus();
+      if (deck && deck.version) {
+        await selectVersion(deck.version);
+        setToastMessage(`✅ Flashcards regenerated (Version ${deck.version})`);
+        setTimeout(() => setToastMessage(null), 4000);
+      }
+      return deck;
+    } catch (_err) {
+      setError('Failed to generate flashcard deck. Ensure concepts have been extracted.');
+      return null;
+    } finally {
+      setGenerating(false);
+    }
+  }, [refreshDecks, refreshArtifactStatus, selectVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,18 +262,6 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
             rating,
           }),
         });
-        setCards((prev) =>
-          prev.map((c) =>
-            c.id === flashcardId
-              ? {
-                  ...c,
-                  ease_factor: review.ease_factor,
-                  interval_days: review.interval_days,
-                  repetitions: review.repetitions,
-                }
-              : c
-          )
-        );
         return review;
       } catch (_err) {
         return null;
@@ -297,6 +292,7 @@ export function useFlashcards(options: UseFlashcardsOptions = {}) {
     loading,
     generating,
     error,
+    toastMessage,
     refreshDecks,
     refreshArtifactStatus,
     generateDeck,

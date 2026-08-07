@@ -25,6 +25,7 @@ export const QuizStudio: React.FC = () => {
     loading,
     generating,
     error,
+    toastMessage,
     attempt,
     elapsed,
     generateQuiz,
@@ -41,6 +42,13 @@ export const QuizStudio: React.FC = () => {
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-4xl mx-auto space-y-6 w-full">
+      {/* Completion Toast Banner */}
+      {toastMessage && (
+        <div className="px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 font-mono text-xs font-semibold animate-pulse flex items-center justify-between">
+          <span>{toastMessage}</span>
+          <span className="text-[10px] text-emerald-400/60 uppercase tracking-wider">Active version synced</span>
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-center pb-4 border-b border-outline-variant">
         <div>
@@ -184,12 +192,12 @@ export const QuizStudio: React.FC = () => {
             Quiz Complete — {attempt.score.toFixed(0)}%
           </h3>
           <p className="text-xs text-on-surface-variant font-mono">
-            {attempt.correct_count} of {attempt.total_questions} correct · {formatTime(attempt.time_taken)} elapsed
+            {attempt.score} of {attempt.total} correct · {formatTime(attempt.time_seconds)} elapsed
           </p>
           <div className="w-full max-w-sm mx-auto h-2 rounded-full bg-surface-container-highest overflow-hidden">
             <div
               className="h-full rounded-full bg-secondary transition-all"
-              style={{ width: `${attempt.score}%` }}
+              style={{ width: `${attempt.percentage || 0}%` }}
             />
           </div>
           <div className="pt-2">
@@ -232,7 +240,7 @@ export const QuizStudio: React.FC = () => {
               return (
                 <div
                   key={opt.id}
-                  onClick={() => handleSelectOption(opt)}
+                  onClick={() => handleSelectOption(opt.id)}
                   className={`p-3.5 border rounded text-xs cursor-pointer transition-all ${borderStyle} ${bgStyle}`}
                 >
                   {opt.text}

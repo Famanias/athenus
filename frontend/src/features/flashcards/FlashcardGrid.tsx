@@ -38,6 +38,7 @@ export const FlashcardGrid: React.FC = () => {
     loading,
     generating,
     error,
+    toastMessage,
     generateDeck,
     selectVersion,
     recordReview,
@@ -60,6 +61,13 @@ export const FlashcardGrid: React.FC = () => {
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-5xl mx-auto space-y-6 w-full">
+      {/* Completion Toast Banner */}
+      {toastMessage && (
+        <div className="px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 font-mono text-xs font-semibold animate-pulse flex items-center justify-between">
+          <span>{toastMessage}</span>
+          <span className="text-[10px] text-emerald-400/60 uppercase tracking-wider">Active version synced</span>
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-center pb-4 border-b border-outline-variant">
         <div>

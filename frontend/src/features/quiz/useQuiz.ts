@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/services/apiClient';
 import { useAppStore } from '@/store/useAppStore';
 
-export interface QuizItemDTO {
+export interface QuizOption {
   id: string;
-  quiz_id: string;
-  concept_id: string | null;
-  concept_name: string | null;
-  question_text: string;
-  options: string[];
-  correct_index: number;
+  text: string;
+  isCorrect?: boolean;
+}
+
+export interface QuizQuestion {
+  id: string;
+  question: string;
+  options: QuizOption[];
   explanation: string;
-  media_id: string | null;
-  source_chunk_ids: string[];
-  start_time: number | null;
-  end_time: number | null;
+  conceptName: string;
+  startTime?: number;
+  mediaId?: string;
 }
 
 export interface QuizContainerDTO {
@@ -23,22 +24,35 @@ export interface QuizContainerDTO {
   title: string;
   version: number;
   status: string;
-  concept_ids: string[];
   question_count: number;
   created_at: string | null;
   updated_at: string | null;
 }
 
+export interface QuizItemDTO {
+  id: string;
+  container_id: string;
+  question_text: string;
+  options: string[];
+  correct_index: number;
+  explanation: string;
+  concept_id: string | null;
+  concept_name: string;
+  media_id: string | null;
+  start_time: number | null;
+  end_time: number | null;
+}
+
 export interface QuizAttemptDTO {
   id: string;
-  quiz_id: string;
+  container_id: string;
   workspace_id: string;
-  version: number;
   score: number;
-  total_questions: number;
-  correct_count: number;
-  answers: Record<string, { user_answer: number; correct_index: number; is_correct: boolean }> | null;
-  time_taken: number;
+  total: number;
+  percentage: number;
+  passed: boolean;
+  time_seconds: number;
+  answers: Record<string, number>;
   created_at: string | null;
 }
 
@@ -53,25 +67,15 @@ export interface ArtifactJobStatusDTO {
   updated_at: string | null;
 }
 
-export interface QuizQuestion {
-  id: string;
-  question: string;
-  options: { id: string; text: string; isCorrect: boolean }[];
-  explanation: string;
-  conceptName: string | null;
-  startTime: number | null;
-  mediaId: string | null;
-}
-
-interface UseQuizOptions {
-  autoGenerate?: boolean;
-}
-
 export interface WorkspaceLearningSettingsDTO {
   auto_evolve_flashcards: boolean;
   flashcard_target_budget_per_media: number;
   auto_evolve_quizzes: boolean;
   quiz_target_budget_per_media: number;
+}
+
+interface UseQuizOptions {
+  autoGenerate?: boolean;
 }
 
 export function useQuiz(options: UseQuizOptions = {}) {
@@ -80,8 +84,8 @@ export function useQuiz(options: UseQuizOptions = {}) {
   const setActiveView = useAppStore((state) => state.setActiveView);
 
   const [quizzes, setQuizzes] = useState<QuizContainerDTO[]>([]);
-  const [activeQuiz, setActiveQuiz] = useState<QuizContainerDTO | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  const [activeQuiz, setActiveQuiz] = useState<QuizContainerDTO | null>(null);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [artifact, setArtifact] = useState<ArtifactJobStatusDTO | null>(null);
   const [settings, setSettings] = useState<WorkspaceLearningSettingsDTO>({
@@ -90,15 +94,16 @@ export function useQuiz(options: UseQuizOptions = {}) {
     auto_evolve_quizzes: true,
     quiz_target_budget_per_media: 15,
   });
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [selectedOptId, setSelectedOptId] = useState<string | null>(null);
-  const [showExplanation, setShowExplanation] = useState<boolean>(false);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState<boolean>(false);
   const [generating, setGenerating] = useState<boolean>(false);
+  const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [selectedOptId, setSelectedOptId] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [showExplanation, setShowExplanation] = useState<boolean>(false);
   const [attempt, setAttempt] = useState<QuizAttemptDTO | null>(null);
   const [elapsed, setElapsed] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const wsRef = useRef(activeWorkspaceId);
   wsRef.current = activeWorkspaceId;
@@ -164,27 +169,6 @@ export function useQuiz(options: UseQuizOptions = {}) {
     }
   }, []);
 
-  const generateQuiz = useCallback(async () => {
-    const ws = wsRef.current;
-    if (!ws) return null;
-    setGenerating(true);
-    setError(null);
-    try {
-      const quiz = await apiClient<QuizContainerDTO>(
-        `/api/v1/learning/quizzes/${encodeURIComponent(ws)}/generate?force_new_version=true`,
-        { method: 'POST' }
-      );
-      await refreshQuizzes();
-      await refreshArtifactStatus();
-      return quiz;
-    } catch (_err) {
-      setError('Failed to generate quiz. Ensure concepts have been extracted.');
-      return null;
-    } finally {
-      setGenerating(false);
-    }
-  }, [refreshQuizzes, refreshArtifactStatus]);
-
   const loadQuiz = useCallback(async (quiz: QuizContainerDTO) => {
     setActiveQuiz(quiz);
     setSelectedVersion(quiz.version);
@@ -221,6 +205,47 @@ export function useQuiz(options: UseQuizOptions = {}) {
       setLoading(false);
     }
   }, []);
+
+  const selectVersion = useCallback(async (version: number) => {
+    const ws = wsRef.current;
+    const match = quizzes.find((q) => q.version === version);
+    if (match) {
+      await loadQuiz(match);
+    } else {
+      try {
+        const fresh = await refreshQuizzes();
+        const found = fresh.find((q) => q.version === version);
+        if (found) await loadQuiz(found);
+      } catch (_err) {}
+    }
+  }, [quizzes, loadQuiz, refreshQuizzes]);
+
+  const generateQuiz = useCallback(async () => {
+    const ws = wsRef.current;
+    if (!ws) return null;
+    setGenerating(true);
+    setError(null);
+    setToastMessage(null);
+    try {
+      const quiz = await apiClient<QuizContainerDTO>(
+        `/api/v1/learning/quizzes/${encodeURIComponent(ws)}/generate?force_new_version=true`,
+        { method: 'POST' }
+      );
+      await refreshQuizzes();
+      await refreshArtifactStatus();
+      if (quiz) {
+        await loadQuiz(quiz);
+        setToastMessage(`✅ Quiz regenerated (Version ${quiz.version})`);
+        setTimeout(() => setToastMessage(null), 4000);
+      }
+      return quiz;
+    } catch (_err) {
+      setError('Failed to generate quiz. Ensure concepts have been extracted.');
+      return null;
+    } finally {
+      setGenerating(false);
+    }
+  }, [refreshQuizzes, refreshArtifactStatus, loadQuiz]);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,86 +292,67 @@ export function useQuiz(options: UseQuizOptions = {}) {
     return () => clearInterval(timer);
   }, [activeWorkspaceId, refreshArtifactStatus]);
 
-  const selectVersion = useCallback(
-    async (version: number) => {
-      const ws = wsRef.current;
-      try {
-        const quiz = await apiClient<QuizContainerDTO>(
-          `/api/v1/learning/quizzes/workspace/${encodeURIComponent(ws)}/version/${version}`
-        );
-        await loadQuiz(quiz);
-      } catch (_err) {
-        setError('Failed to load quiz version.');
-      }
-    },
-    [loadQuiz]
-  );
-
-  // Timer for attempt
   useEffect(() => {
-    if (!activeQuiz || attempt || questions.length === 0) return;
-    const timer = setInterval(() => setElapsed((prev) => prev + 1), 1000);
+    if (attempt) return;
+    const timer = setInterval(() => {
+      setElapsed((prev) => prev + 1);
+    }, 1000);
     return () => clearInterval(timer);
-  }, [activeQuiz, attempt, questions.length]);
+  }, [attempt]);
 
-  const handleSelectOption = (opt: { id: string; text: string; isCorrect: boolean }) => {
+  const handleSelectOption = useCallback((optionId: string) => {
     if (showExplanation) return;
-    setSelectedOptId(opt.id);
-    setShowExplanation(true);
+    setSelectedOptId(optionId);
     const q = questions[currentIndex];
-    if (q) {
-      const optIdx = q.options.findIndex((o) => o.id === opt.id);
-      setAnswers((prev) => ({ ...prev, [q.id]: optIdx }));
+    if (!q) return;
+    const selectedIdx = q.options.findIndex((o) => o.id === optionId);
+    if (selectedIdx >= 0) {
+      setAnswers((prev) => ({ ...prev, [q.id]: selectedIdx }));
     }
-  };
+    setShowExplanation(true);
+  }, [currentIndex, questions, showExplanation]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
-      const nextQ = questions[currentIndex + 1];
-      const nextAnswer = nextQ ? answers[nextQ.id] : undefined;
-      setSelectedOptId(nextAnswer != null ? nextQ.options[nextAnswer]?.id : null);
-      setShowExplanation(nextAnswer != null);
+      setSelectedOptId(null);
+      setShowExplanation(false);
     }
-  };
+  }, [currentIndex, questions.length]);
 
-  const submitQuiz = useCallback(async () => {
-    if (!activeQuiz) return;
+  const submitQuiz = useCallback(async (): Promise<QuizAttemptDTO | null> => {
+    if (!activeQuiz) return null;
     try {
-      const result = await apiClient<QuizAttemptDTO>(
-        `/api/v1/learning/quizzes/${encodeURIComponent(activeQuiz.id)}/grade`,
+      const res = await apiClient<QuizAttemptDTO>(
+        `/api/v1/learning/quizzes/container/${encodeURIComponent(activeQuiz.id)}/attempts`,
         {
           method: 'POST',
           body: JSON.stringify({
             workspace_id: wsRef.current,
+            time_seconds: elapsed,
             answers,
-            time_taken: elapsed,
           }),
         }
       );
-      setAttempt(result);
+      setAttempt(res);
+      return res;
     } catch (_err) {
-      setError('Failed to submit quiz.');
+      setError('Failed to submit quiz results.');
+      return null;
     }
   }, [activeQuiz, answers, elapsed]);
 
-  const correctCount = useMemo(() => {
-    let count = 0;
-    for (const q of questions) {
-      const answered = q.options.findIndex((o) => o.isCorrect);
-      if (answers[q.id] === answered) count++;
-    }
-    return count;
-  }, [questions, answers]);
-
-  const jumpToSource = useCallback((mediaId: string | null, seconds: number | null) => {
-    if (!mediaId || seconds == null) return;
-    useAppStore.setState({
-      activeMediaId: mediaId,
-      targetSeekSeconds: seconds,
-      activeView: 'view-video',
-    });
-  }, []);
+  const jumpToSource = useCallback(
+    (mediaId?: string, seconds?: number) => {
+      if (!mediaId || seconds == null) return;
+      useAppStore.setState({
+        activeMediaId: mediaId,
+        targetSeekSeconds: seconds,
+        activeView: 'view-video',
+      });
+    },
+    []
+  );
 
   const currentQuestion = questions[currentIndex] || null;
 
@@ -364,6 +370,7 @@ export function useQuiz(options: UseQuizOptions = {}) {
     loading,
     generating,
     error,
+    toastMessage,
     attempt,
     elapsed,
     generateQuiz,
