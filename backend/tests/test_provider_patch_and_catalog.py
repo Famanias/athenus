@@ -1,5 +1,3 @@
-import os
-import tempfile
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -8,14 +6,6 @@ from app.domain.settings.settings_service import SettingsService
 from app.infrastructure.db.session import init_db
 
 client = TestClient(app)
-
-
-def _setup_ollama_dir(tmp_dir: str) -> str:
-    manifest_dir = os.path.join(tmp_dir, "manifests", "registry.ollama.ai", "library", "phi3")
-    os.makedirs(manifest_dir, exist_ok=True)
-    with open(os.path.join(manifest_dir, "mini"), "w") as f:
-        f.write('{"schemaVersion": 2}')
-    return tmp_dir
 
 
 def test_patch_provider_settings_preserves_api_key_and_merges():

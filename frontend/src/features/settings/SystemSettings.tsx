@@ -6,15 +6,11 @@ import { useAppStore } from '@/store/useAppStore';
 import {
   getProviderSettings,
   patchProviderSettings,
-  getOllamaSettings,
-  updateOllamaDirectory,
-  scanOllamaModels,
   getProviderCatalog,
   getLocalProviderStatus,
   getLocalProviderModels,
   testProviderConnection,
   clearAllData,
-  OllamaSettingsResponse,
   ProviderCatalogProviderDTO,
   LocalProviderStatusDTO,
   CatalogModelDTO,
@@ -22,9 +18,6 @@ import {
 } from '@/services/settingsService';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
-
-const DOCKER_MODE_DIR_ERROR =
-  'You are currently using docker, if you want to manually add the path of your ollama models, switch to Native / Non-Docker Mode (Manual Virtual Environment). For more information, check the docs\\ONBOARDING.md \n If you are using docker, ignore this error.';
 
 export const SystemSettings: React.FC = () => {
   const { llmProvider, sttProvider, gpuAcceleration, selectedOllamaModel: storeOllamaModel, setProviderSettings, setActiveMediaId } = useAppStore();
@@ -52,12 +45,7 @@ export const SystemSettings: React.FC = () => {
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
 
-  // Local Model Storage (Host Filesystem) State
-  const [ollamaDir, setOllamaDir] = useState<string>('');
-  const [ollamaConfig, setOllamaConfig] = useState<OllamaSettingsResponse | null>(null);
-  const [ollamaDirError, setOllamaDirError] = useState<string | null>(null);
   const [catalogProviders, setCatalogProviders] = useState<ProviderCatalogProviderDTO[]>([]);
-  const [isScanningOllama, setIsScanningOllama] = useState<boolean>(false);
 
   // Danger Zone Reset state
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
@@ -67,10 +55,8 @@ export const SystemSettings: React.FC = () => {
   // Refs for tracking baseline saved values and preventing hydration race conditions
   const isHydratedRef = useRef<boolean>(false);
   const saveRequestIdRef = useRef<number>(0);
-  const dirSaveRequestIdRef = useRef<number>(0);
 
   const apiKeyDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const dirDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const lastSavedRef = useRef({
     llm: '',
@@ -78,7 +64,6 @@ export const SystemSettings: React.FC = () => {
     stt: '',
     gpu: false,
     apiKey: '',
-    dir: '',
   });
 
   const normalizeLlmProvider = (providerStr: string): string => {
@@ -139,9 +124,8 @@ export const SystemSettings: React.FC = () => {
     async function hydrateSettings() {
       setIsInitialLoading(true);
       try {
-        const [data, ollamaRes, catalogRes] = await Promise.all([
+        const [data, catalogRes] = await Promise.all([
           getProviderSettings(),
-          getOllamaSettings().catch(() => null),
           getProviderCatalog().catch(() => null),
         ]);
 
@@ -154,15 +138,6 @@ export const SystemSettings: React.FC = () => {
         const backendSavedModel = data.selected_ollama_model || storeOllamaModel || '';
         setSelectedOllamaModel(backendSavedModel);
         setProviderSettings(normLlm, data.default_stt, data.gpu_acceleration, backendSavedModel);
-
-        let savedDir = '';
-        if (ollamaRes) {
-          setOllamaConfig(ollamaRes);
-          if (ollamaRes.configured_dir) {
-            savedDir = ollamaRes.configured_dir;
-            setOllamaDir(savedDir);
-          }
-        }
 
         if (catalogRes) {
           setCatalogProviders(catalogRes.providers);
@@ -178,7 +153,6 @@ export const SystemSettings: React.FC = () => {
           stt: data.default_stt,
           gpu: data.gpu_acceleration,
           apiKey: data.api_key || '',
-          dir: savedDir,
         };
 
         await fetchOllamaDaemonInfo();
@@ -275,7 +249,6 @@ export const SystemSettings: React.FC = () => {
           stt: patchData.default_stt,
           gpu: patchData.gpu_acceleration,
           apiKey: currentValues.apiKey,
-          dir: lastSavedRef.current.dir,
         };
 
         setSaveStatus('saved');
@@ -293,47 +266,6 @@ export const SystemSettings: React.FC = () => {
     },
     [apiKey, gpuEnabled, selectedLlm, selectedOllamaModel, selectedStt, setProviderSettings, saveStatus]
   );
-
-  // Centralized Server Sync Handler for Ollama Directory Path
-  const executeDirServerSync = useCallback(async (dirToSave: string) => {
-    if (!isHydratedRef.current) return;
-
-    if (dirToSave === lastSavedRef.current.dir && saveStatus !== 'error') {
-      return;
-    }
-
-    const requestId = ++dirSaveRequestIdRef.current;
-    setSaveStatus('saving');
-    setSaveErrorMessage(null);
-    setOllamaDirError(null);
-
-    try {
-      const res = await updateOllamaDirectory(dirToSave);
-
-      if (requestId !== dirSaveRequestIdRef.current) return;
-
-      setOllamaConfig(res);
-
-      if (res.error) {
-        setOllamaDirError(res.error);
-        setSaveStatus('error');
-        setSaveErrorMessage(res.error);
-      } else {
-        lastSavedRef.current.dir = dirToSave;
-        setSaveStatus('saved');
-        setTimeout(() => {
-          if (dirSaveRequestIdRef.current === requestId) {
-            setSaveStatus('idle');
-          }
-        }, 2000);
-      }
-    } catch (err: any) {
-      if (requestId !== dirSaveRequestIdRef.current) return;
-      setOllamaDirError(err.message || 'Failed to update models directory.');
-      setSaveStatus('error');
-      setSaveErrorMessage(err.message || 'Failed to update models directory.');
-    }
-  }, [saveStatus]);
 
   // Handler for LLM Provider Switch
   const handleLlmChange = (newVal: string) => {
@@ -371,23 +303,9 @@ export const SystemSettings: React.FC = () => {
     }, 600);
   };
 
-  // Debounced Directory Path Change Handler
-  const handleDirChange = (newVal: string) => {
-    setOllamaDir(newVal);
-    if (dirDebounceTimerRef.current) {
-      clearTimeout(dirDebounceTimerRef.current);
-    }
-    dirDebounceTimerRef.current = setTimeout(() => {
-      executeDirServerSync(newVal);
-    }, 800);
-  };
-
   // Manual Retry Handler for Autosave Failures
   const handleRetrySave = () => {
     executeServerSync();
-    if (ollamaDir !== lastSavedRef.current.dir) {
-      executeDirServerSync(ollamaDir);
-    }
   };
 
   // Interactive Test Connection Action Handler
@@ -407,23 +325,6 @@ export const SystemSettings: React.FC = () => {
       });
     } finally {
       setIsTestingConnection(false);
-    }
-  };
-
-  // Manual Trigger for Scanning Local Storage Models
-  const handleScanOllamaModels = async () => {
-    setIsScanningOllama(true);
-    setOllamaDirError(null);
-    try {
-      const res = await scanOllamaModels();
-      setOllamaConfig(res);
-      if (res.error) {
-        setOllamaDirError(res.error);
-      }
-    } catch (err: any) {
-      setOllamaDirError(err.message || 'Scanning models directory failed.');
-    } finally {
-      setIsScanningOllama(false);
     }
   };
 
@@ -482,13 +383,6 @@ export const SystemSettings: React.FC = () => {
 
   // Runtime environment detection
   const isNativeHost = typeof window !== 'undefined' && (window as any).__TAURI__ !== undefined;
-
-  const simplifyOllamaDirError = (msg?: string): string => {
-    if (msg && (msg.toLowerCase().includes('docker') || msg.includes('cannot access it'))) {
-      return DOCKER_MODE_DIR_ERROR;
-    }
-    return msg || '';
-  };
 
   return (
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-4xl mx-auto space-y-6 w-full">

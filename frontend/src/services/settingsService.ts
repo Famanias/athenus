@@ -18,23 +18,6 @@ export interface ProviderSettingsResponse {
   status: string;
 }
 
-export interface DiscoveredModelDTO {
-  full_id: string;
-  model_name: string;
-  tag: string;
-  provider: string;
-  size_bytes?: number;
-}
-
-export interface OllamaSettingsResponse {
-  configured_dir?: string;
-  resolved_dir?: string;
-  valid: boolean;
-  models_count: number;
-  models: DiscoveredModelDTO[];
-  error?: string;
-}
-
 export interface LocalProviderStatusDTO {
   provider_id: string;
   label: string;
@@ -132,23 +115,6 @@ export async function getLocalProviderStatus(providerId: string): Promise<LocalP
 
 export async function getLocalProviderModels(providerId: string): Promise<LocalModelCatalogDTO> {
   return apiClient<LocalModelCatalogDTO>(`/api/v1/settings/providers/local/${providerId}/models`);
-}
-
-export async function getOllamaSettings(): Promise<OllamaSettingsResponse> {
-  return apiClient<OllamaSettingsResponse>('/api/v1/settings/ollama');
-}
-
-export async function updateOllamaDirectory(modelsDir: string): Promise<OllamaSettingsResponse> {
-  return apiClient<OllamaSettingsResponse>('/api/v1/settings/ollama', {
-    method: 'PUT',
-    body: JSON.stringify({ models_dir: modelsDir }),
-  });
-}
-
-export async function scanOllamaModels(): Promise<OllamaSettingsResponse> {
-  return apiClient<OllamaSettingsResponse>('/api/v1/settings/ollama/scan', {
-    method: 'POST',
-  });
 }
 
 export async function clearAllData(): Promise<{ status: string; message: string }> {

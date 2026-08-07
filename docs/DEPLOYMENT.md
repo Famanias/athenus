@@ -109,6 +109,16 @@ docker compose -f docker-compose.prod.yml up -d --build
 * Ollama: containerized on 11434.
 * SQLite for single-node persistence; embedded Qdrant vector store.
 
+> **Note — cloud LLM provider keys in production:** `docker-compose.prod.yml` does **not** use `env_file`, so keys from your local `.env` are not injected into the container automatically. To use cloud providers (Groq / OpenRouter / OpenAI / Anthropic / custom), pass the keys explicitly, e.g.:
+>
+> ```bash
+> GROQ_API_KEY=... OPENROUTER_API_KEY=... \
+>   OPENAI_API_KEY=... ANTHROPIC_API_KEY=... \
+>   docker compose -f docker-compose.prod.yml up -d --build
+> ```
+>
+> or add explicit `environment:` entries to the `backend` service in `docker-compose.prod.yml`. Keys are read at runtime by `ProviderConfigResolver` from the container environment (`backend/app/core/config.py`).
+
 > For true multi-user scale-out, the documented target (see `docs/adr/0003-qdrant-embedded-vector-store.md` and `CONTEXT.md`) is PostgreSQL + containerized Qdrant; the embedded stack above is appropriate for self-hosted single-instance use.
 
 ## 4. Cloud Mode (Railway / VPS)

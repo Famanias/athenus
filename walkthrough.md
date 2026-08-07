@@ -1,47 +1,103 @@
-# Walkthrough — Provider-Agnostic LLM Architecture & Complete Verification
+# Athenus Walkthrough & Change Log
 
-All 5 phases of the Provider-Agnostic LLM Architecture refactoring are 100% complete, verified, and committed.
-
----
-
-## 🏗️ Architectural Overview & Delivered System Summary
-
-1. **Core Domain Protocols & Configuration Resolver ([`provider_interface.py`](file:///e:/repos/athenus/backend/app/domain/ai/provider_interface.py) & [`config_resolver.py`](file:///e:/repos/athenus/backend/app/domain/ai/config_resolver.py))**:
-   - Standardized `ILLMProvider` interface protocol and `BaseLLMProvider` abstract base class.
-   - Implemented `ProviderConfigResolver`, separating read-only `.env` secrets from SQLite runtime state.
-
-2. **Two-Tier Adapter Classification ([`openai_compatible_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/openai_compatible_adapter.py), [`anthropic_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/anthropic_adapter.py), [`ollama_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/ollama_adapter.py))**:
-   - **Tier 1 Generic OpenAI-Compatible Adapter**: Handles OpenRouter, Groq, OpenAI, DeepSeek, NIM, Together AI, LiteLLM, LM Studio, and custom endpoints with `is_chat_model()` catalog filtering.
-   - **Tier 2 Custom Protocol Adapters**: Dedicated `AnthropicProviderAdapter` (`/v1/messages`) and `OllamaTextGenAdapter` (`/api/tags` dynamic model discovery).
-
-3. **Central Registry & Health Caching ([`provider_registry.py`](file:///e:/repos/athenus/backend/app/domain/ai/provider_registry.py))**:
-   - Concurrent `asyncio.gather()` catalog retrieval with 30s health TTL cache and 1-hour model discovery TTL cache.
-   - Integrated with `AIServiceBus` for capability negotiation and `UnsupportedCapabilityError` handling.
-
-4. **Frontend Configuration Inspector ([`SystemSettings.tsx`](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx))**:
-   - Interactive provider routing dropdown supporting instant hot-swapping.
-   - Interactive `🧪 Test Connection` button invoking `/settings/providers/{id}/test`.
-   - Read-only credential inspector matrix grid (`🟢 Configured` vs `🔴 Key missing in .env`).
+This document records implementation summaries and manual verification steps for changes made to the Athenus codebase.
 
 ---
 
-## 🧪 Manual Verification Matrix
+## Change: Docker Config Documentation, `.env.example` Cloud Keys, and Ollama Directory Scanner Deprecation Cleanup
 
-| # | Test Scenario | Steps | Expected Result | Status |
-| :- | :--- | :--- | :--- | :-: |
-| **1** | **Full Backend Pytest Suite** | Run `python -m pytest tests/` in `backend/` | 20 passed, 0 failures, 0 errors | **PASSED** |
-| **2** | **Frontend Typecheck** | Run `npx tsc --noEmit` in `frontend/` | 0 type errors | **PASSED** |
-| **3** | **Ollama Connection Test** | `POST /api/v1/settings/providers/ollama/test` | `is_available: true, is_configured: true` | **PASSED** |
-| **4** | **Groq Connection Test** | `POST /api/v1/settings/providers/groq/test` | `is_available: true, is_configured: true` | **PASSED** |
-| **5** | **OpenRouter Connection Test** | `POST /api/v1/settings/providers/openrouter/test` | `is_available: true, is_configured: true` | **PASSED** |
-| **6** | **Active Model Persistence** | Select `llama3:8b`, call `PATCH /settings/providers` | `POST /test` & `/catalog` report `active_model: llama3:8b` | **PASSED** |
-| **7** | **Capability Check Exception** | Call `ai_service_bus.get_text_capability(["vision"])` on non-vision provider | Raises `UnsupportedCapabilityError` | **PASSED** |
-| **8** | **Non-existent Provider Test** | `POST /settings/providers/bogus/test` | Returns HTTP `404 Not Found` | **PASSED** |
+### Summary of Implementation
+
+Context: the provider-agnostic LLM architecture (ADR 0019) deprecated the legacy filesystem Ollama model scanner (`ollama_models_dir` / `OllamaModelScanner`) in favor of 100% native Ollama daemon HTTP discovery (`/api/tags`). This change set cleans up the leftover dead code, documents cloud provider keys, and clarifies production secret injection. No Docker topology changes were required.
+
+#### 1. `.env.example` — document cloud provider keys
+
+Added the missing OpenAI / Anthropic / custom-provider entries so cloud/hybrid mode is discoverable:
+
+- `OPENAI_API_KEY=""`
+- `ANTHROPIC_API_KEY=""`
+- `CUSTOM_LLM_PROVIDERS=""` (documented JSON shape for arbitrary OpenAI-compatible endpoints)
+
+Field names match `backend/app/core/config.py` exactly (Pydantic `case_sensitive=True`).
+
+#### 2. Frontend — remove dead Ollama-directory code
+
+The `/api/v1/settings/ollama` endpoints were already removed from the backend, but the frontend still called them (resulting in 404s).
+
+- `frontend/src/services/settingsService.ts`: deleted `DiscoveredModelDTO`, `OllamaSettingsResponse`, `getOllamaSettings()`, `updateOllamaDirectory()`, `scanOllamaModels()`.
+  - Kept `CatalogModelDTO` / `LocalModelCatalogDTO` and `getLocalProviderStatus` / `getLocalProviderModels` (live daemon endpoints still used by the settings UI).
+- `frontend/src/features/settings/SystemSettings.tsx`: removed all dead directory UI code:
+  - Unused imports (`getOllamaSettings`, `updateOllamaDirectory`, `scanOllamaModels`, `OllamaSettingsResponse`)
+  - `DOCKER_MODE_DIR_ERROR` constant
+  - `ollamaDir`, `ollamaConfig`, `ollamaDirError`, `isScanningOllama` state
+  - `dirSaveRequestIdRef`, `dirDebounceTimerRef` refs and the `dir` field in `lastSavedRef`
+  - `executeDirServerSync`, `handleDirChange`, `handleScanOllamaModels`, `simplifyOllamaDirError` handlers
+  - `getOllamaSettings()` hydration block and the `ollamaDir` branch in `handleRetrySave`
+
+#### 3. Backend — remove deprecated scanner + fix stale tests
+
+- Deleted `backend/app/services/ollama_scanner.py` (`OllamaModelScanner`, `DiscoveredModel`) — no longer imported by any router.
+- Deleted `backend/tests/test_ollama_scanner.py` (tested the dead scanner).
+- Rewrote `backend/tests/test_ollama_settings_api.py` to keep only the valid provider-focused test (`test_provider_settings_selected_ollama_model`); dropped the three directory-scan tests that hit removed endpoints.
+- Trimmed `backend/tests/test_settings_persistence.py`: removed the Ollama-directory PUT step and `test_invalid_ollama_directory_preserves_saved_path`; kept provider-persistence assertions (verified against `SettingsService` directly).
+- Removed the unused `_setup_ollama_dir` helper from `backend/tests/test_provider_patch_and_catalog.py`.
+- **Intentionally kept** the `ollama_models_dir` column in `backend/app/infrastructure/db/models.py` to avoid a schema migration (harmless legacy field).
+
+#### 4. `docs/DEPLOYMENT.md` — production secret injection note
+
+Documented that `docker-compose.prod.yml` does not use `env_file`, so cloud LLM keys are not auto-injected in production; added an example for passing keys explicitly or via `environment:` entries.
+
+### Automated Verification Performed
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Backend tests | `python -m pytest` (from `backend/`) | 116 passed |
+| Frontend type check | `npx tsc --noEmit` (from `frontend/`) | clean |
+| Frontend build | `npm run build` (from `frontend/`) | compiled successfully |
+
+Note: `npm run lint` (`next lint`) fails at tool startup on the current Next.js 16.2.12 setup ("Invalid project directory provided") — unrelated to this change set; type-check/build are used instead.
 
 ---
 
-## 📝 Commits
+### Manual Testing Steps (validated by you)
 
-- Phase 1 & 2: Core abstractions & 2-tier adapters (`595e185`, `e1ac4e1`)
-- Phase 3: REST API endpoints & Service Bus integration (`4d90acd`)
-- Phase 4: Frontend Settings UX & Ollama Storage Path deprecation (`8a25872`)
+#### 1. Settings page loads cleanly (no 404s from removed endpoints)
+
+1. Start the backend (`python app/main.py` from `backend/`) and frontend (`npm run dev` from `frontend/`).
+2. Open the app → **System Settings** (gear icon).
+3. Confirm the page renders without errors and the provider catalog loads:
+   - Ollama, OpenRouter, Groq, OpenAI, Anthropic appear as selectable providers (with 🟢/⚪ configuration badges).
+4. Open your browser's DevTools → **Network** tab and reload the page.
+5. Verify there are **no** requests to `/api/v1/settings/ollama` or `/api/v1/settings/ollama/scan`. All requests should hit `/api/v1/settings/providers`, `/api/v1/settings/providers/catalog`, `/api/v1/settings/providers/local/...`.
+
+#### 2. Provider switching still works (regression check)
+
+1. In System Settings, switch the **Text Generation Provider** between Ollama → Groq → OpenRouter → Ollama.
+2. Confirm each switch shows the "Saving..." → "✓ All changes saved" indicators.
+3. Confirm the **Active Model Selection** dropdown updates with the selected provider's models.
+4. Confirm autosave works after switching (reload the page — your provider selection persists).
+
+#### 3. Test Connection still works
+
+1. With a provider selected, click **🧪 Test Connection**.
+2. Confirm a success banner appears for a configured/available provider, or an error banner with a message for an unconfigured one (e.g., Groq with no key → "Key missing" / connection error).
+
+#### 4. Cloud provider keys documented and honored (optional, requires keys)
+
+1. Add `OPENAI_API_KEY` (and optionally `ANTHROPIC_API_KEY`) to your `.env` and restart the backend.
+2. In System Settings, the corresponding provider badge should turn 🟢 Configured.
+3. Select it as the active provider, pick a model, and send a chat message — confirm responses come from the cloud model.
+
+#### 5. Frontend build is clean
+
+1. From `frontend/`: run `npx tsc --noEmit` (clean) and `npm run build` (compiles successfully).
+
+#### 6. Production secrets (documentation only — no code change)
+
+1. Confirm `docker-compose.prod.yml` was **not** modified (per your decision — no `env_file` injection).
+2. Read the new note in `docs/DEPLOYMENT.md` §3 confirming how to pass cloud keys to the prod container manually.
+3. (Optional) Validate the compose file still parses: `docker compose -f docker-compose.prod.yml config`.
+
+#### 7. Backend test suite (optional re-run)
+
+1. From `backend/`: `python -m pytest -q` → expect 116 passed, 0 failed.
