@@ -141,19 +141,19 @@ export function useIngestion() {
         { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
         { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
       ];
-    } else if (stage === 'chunking') {
+    } else if (stage === 'chunking' || stage === 'vector_indexing') {
       return [
         { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
         { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
         { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'processing', progress: progress || 75 },
         { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
       ];
-    } else if (stage === 'vector_indexing' || stage === 'graph_extraction') {
+    } else if (stage === 'graph_extraction' || stage === 'collect_context' || stage === 'llm_generation' || stage === 'validation') {
       return [
         { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
         { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
         { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'completed', progress: 100 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'processing', progress: progress || 90 },
+        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'processing', progress: progress || 85 },
       ];
     }
 
