@@ -18,7 +18,7 @@ export const Sidebar: React.FC = () => {
             <img src="/icon.png" alt="Athenus" className="w-full h-full object-contain" />
           </div>
           <div>
-            <h1 className="font-bold text-lg font-JetBrainsMono text-on-surface tracking-tight leading-none">
+            <h1 className="font-bold text-4xl font-carvist tracking-tight leading-none bg-gradient-to-br from-amber-200 via-secondary to-secondary-container bg-clip-text text-transparent">
               Athenus
             </h1>
           </div>

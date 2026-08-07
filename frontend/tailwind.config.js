@@ -33,6 +33,7 @@ module.exports = {
       },
       fontFamily: {
         'carvist': ['TT Carvist', 'serif'],
+        'type-light': ['Type Light Sans', 'sans-serif'],
         'sans': ['Geist', 'sans-serif'],
         'mono': ['JetBrains Mono', 'monospace'],
       },

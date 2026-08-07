@@ -63,7 +63,7 @@ export const DesktopShell: React.FC = () => {
           {!['view-dashboard', 'view-video', 'view-chat', 'view-flashcards', 'view-quiz', 'view-graph', 'view-ingestion', 'view-analytics', 'view-settings'].includes(activeView) && (
             <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-low border border-dashed border-outline-variant m-8 rounded-lg">
               <span className="text-5xl">🚧</span>
-              <h3 className="font-carvist text-xl font-bold text-on-surface">
+              <h3 className="font-type-light text-xl font-bold text-on-surface">
                 Feature Under Construction
               </h3>
               <p className="text-xs text-on-surface-variant max-w-md">

@@ -188,7 +188,7 @@ export const VideoWorkspace: React.FC = () => {
     return (
       <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
         <span className="text-5xl">🎬</span>
-        <h3 className="font-carvist text-xl font-bold text-on-surface">No Video Selected</h3>
+        <h3 className="font-type-light text-xl font-bold text-on-surface">No Video Selected</h3>
         <p className="text-xs text-on-surface-variant max-w-md leading-relaxed">
           Please upload a lecture video in Pipelines or select an existing asset from the Workspace Library.
         </p>

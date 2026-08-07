@@ -132,7 +132,7 @@ export const KnowledgeGraphCanvas: React.FC = () => {
         {/* Toolbar */}
         <div className="flex justify-between items-center px-4 py-3 border-b border-outline-variant z-10 bg-surface-container-lowest/90 backdrop-blur">
           <div>
-            <h2 className="font-carvist text-xl font-bold text-on-surface">
+            <h2 className="font-type-light text-xl font-bold text-on-surface">
               Concept Knowledge Graph Visualizer
             </h2>
             <p className="text-xs text-on-surface-variant">

@@ -50,7 +50,7 @@ export const FlashcardGrid: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center pb-4 border-b border-outline-variant">
         <div>
-          <h2 className="font-carvist text-2xl font-bold text-on-surface">
+          <h2 className="font-type-light text-2xl font-bold text-on-surface">
             Active Recall Flashcards (Anki SM-2)
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">

@@ -101,7 +101,7 @@ export const WorkspaceModal: React.FC = () => {
             <span className="material-symbols-outlined text-secondary">
               {editingWorkspaceId ? 'edit' : 'add_box'}
             </span>
-            <h2 className="font-bold text-base text-on-surface font-carvist">
+            <h2 className="font-bold text-base text-on-surface font-type-light">
               {editingWorkspaceId ? 'Manage Learning Workspace' : 'Create New Learning Workspace'}
             </h2>
           </div>

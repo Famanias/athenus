@@ -28,7 +28,7 @@ export const LibraryGrid: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="font-carvist text-2xl font-bold text-on-surface">
+          <h2 className="font-type-light text-2xl font-bold text-on-surface">
             Knowledge Library & Workspaces
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">

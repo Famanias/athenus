@@ -496,7 +496,7 @@ export const SystemSettings: React.FC = () => {
       <div className="space-y-4 pb-4 border-b border-outline-variant">
         <div className="flex justify-between items-start">
           <div>
-            <h2 className="font-carvist text-2xl font-bold text-on-surface">
+            <h2 className="font-type-light text-2xl font-bold text-on-surface">
               AI System Settings & Capability Bus
             </h2>
             <p className="text-xs text-on-surface-variant mt-1">
@@ -592,7 +592,7 @@ export const SystemSettings: React.FC = () => {
         <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-secondary text-base">tune</span>
-            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
+            <h3 className="font-bold text-sm text-on-surface font-type-light uppercase tracking-wider">
               AI Provider Routing Configuration
             </h3>
           </div>
@@ -709,7 +709,7 @@ export const SystemSettings: React.FC = () => {
         <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-secondary text-base">shield_lock</span>
-            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
+            <h3 className="font-bold text-sm text-on-surface font-type-light uppercase tracking-wider">
               Provider Credential & Capability Overview
             </h3>
           </div>
@@ -760,7 +760,7 @@ export const SystemSettings: React.FC = () => {
         <div className="flex items-center justify-between pb-3 border-b border-outline-variant/40">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-secondary text-base">mic</span>
-            <h3 className="font-bold text-sm text-on-surface font-carvist uppercase tracking-wider">
+            <h3 className="font-bold text-sm text-on-surface font-type-light uppercase tracking-wider">
               Speech-to-Text & Compute Acceleration
             </h3>
           </div>
@@ -810,7 +810,7 @@ export const SystemSettings: React.FC = () => {
       <div className="p-6 bg-rose-950/20 border border-rose-500/30 rounded-lg space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-sm text-rose-300 font-carvist uppercase tracking-wider">
+            <h3 className="font-bold text-sm text-rose-300 font-type-light uppercase tracking-wider">
               Danger Zone — Reset Application State
             </h3>
             <p className="text-xs text-rose-200/70 mt-0.5">
@@ -829,7 +829,7 @@ export const SystemSettings: React.FC = () => {
           <div className="bg-surface-container-low border border-rose-500/50 rounded-lg p-6 max-w-md w-full space-y-4 shadow-2xl">
             <div className="flex items-center gap-3 text-rose-400">
               <span className="material-symbols-outlined text-2xl">warning</span>
-              <h4 className="font-bold text-lg font-carvist">Confirm Irreversible Reset</h4>
+              <h4 className="font-bold text-lg font-type-light">Confirm Irreversible Reset</h4>
             </div>
 
             <p className="text-xs text-on-surface-variant leading-relaxed">

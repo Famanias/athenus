@@ -31,7 +31,7 @@ function StatCard({ icon, label, value, sub }: { icon: string; label: string; va
         <span className="material-symbols-outlined text-secondary text-base">{icon}</span>
         <span className="font-mono text-[10px] text-on-surface-variant uppercase tracking-wider">{label}</span>
       </div>
-      <p className="font-carvist text-2xl font-bold text-on-surface">{value}</p>
+      <p className="font-type-light text-2xl font-bold text-on-surface">{value}</p>
       {sub && <p className="font-mono text-[10px] text-on-surface-variant">{sub}</p>}
     </div>
   );
@@ -104,7 +104,7 @@ export const AnalyticsDashboard: React.FC = () => {
     <div className="flex-1 p-8 overflow-y-auto custom-scrollbar max-w-5xl mx-auto space-y-6 w-full">
       <div className="flex justify-between items-center pb-4 border-b border-outline-variant">
         <div>
-          <h2 className="font-carvist text-2xl font-bold text-on-surface">
+          <h2 className="font-type-light text-2xl font-bold text-on-surface">
             Learning Analytics
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">

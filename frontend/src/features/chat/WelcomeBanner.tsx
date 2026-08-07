@@ -33,7 +33,6 @@ export const WelcomeBanner: React.FC<WelcomeBannerProps> = ({
       <p className="relative italic text-sm md:text-base text-on-surface-variant/80 tracking-wide">
         {subtitle}
       </p>
-
       {children && <div className="relative mt-8">{children}</div>}
     </div>
   );

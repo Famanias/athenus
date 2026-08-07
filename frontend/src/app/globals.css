@@ -18,6 +18,13 @@
 }
 
 @font-face {
+  font-family: 'Type Light Sans';
+  src: url('/fonts/type-light-sans-font/TypeLightSans-KV84p.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
   font-family: 'Geist';
   src: url('/fonts/Geist_Mono/GeistMono-VariableFont_wght.ttf') format('truetype');
   font-weight: 100 900;

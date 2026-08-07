@@ -52,7 +52,7 @@ export const QuizStudio: React.FC = () => {
       {/* Header */}
       <div className="flex justify-between items-center pb-4 border-b border-outline-variant">
         <div>
-          <h2 className="font-carvist text-2xl font-bold text-on-surface">
+          <h2 className="font-type-light text-2xl font-bold text-on-surface">
             Adaptive Comprehension Quiz Studio
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
@@ -179,7 +179,7 @@ export const QuizStudio: React.FC = () => {
           <span className="text-4xl block">
             {attempt.score >= 80 ? '🏆' : attempt.score >= 50 ? '📈' : '📚'}
           </span>
-          <h3 className="font-carvist text-2xl font-bold text-on-surface">
+          <h3 className="font-type-light text-2xl font-bold text-on-surface">
             Quiz Complete — {attempt.score.toFixed(0)}%
           </h3>
           <p className="text-xs text-on-surface-variant font-mono">
