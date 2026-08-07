@@ -79,6 +79,7 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml exec backend nvid
 ```bash
 # Terminal 1 — containerized backend
 docker compose up -d backend
+docker compose up -d ollama
 
 # Terminal 2 — native Tauri app
 cd frontend

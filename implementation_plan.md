@@ -1,134 +1,224 @@
-# Implementation Plan — Centralized `TelemetryService` & Single System of Record Architecture
+# UI/UX Review & Implementation Roadmap: Flashcards & Quizzes Experience
 
-This revised implementation plan establishes a **Centralized `TelemetryService`** for the Athenus pipeline. It eliminates dual progress stores, removes scattered magic percentage numbers, and establishes SQLite `ArtifactJobTable` as the single system of record across all pipeline workers, API endpoints, SSE streams, and React UI components.
+**Document Status:** Final Architecture Review & Implementation Plan (Approved Edition)  
+**Date:** August 7, 2026  
+**Target Component:** Athenus Learning Studio (Flashcards & Quiz Subsystems)  
+**Author:** Antigravity AI  
 
 ---
 
-## 🏗️ Architectural Overview & Data Topology
+## 1. Executive Summary
+
+This roadmap provides a comprehensive analysis and incremental implementation plan to upgrade the **Flashcards** and **Quizzes** user experience in Athenus. 
+
+Based on empirical code inspection across `useFlashcards.ts`, `useQuiz.ts`, `flashcard_service.py`, `quiz_service.py`, `FlashcardGrid.tsx`, and `QuizStudio.tsx`, we have diagnosed the root causes for UI stale state, version content duplication, button visual clutter, and card interface cognitive overload.
+
+Our plan proposes low-risk, incremental milestones that preserve the underlying knowledge graph and SM-2 spaced repetition architecture while delivering a physical card experience.
+
+---
+
+## 2. Architecture Analysis
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            PIPELINE WORKERS                                 │
-│  (PersistentIngestionWorker, TranscriptWorker, EmbeddingWorker, GraphWorker) │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                Emits Domain Events (StageProgressEvent, etc.)
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     CENTRALIZED TELEMETRY SERVICE                           │
-│                       (telemetry_service.py)                                │
-│  - INGESTION_STAGES Registry: Single source for stage metadata & progress    │
-│  - Single DB Writer: Writes to SQLite ArtifactJobTable                      │
-│  - Event Streamer: Broadcasts SSE Telemetry Payload                         │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-                        Single Authoritative DB Write
-                                       │
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    SQLITE DATABASE (ArtifactJobTable)                       │
-│  job_id: "ingestion_med_xxx" | status: "processing" | stage: "transcription"│
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │
-            ┌──────────────────────────┴──────────────────────────┐
-            ▼                                                     ▼
-    REST API Jobs Endpoint                               SSE Stream Broadcast
-  (/media/workspace/jobs)                              (/media/stream)
-  (Page Refresh Rehydration)                           (Live UI Updates)
-            │                                                     │
-            └──────────────────────────┬──────────────────────────┘
-                                       ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     REACT FRONTEND (useIngestion.ts)                        │
-│   Reads SSE Telemetry + REST Fallback -> Single Stepper UI (0-100%)         │
-└─────────────────────────────────────────────────────────────────────────────┘
+                                ATHENUS LEARNING STUDIO TOPOLOGY
+                                
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                         DOMAIN KNOWLEDGE ENGINE                             │
+  │     KnowledgeGraphService ──► ConceptImportanceAllocator ──► Chunks         │
+  └──────────────────────────────────────┬──────────────────────────────────────┘
+                                         │
+                   On-Demand Generation Requests (force_new_version)
+                                         │
+                                         ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                 LEARNING SERVICES (flashcard_service / quiz_service)        │
+  │  - Deck vN+1 & Quiz vN+1 Persistence                                         │
+  │  - Single System of Record Telemetry Updates (ArtifactJobTable)             │
+  └──────────────────────────────────────┬──────────────────────────────────────┘
+                                         │
+                        SQLite Storage + REST Status Endpoints
+                                         │
+                                         ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                    REACT STUDIO HOOKS (useFlashcards / useQuiz)             │
+  │  - Issue 1: Missing activeDeck / activeQuiz set on generation completion     │
+  │  - Issue 2: Regeneration pipeline investigation (LLM vs Heuristic vs Cache)│
+  └──────────────────────────────────────┬──────────────────────────────────────┘
+                                         │
+                                         ▼
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                    STUDIO UI (FlashcardGrid.tsx / QuizStudio.tsx)           │
+  │  - Issue 3: Wording noise ("Generate v3" -> "Regenerate")                  │
+  │  - Issue 5A: Minimal Physical Card Back (Question -> Answer ONLY)           │
+  │  - Future 5B: Dedicated Study/Review Session Mode for SM-2 Ratings          │
+  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📋 Milestone Breakdown
+## 3. Root Cause Analysis & Investigation Strategy
 
-### Milestone 0: Audit All `ArtifactJobTable` Writers & Identity Rules
+### RCA 1: UI Fails to Refresh Automatically After Generation
+- **Empirical Evidence**: In [`useFlashcards.ts`](file:///e:/repos/athenus/frontend/src/features/flashcards/useFlashcards.ts#L152-L171) and [`useQuiz.ts`](file:///e:/repos/athenus/frontend/src/features/quiz/useQuiz.ts#L167-L186), `generateDeck()` and `generateQuiz()` execute `POST /learning/decks/{ws}?force_new_version=true` and then call `await refreshDecks()` and `await refreshArtifactStatus()`.
+- **Confirmed Root Cause**: Neither hook invokes `selectVersion(newVersion)` or `setActiveDeck(newDeck)` / `loadQuiz(newQuiz)` upon request completion. Consequently, React local state (`activeDeck`, `cards`, `activeQuiz`, `questions`) remains pointing at the **previous version** until navigating away and back causes the component to unmount and run its initial `useEffect` fetch.
 
-Before modifying code, audit every file reading or writing `ArtifactJobTable` to establish strict identity rules:
-
-| Component | File Path | Creates/Writes Job? | Target Key | Artifact Type | Format |
-|---|---|---|---|---|---|
-| Ingestion Queue | `persistent_ingestion_queue.py` | ✅ Yes | `media_id` | `"ingestion"` | `ingestion_{media_id}` |
-| Graph Worker | `graph_extraction_worker.py` | ✅ Yes | `media_id` | `"graph"` | `graph_{media_id}` |
-| Flashcard Engine | `flashcard_service.py` | ✅ Yes | `workspace_id` | `"flashcards"` | `flashcards_{workspace_id}` |
-| Quiz Engine | `quiz_service.py` | ✅ Yes | `workspace_id` | `"quiz"` | `quiz_{workspace_id}` |
-| REST Router | `media.py` | 🔍 Read Only | `workspace_id` | `"ingestion"` | N/A |
-
----
-
-### Milestone 1: Focused `TelemetryService` & `INGESTION_STAGES` Registry (Backend)
-
-#### [NEW] [telemetry_service.py](file:///e:/repos/athenus/backend/app/domain/telemetry/telemetry_service.py)
-- Create a focused `TelemetryService` class:
-  - **`INGESTION_STAGES` Registry**: Central dictionary defining stage metadata, descriptions, and progress percentages in a single place:
-    ```python
-    INGESTION_STAGES = {
-        "queued": {"progress": 5, "message": "Enqueued in persistent ingestion queue..."},
-        "audio_extraction": {"progress": 25, "message": "Extracting 16kHz mono WAV audio..."},
-        "transcription": {"progress": 60, "message": "Transcribing speech using Faster-Whisper ASR..."},
-        "chunking": {"progress": 75, "message": "Chunking transcript text..."},
-        "vector_indexing": {"progress": 85, "message": "Storing vector embeddings in Qdrant..."},
-        "collect_context": {"progress": 90, "message": "Retrieving context for graph extraction..."},
-        "llm_generation": {"progress": 95, "message": "Extracting domain concepts with LLM..."},
-        "ready": {"progress": 100, "message": "Ingestion complete."},
-    }
-    ```
-  - **Event Subscriber**: Subscribes to `StageProgressEvent`, `ProcessingStartedEvent`, `TranscriptCompletedEvent`, `ChunksIndexedEvent`, and `ProcessingFailedEvent`.
-  - **Single DB Writer**: Updates SQLite `ArtifactJobTable` for `job_id = f"ingestion_{media_id}"`.
-  - **SSE Telemetry Broadcaster**: Broadcasts live progress payloads to connected client streams.
-
-#### [MODIFY] [media_event_handlers.py](file:///e:/repos/athenus/backend/app/application/events/media_event_handlers.py)
-- Route incoming pipeline domain events through `TelemetryService`.
-- Deprecate duplicate in-memory `ProgressStore` to eliminate dual write paths and RAM/SQLite state drift.
+### Investigation 2: Regeneration Duplication Analysis
+- **Observed Behavior**: Creating `v1`, `v2`, and `v3` produces identical cards/questions, even in multi-video workspaces.
+- **Investigation Strategy**: Before proposing code changes, empirically trace:
+  1. Whether `force_new_version=true` triggers a fresh LLM call vs heuristic generator vs returning cached SQL rows.
+  2. Whether prompts and temperature settings are identical across runs.
+  3. Whether LLM outputs are non-deterministic or fixed.
+- 🛑 **Mandatory Guardrail**: *Do not implement regeneration logic changes until the root cause has been confirmed through logs and execution tracing.*
 
 ---
 
-### Milestone 2: REST & SSE Telemetry Stream Harmonization
+## 4. Current UX Evaluation & Proposed UX Improvements
 
-#### [MODIFY] [media.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/media.py)
-- Update `/media/workspace/{workspace_id}/jobs` to read directly from `ArtifactJobTable` updated by `TelemetryService`.
-
----
-
-### Milestone 3: Frontend SSE Streaming & Fallback Polling (Frontend)
-
-#### [MODIFY] [useIngestion.ts](file:///e:/repos/athenus/frontend/src/features/ingestion/useIngestion.ts)
-- Connect live UI updates to SSE stream broadcasts from `TelemetryService`.
-- Retain REST polling (`GET /media/workspace/{id}/jobs`) strictly as a rehydration fallback on page refresh.
-
----
-
-## 🧪 Comprehensive Verification & Edge Case Matrix
-
-| Edge Case Test | Test Procedure | Expected Outcome |
+| Dimension | Current UX Evaluation | Proposed UX Improvement |
 |---|---|---|
-| **Multi-Video Queue Concurrency** | Upload Video A, Video B, Video C in rapid succession | Video A processes, Videos B & C enter persistent queue (`Queued #1`, `#2`) without state overwriting or race conditions |
-| **Failed Transcription Recovery** | Trigger upload with corrupted audio track | Job updates to `status: "failed"`, `stage: "failed"`, logs error in SQLite, worker queue advances to next video |
-| **Server Restart Mid-Processing** | Restart backend process while Video A is at 60% | `boot_recovery()` queries SQLite, finds job, and resumes processing automatically |
-| **Browser Refresh Mid-Processing** | Refresh browser while Video A is transcribing | REST fallback `/jobs` rehydrates active job state and resumes live SSE progress bar |
-| **No-Concepts Edge Case** | Upload audio with zero speech | Pipeline marks job `failed`, logs descriptive message, releases queue lock |
+| **Tab Refresh** | Stale UI requiring tab switching | Immediate state sync + completion toast (e.g. `✅ Flashcards regenerated (Version 3)`) |
+| **Regeneration** | Duplicate versions across `v1..v3` | Empirical pipeline trace $\rightarrow$ targeted fix |
+| **Button Wording** | Visual clutter (`Generate v3`) | Clean & concise button label (`Regenerate`) |
+| **Card Face (5A)** | Overcrowded with SM-2 numbers and buttons | **Physical Card UX**: Front = Question, Flip = Answer ONLY |
+| **Future Study Mode (5B)** | SM-2 ratings clutter primary grid | Future enhancement: Dedicated **"Study Session Mode"** for active recall practice |
 
 ---
 
-## 🧪 Automated Test Suite Commands
+## 5. Milestone-by-Milestone Implementation Plan
 
-```bash
-# 1. Backend Telemetry & Ingestion Queue Tests
-python -m pytest tests/test_ingestion_pipeline.py
-python -m pytest tests/test_knowledge_graph.py
+### Milestone 1 — Flashcards/Quizzes UI Refresh After Generation & Completion Toast
 
-# 2. Full Backend Test Suite
-python -m pytest tests/
+#### Proposed Solution
+Update `generateDeck` in `useFlashcards.ts` and `generateQuiz` in `useQuiz.ts` to automatically invoke `selectVersion(newDeck.version)` and `loadQuiz(newQuiz)` upon receiving the generated artifact, displaying a 2-second completion banner (`✅ Flashcards regenerated (Version X)`).
 
-# 3. Frontend Type & Build Verification
-cd frontend
-npx tsc --noEmit
-npm run build
-```
+#### Implementation Steps
+1. In `useFlashcards.ts`:
+   ```ts
+   const created = await apiClient<FlashcardDeckDTO>(...);
+   await refreshDecks();
+   await refreshArtifactStatus();
+   if (created?.version) {
+     await selectVersion(created.version);
+     setToastMessage(`✅ Flashcards regenerated (Version ${created.version})`);
+   }
+   ```
+2. In `useQuiz.ts`:
+   ```ts
+   const created = await apiClient<QuizContainerDTO>(...);
+   await refreshQuizzes();
+   await refreshArtifactStatus();
+   if (created) {
+     await loadQuiz(created);
+     setToastMessage(`✅ Quiz regenerated (Version ${created.version})`);
+   }
+   ```
+
+---
+
+### Milestone 2 — Regeneration Pipeline Investigation
+
+#### Investigation Protocol
+Trace `POST /api/v1/learning/decks/{ws}?force_new_version=true`:
+1. Verify if `_generate_with_llm` or `generate_flashcards_heuristic` is executed.
+2. Check LLM prompt logs to verify if temperature/seeds vary per version.
+3. Formulate targeted fix based on empirical log findings.
+> 🛑 *Do not implement regeneration logic changes until the root cause has been confirmed through logs and execution tracing.*
+
+---
+
+### Milestone 3 — Simplify the Regenerate Button
+
+#### Proposed Solution
+Update button label rendering in `FlashcardGrid.tsx` and `QuizStudio.tsx`.
+
+#### Implementation Steps
+1. In `FlashcardGrid.tsx`: Replace `{generating ? 'Generating...' : 'Generate v' + ((activeDeck?.version || 1) + 1)}` with `{generating ? 'Generating...' : activeDeck ? 'Regenerate' : 'Generate Deck'}`.
+2. In `QuizStudio.tsx`: Replace `{generating ? 'Generating...' : 'Generate Quiz (v' + ...}` with `{generating ? 'Generating...' : activeQuiz ? 'Regenerate' : 'Generate Quiz'}`.
+
+---
+
+### Milestone 5A — Physical Card Experience (Minimal Card Back)
+
+#### Proposed Solution
+Redesign the back of flashcards in `FlashcardGrid.tsx` to display only the answer text in a clean, minimal physical card layout.
+
+#### Implementation Steps
+1. Render front (Question) $\rightarrow$ flip $\rightarrow$ back (Answer ONLY).
+2. Remove SM-2 numbers (`Ease`, `Interval`), 4 rating buttons (`Again`, `Hard`, `Good`, `Easy`), and timestamp links from the primary grid view.
+
+---
+
+### Milestone 4 — Refine Auto-Evolve & Generation Settings UI
+
+#### Technical Breakdown
+- `auto_evolve_flashcards` / `auto_evolve_quizzes`: Workspace configuration flags governing background analytics updates.
+- Target Budget (`~10`, `~20`, `~40`): Pagerank & graph centrality importance allocation per concept node.
+
+---
+
+### Future Enhancement — Dedicated Study & Spaced Repetition Session Mode (Future 5B)
+
+#### Proposed Solution
+Create an optional **"Study Session Mode"** modal/toggle where SM-2 recall rating buttons (`Again`, `Hard`, `Good`, `Easy`), ease factors, interval scheduling, and timestamp links are accessible for active recall practice.
+
+---
+
+## 6. Recommended Implementation Order
+
+1. **Milestone 1**: UI Refresh After Generation & Completion Toast (Highest user impact, minimal risk).
+2. **Milestone 2**: Regeneration Pipeline Investigation (Investigation before code changes).
+3. **Milestone 3**: Simplify Button Labels (`Regenerate`).
+4. **Milestone 5A**: Physical Card Experience (Clean Question $\rightarrow$ Answer back).
+5. **Milestone 4**: Refine Auto-Evolve & Generation Settings UI.
+6. **Future Enhancement**: Dedicated Study Session Mode (Future 5B).
+
+# Implementation Plan — Learning Studio UI/UX & Regeneration Optimization
+
+This implementation plan details the step-by-step execution to upgrade the **Flashcards** and **Quizzes** experience in Athenus based on [`FLASHCARDS_QUIZZES_UI_UX_ROADMAP.md`](FLASHCARDS_QUIZZES_UI_UX_ROADMAP.md).
+
+---
+
+## 📋 Recommended Implementation Order
+
+1. **Milestone 1**: UI Refresh After Generation & Completion Toast (Highest user impact, minimal risk).
+2. **Milestone 2**: Regeneration Pipeline Investigation (Empirically trace LLM vs Heuristic vs Caching).
+3. **Milestone 3**: Simplify Button Labels (`Regenerate`).
+4. **Milestone 5A**: Physical Card Experience (Clean Question $\rightarrow$ Answer back).
+5. **Milestone 4**: Refine Auto-Evolve & Generation Settings UI.
+6. **Future Enhancement**: Dedicated Study Session Mode (Future 5B).
+
+---
+
+## 🛠️ Milestone Details
+
+### Milestone 1 — Flashcards/Quizzes UI Refresh & Completion Toast Banner
+- **Target Files**: [`useFlashcards.ts`](file:///e:/repos/athenus/frontend/src/features/flashcards/useFlashcards.ts) & [`useQuiz.ts`](file:///e:/repos/athenus/frontend/src/features/quiz/useQuiz.ts)
+- **Change**: Invoke `selectVersion(newDeck.version)` and `loadQuiz(newQuiz)` immediately after `POST` request completes, rendering a 2-second completion banner (`✅ Flashcards regenerated (Version X)`).
+
+### Milestone 2 — Regeneration Pipeline Investigation
+- **Target Files**: [`flashcard_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/flashcard_service.py) & [`quiz_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/quiz_service.py)
+- **Action**: Empirically trace LLM execution logs and prompt arguments for `v1`, `v2`, `v3` to determine why output is identical before proposing code fixes.
+- 🛑 **Guardrail**: *Do not implement regeneration logic changes until the root cause has been confirmed through logs and execution tracing.*
+
+### Milestone 3 — Simplify Regenerate Button Label
+- **Target Files**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx) & [`QuizStudio.tsx`](file:///e:/repos/athenus/frontend/src/features/quiz/QuizStudio.tsx)
+- **Change**: Rename button label to `'Regenerate'` (or `'Generate Deck'` / `'Generate Quiz'` when empty).
+
+### Milestone 5A — Physical Card Experience
+- **Target File**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx)
+- **Change**: Render Question front $\rightarrow$ Answer back ONLY. Remove SM-2 numbers and 4 rating buttons from the main grid view.
+
+### Milestone 4 — Refine Auto-Evolve & Generation Settings UI
+- **Target Files**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx) & [`QuizStudio.tsx`](file:///e:/repos/athenus/frontend/src/features/quiz/QuizStudio.tsx)
+- **Change**: Clarify settings header labels (`Auto-Sync Concepts` & `Target Budget`).
+
+### Future Enhancement — Dedicated Study Session Mode (Future 5B)
+- **Target File**: [`FlashcardGrid.tsx`](file:///e:/repos/athenus/frontend/src/features/flashcards/FlashcardGrid.tsx)
+- **Change**: Add an optional **"Study Mode"** toggle/modal where SM-2 recall rating buttons (`Again`, `Hard`, `Good`, `Easy`) and timestamps are accessible for active review practice.
+
+---
+
+## 🧪 Verification Plan
+
+- Run backend test suite: `python -m pytest tests/test_flashcards.py` & `python -m pytest tests/test_quiz.py`.
+- Run frontend type check: `npx tsc --noEmit`.
