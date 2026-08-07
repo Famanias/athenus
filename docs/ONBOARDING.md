@@ -84,7 +84,7 @@ docker compose up -d ollama
 # Terminal 2 — native Tauri app
 cd frontend
 npm install
-npm run tauri dev
+npx tauri dev
 ```
 
 The desktop app reaches the API at `http://localhost:8000` and shares the same
@@ -160,23 +160,22 @@ npm run dev
 npm run tauri dev
 ```
 
-### Step 6: Native Model Storage Inspection
-In native mode, the backend has direct host filesystem access. You can configure and inspect host model storage directories (e.g., `E:\ollama\models` or `~/.ollama/models`) in **Settings → AI Models & Capability Bus Providers → Model Storage**.
+### Step 6: Provider-Agnostic LLM & Cloud Key Configuration
+Cloud API keys (`GROQ_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) can be added to `.env`. Hot-swapping active LLM providers and model selection takes effect instantly in **Settings → AI System Settings & Capability Bus** without requiring backend process restarts.
 
 ---
 
-## 6. Local Model Providers & Settings Diagnostic Panel
+## 6. Local & Cloud LLM Providers & Settings Inspector
 
-In **Settings → Model Sources**, Athenus provides clean, decoupled diagnostic panels:
+In **Settings → AI System Settings & Capability Bus**, Athenus provides an interactive provider inspector and routing panel:
 
-1. **Ollama Service Daemon (Live Connection)**:
-   - Queries REST health (`/api/version`) and installed models (`/api/tags`).
-   - Displays real-time status badge (`✓ Connected` / `✕ Offline`), active endpoint URL (`http://localhost:11434` or `http://ollama:11434`), and model sizes.
-   - Includes a manual **[ Refresh Models ]** button for instant sync.
-2. **Model Storage (Offline Filesystem Inspection)**:
-   - Allows native host directory inspection (e.g. `E:\ollama\models`) without interfering with live REST API model discovery.
-
----
+1. **Provider-Agnostic LLM Architecture**:
+   - Central `LLMProviderRegistry` supporting Ollama, OpenRouter, Groq, OpenAI, Anthropic, and custom OpenAI-compatible endpoints.
+   - Live status badges (`🟢 Configured` vs `🔴 Key missing in .env`) for credential visibility.
+2. **Native Ollama Daemon API (`/api/tags`)**:
+   - Queries REST health and installed models directly over HTTP. Model discovery is 100% dynamic across native, web, and containerized workflows.
+3. **Interactive Connection Testing**:
+   - Includes a **`🧪 Test Connection`** button to verify API key validity, latency, and active model status in real time.
 
 ## 7. Sanity Checks & Lifecycle Operations
 
