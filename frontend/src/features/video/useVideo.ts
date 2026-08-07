@@ -14,6 +14,8 @@ export interface TranscriptSegment {
   isHighlighted?: boolean;
 }
 
+import { useJob } from '@/features/pipeline/useJob';
+
 export function useVideo() {
   const {
     activeWorkspaceId,
@@ -26,6 +28,8 @@ export function useVideo() {
     playbackSpeed,
     setPlaybackSpeed,
   } = useAppStore();
+
+  const { isComplete: isJobComplete } = useJob(activeMediaId);
 
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
@@ -84,7 +88,14 @@ export function useVideo() {
     fetchTranscript();
   }, [fetchTranscript]);
 
-  // Listen for ingestion completion event to re-fetch transcript dynamically
+  // State-driven transcript re-fetching on job completion transition
+  useEffect(() => {
+    if (isJobComplete) {
+      fetchTranscript();
+    }
+  }, [isJobComplete, fetchTranscript]);
+
+  // Listen for ingestion completion event to re-fetch transcript dynamically (fallback)
   useEffect(() => {
     const handleTranscriptReady = (e: Event) => {
       const customEvt = e as CustomEvent<{ mediaId?: string }>;
