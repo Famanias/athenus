@@ -58,26 +58,17 @@ export const FlashcardGrid: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Auto-Evolve Control */}
+          {/* Generation Target Budget Control */}
           <div className="flex items-center gap-2 bg-surface-container-high px-3 py-1.5 rounded-lg border border-outline-variant/50">
-            <label className="flex items-center gap-1.5 text-xs text-on-surface cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={settings.auto_evolve_flashcards}
-                onChange={(e) => updateSettings({ auto_evolve_flashcards: e.target.checked })}
-                className="accent-primary rounded"
-              />
-              <span className="font-medium text-xs">⚡ Auto-Evolve</span>
-            </label>
-            <span className="text-outline-variant">|</span>
+            <span className="text-xs text-on-surface-variant font-mono">Density:</span>
             <select
               value={settings.flashcard_target_budget_per_media}
               onChange={(e) => updateSettings({ flashcard_target_budget_per_media: Number(e.target.value) })}
               className="bg-transparent text-xs font-mono text-primary outline-none cursor-pointer"
             >
-              <option value={10} className="bg-surface text-on-surface">Compact (~10/video)</option>
-              <option value={20} className="bg-surface text-on-surface">Standard (~20/video)</option>
-              <option value={40} className="bg-surface text-on-surface">Deep (~40/video)</option>
+              <option value={10} className="bg-surface text-on-surface">Compact</option>
+              <option value={20} className="bg-surface text-on-surface">Standard</option>
+              <option value={40} className="bg-surface text-on-surface">Deep</option>
             </select>
           </div>
 

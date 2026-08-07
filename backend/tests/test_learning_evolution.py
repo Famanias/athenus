@@ -25,7 +25,7 @@ def test_workspace_learning_settings_api():
     res = client.get(f"/api/v1/learning/workspaces/{ws_id}/settings")
     assert res.status_code == 200
     data = res.json()
-    assert data["auto_evolve_flashcards"] is True
+    assert data["auto_evolve_flashcards"] is False
     assert data["flashcard_target_budget_per_media"] == 20
 
     # PATCH settings

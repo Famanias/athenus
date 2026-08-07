@@ -403,9 +403,9 @@ def list_quiz_attempts(workspace_id: str, limit: int = 20):
 # Workspace Learning Settings & Auto-Evolution Configuration
 # ---------------------------------------------------------------------------
 class WorkspaceLearningSettingsDTO(BaseModel):
-    auto_evolve_flashcards: bool = True
+    auto_evolve_flashcards: bool = False
     flashcard_target_budget_per_media: int = 20
-    auto_evolve_quizzes: bool = True
+    auto_evolve_quizzes: bool = False
     quiz_target_budget_per_media: int = 15
 
 
@@ -428,9 +428,9 @@ def get_workspace_learning_settings(workspace_id: str):
                 import json
                 data = json.loads(ws.settings_json)
                 return WorkspaceLearningSettingsDTO(
-                    auto_evolve_flashcards=data.get("auto_evolve_flashcards", True),
+                    auto_evolve_flashcards=data.get("auto_evolve_flashcards", False),
                     flashcard_target_budget_per_media=data.get("flashcard_target_budget_per_media", 20),
-                    auto_evolve_quizzes=data.get("auto_evolve_quizzes", True),
+                    auto_evolve_quizzes=data.get("auto_evolve_quizzes", False),
                     quiz_target_budget_per_media=data.get("quiz_target_budget_per_media", 15),
                 )
     except Exception:
