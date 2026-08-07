@@ -102,7 +102,7 @@ export const QuizStudio: React.FC = () => {
             disabled={generating}
             onClick={() => generateQuiz()}
           >
-            {generating ? 'Generating...' : 'Generate v' + ((activeQuiz?.version || 1) + 1)}
+            {generating ? 'Generating...' : activeQuiz ? 'Regenerate' : 'Generate Quiz'}
           </Button>
         </div>
       </div>

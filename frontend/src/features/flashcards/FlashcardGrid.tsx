@@ -114,7 +114,7 @@ export const FlashcardGrid: React.FC = () => {
             disabled={generating}
             onClick={() => generateDeck()}
           >
-            {generating ? 'Generating...' : 'Generate v' + ((activeDeck?.version || 1) + 1)}
+            {generating ? 'Generating...' : activeDeck ? 'Regenerate' : 'Generate Deck'}
           </Button>
         </div>
       </div>
