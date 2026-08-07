@@ -101,6 +101,9 @@ graph TD
 | **[ADR 0013](file:///e:/repos/athenus/docs/adr/0013-atomic-21-table-factory-reset-engine.md)** | Atomic 21-Table Factory Reset Engine | Implemented a complete 21-table child-to-parent deletion transaction, Qdrant collection reset, and disk file purge. |
 | **[ADR 0014](file:///e:/repos/athenus/docs/adr/0014-strict-workspace-media-and-artifact-boundary-isolation.md)** | Strict Workspace Media & Artifact Boundary Isolation | Enforced workspace validation across store, hooks, and API endpoints to prevent cross-workspace media rendering. |
 | **[ADR 0015](file:///e:/repos/athenus/docs/adr/0015-generic-background-task-runtime-and-multi-job-pipeline-engine.md)** | Generic BackgroundTaskRuntime Engine | Decoupled SSE lifecycles from Zustand, modeled multi-job registry (`jobs`), and implemented exponential backoff reconnects and polling fallbacks. |
+| **[ADR 0016](file:///e:/repos/athenus/docs/adr/0016-centralized-telemetry-service-and-ingestion-stages-registry.md)** | Centralized Telemetry Service & Ingestion Stages Registry | Created `TelemetryService` and `INGESTION_STAGES` metadata registry writing directly to SQLite `ArtifactJobTable` as single system of record. |
+| **[ADR 0017](file:///e:/repos/athenus/docs/adr/0017-state-driven-frontend-job-lifecycle-and-rehydration-engine.md)** | State-Driven Frontend Job Lifecycle & Rehydration Engine | Added `'queued'` filter to active stream subscriptions and connected `useJob` state transitions to automatic transcript re-fetching. |
+| **[ADR 0018](file:///e:/repos/athenus/docs/adr/0018-version-seeded-variation-engine-and-physical-card-ux.md)** | Version-Seeded Variation Engine & Physical Card Studio UX | Resolved version content duplication via version-seeded pseudo-random generation, auto-selection of generated versions, completion toasts, and physical card UX. |
 
 ---
 

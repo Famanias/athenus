@@ -68,6 +68,12 @@ This document presents a complete summary of the frontend development completed 
 ### Phase G: Multi-Workspace & Multi-Session Navigation
 * **`WorkspaceDropdown.tsx`**: Searchable dropdown in `TopToolbar` displaying active workspace, icon badge, pinned list, and create trigger.
 * **`WorkspaceModal.tsx`**: Dialog for workspace creation and management (renaming, icon selection, safe active fallback deletion).
+
+### Phase H: State-Driven Ingestion Synchronization & Physical Card Studio UX
+* **Job Lifecycle & Rehydration Engine (`src/features/pipeline/`)**: Built `jobLifecycle.ts` and state-driven `useJob.ts` hook. Added `'queued'` status filter to SSE active stream subscriptions and connected state transitions to automatic transcript re-fetching without app restarts.
+* **Version Auto-Sync & Completion Toast Banners**: `useFlashcards.ts` and `useQuiz.ts` automatically invoke version selection immediately upon generation request completion, rendering 4-second completion toast banners (`✅ Flashcards regenerated (Version X)`).
+* **Physical Card Studio UX (`src/features/flashcards/`)**: Redesigned card back in `FlashcardGrid.tsx` to render clean physical card text (Front = Question, Back = Answer ONLY), eliminating SM-2 metric clutter from the primary browsing grid.
+* **Studio Toolbar Simplification**: Simplified button labels to `'Regenerate'` and density dropdown labels to `Compact`, `Standard`, `Deep`. Removed `⚡ Auto-Evolve` header checkboxes and set backend defaults to `False`.
 * **`SessionList.tsx`**: Sidebar list displaying recent chat sessions with preview snippets (`preview_text`) and deletion controls.
 * **Lazy Chat State**: "+ New Chat" button initiates a clean in-memory draft; session record is created on turn 1 submit.
 

@@ -87,26 +87,27 @@ sequenceDiagram
 ---
 
 ### 2.2 Subsystem 2: Active Recall Flashcards
-- **Trigger**: Direct on-demand request (`POST /api/v1/learning/decks/generate`) or automatic event invocation by `LearningEvolutionWorker` on `ConceptGraphUpdatedEvent`.
-- **Components**: `LearningEvolutionWorker`, `FlashcardService`, `ConceptImportanceAllocator`, and `sm2.py`.
+- **Trigger**: Direct on-demand request (`POST /api/v1/learning/decks/{ws}?force_new_version=true`) from the Flashcard Studio tab.
+- **Components**: `FlashcardService`, `ConceptImportanceAllocator`, `flashcard_generation.py`, and `sm2.py`.
 - **Transformation Pipeline**:
-  1. `ConceptImportanceAllocator` ranks workspace concepts by graph connection degree, explicit extraction weight, and low-mastery scores (<0.5) from `ConceptMasteryTable`.
-  2. Allocates a target card budget (e.g. 20 cards) across foundational concepts.
-  3. `FlashcardService` checks for an existing deck version in `FlashcardDeckTable`:
-     - **Initial Deck (`v1`)**: Generates card questions (`basic`, `cloze`, `definition`, `true_false`) via LLM prompt or heuristic fallback, setting initial SM-2 state (`ease_factor=2.5`, `interval_days=0`, `repetitions=0`).
-     - **Evolution Deck (`vN+1`)**: If new concepts exist, generates delta cards for newly introduced concepts while preserving 100% of existing SM-2 review progress and histories.
+  1. `ConceptImportanceAllocator` ranks workspace concepts by graph degree, extraction weight, and low-mastery scores (<0.5) from `ConceptMasteryTable`.
+  2. Allocates a target budget density across foundational concepts (`Compact`, `Standard`, `Deep`).
+  3. `FlashcardService` executes deck generation:
+     - **Initial Deck (`v1`)**: Generates card questions (`basic`, `cloze`, `definition`, `true_false`) via LLM prompt or version-seeded heuristic fallback, setting initial SM-2 state (`ease_factor=2.5`, `interval_days=0`, `repetitions=0`).
+     - **Regeneration & Evolution (`vN+1`)**: Generates a new immutable version record (`deck_{ws}_vN+1`). Employs a **Version-Seeded Variation Engine** (`random.Random(version * 37 + 101)`) to vary question templates, concept ordering, cloze structures, and option shuffles across consecutive regenerations (`v1`, `v2`, `vN`).
+  4. **Physical Card UX**: Flashcard Studio presents a physical card layout (Front = Question, Back = Answer ONLY), eliminating SM-2 metric clutter from the primary browsing grid.
 - **Persistence**: Writes `FlashcardDeckTable` (`version=N+1`) and `FlashcardTable` rows.
 
 ---
 
 ### 2.3 Subsystem 3: Adaptive Diagnostic Quizzes
-- **Trigger**: On-demand request (`POST /api/v1/learning/quizzes/generate`) or auto-evolution via `LearningEvolutionWorker`.
+- **Trigger**: Direct on-demand request (`POST /api/v1/learning/quizzes/{ws}/generate?force_new_version=true`) from the Quiz Studio tab.
 - **Components**: `QuizService` (`domain/learning/quiz_service.py`), `ConceptImportanceAllocator`, and `quiz_generation.py`.
 - **Transformation Pipeline**:
   1. `ConceptImportanceAllocator` samples concepts according to workspace importance weight and user mastery deficits.
   2. Invokes `QuizService.generate_quiz()`:
-     - Prompts LLM to produce concept-balanced multiple-choice questions (4 options, correct answer index, explanation, and provenance timestamp links).
-     - *Heuristic Fallback*: Samples distractor options from related concept terms if LLM is offline.
+     - Prompts LLM or version-seeded heuristic extractor to produce concept-balanced multiple-choice questions (4 options, correct answer index, explanation, and provenance links).
+     - **Version-Seeded Variation Engine**: Uses `version` seed (`random.Random(version * 41 + 203)`) to shuffle question stems, distractors, and concept priorities so consecutive quiz versions (`v1`, `v2`, `vN`) deliver novel diagnostic content.
   3. `QuizService.grade_attempt()` evaluates user submissions, calculates score percentage, and persists an immutable `QuizAttemptTable` row.
 - **Persistence**: Writes `QuizTable`, `QuizQuestionTable`, and `QuizAttemptTable`.
 - **Event Emitted**: Publishes `QuizAttemptEvent`.
