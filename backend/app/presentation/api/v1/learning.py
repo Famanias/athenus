@@ -18,9 +18,16 @@ from app.domain.analytics.analytics_service import AnalyticsService
 
 router = APIRouter()
 
+# ai_service_bus is the process-wide singleton built in main.py.
+# Import it here so both FlashcardService and QuizService can reach the LLM
+# provider — without this injection their _generate_with_llm methods return []
+# immediately (self.ai_service_bus is None) and always fall back to the
+# heuristic engine, regardless of which provider is configured.
+from app.main import ai_service_bus  # noqa: E402
+
 graph_service = KnowledgeGraphService()
-flashcard_service = FlashcardService(graph_service=graph_service, event_bus=global_event_bus)
-quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_bus)
+flashcard_service = FlashcardService(graph_service=graph_service, ai_service_bus=ai_service_bus, event_bus=global_event_bus)
+quiz_service = QuizService(graph_service=graph_service, ai_service_bus=ai_service_bus, event_bus=global_event_bus)
 # Precomputed analytics subscribe to domain events once at import time.
 _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
 
