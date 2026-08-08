@@ -2,6 +2,8 @@ import asyncio
 import pytest
 import httpx
 from app.infrastructure.adapters.ollama_provider import OllamaProviderAdapter
+from app.infrastructure.adapters.ollama_adapter import OllamaTextGenAdapter
+from app.domain.ai.capabilities import TextGenerationRequest
 
 def test_ollama_provider_status_success(monkeypatch):
     async def mock_get(self, url):
@@ -57,3 +59,38 @@ def test_ollama_provider_offline_graceful_handling(monkeypatch):
     catalog = asyncio.run(adapter.list_models())
     assert catalog.count == 0
     assert len(catalog.models) == 0
+
+def test_ollama_text_gen_adapter_generate_success(monkeypatch):
+    async def mock_post(self, url, json=None):
+        return httpx.Response(200, json={
+            "response": "Hello world from Ollama",
+            "prompt_eval_count": 10,
+            "eval_count": 5
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adapter = OllamaTextGenAdapter(base_url="http://localhost:11434", default_model="llama3:8b")
+    req = TextGenerationRequest(prompt="hi")
+    res = asyncio.run(adapter.generate(req))
+
+    assert res.text == "Hello world from Ollama"
+    assert res.prompt_tokens == 10
+    assert res.completion_tokens == 5
+
+def test_ollama_text_gen_adapter_raises_on_failure(monkeypatch):
+    async def mock_post(self, url, json=None):
+        raise httpx.ConnectError("Ollama daemon unreachable")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    adapter = OllamaTextGenAdapter(base_url="http://localhost:11434", default_model="llama3:8b")
+    req = TextGenerationRequest(prompt="hi")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(adapter.generate(req))
+
+    assert "Ollama generation failed" in str(exc_info.value)
+    # Ensure fake fallback text is NOT returned
+    assert "Offline Fallback" not in str(exc_info.value)
+

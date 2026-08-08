@@ -92,9 +92,11 @@ sequenceDiagram
 - **Transformation Pipeline**:
   1. `ConceptImportanceAllocator` ranks workspace concepts by graph degree, extraction weight, and low-mastery scores (<0.5) from `ConceptMasteryTable`.
   2. Allocates a target budget density across foundational concepts (`Compact`, `Standard`, `Deep`).
-  3. `FlashcardService` executes deck generation:
-     - **Initial Deck (`v1`)**: Generates card questions (`basic`, `cloze`, `definition`, `true_false`) via LLM prompt or version-seeded heuristic fallback, setting initial SM-2 state (`ease_factor=2.5`, `interval_days=0`, `repetitions=0`).
-     - **Regeneration & Evolution (`vN+1`)**: Generates a new immutable version record (`deck_{ws}_vN+1`). Employs a **Version-Seeded Variation Engine** (`random.Random(version * 37 + 101)`) to vary question templates, concept ordering, cloze structures, and option shuffles across consecutive regenerations (`v1`, `v2`, `vN`).
+  3. `FlashcardService` executes deck generation via `AIServiceBus` (injected via process-wide `set_ai_service_bus()`):
+     - **Local-First Timeout Policy**: Text generation POST requests to Ollama operate with infinite read timeouts (`httpx.Timeout(timeout=None, connect=10.0)`), allowing local inference to run to completion without artificial wall-clock cancellation.
+     - **Error Integrity**: Provider failures raise explicit `RuntimeError` exceptions. Intentional heuristic fallbacks execute only if LLM generation raises an explicit exception.
+     - **Initial Deck (`v1`)**: Generates card questions (`basic`, `cloze`, `definition`, `true_false`) via LLM prompt, setting initial SM-2 state (`ease_factor=2.5`, `interval_days=0`, `repetitions=0`).
+     - **Regeneration & Evolution (`vN+1`)**: Generates a new immutable version record (`deck_{ws}_vN+1`) with an independent database identity, invoking genuine LLM generation to produce distinct card content.
   4. **Physical Card UX**: Flashcard Studio presents a physical card layout (Front = Question, Back = Answer ONLY), eliminating SM-2 metric clutter from the primary browsing grid.
 - **Persistence**: Writes `FlashcardDeckTable` (`version=N+1`) and `FlashcardTable` rows.
 
@@ -106,8 +108,9 @@ sequenceDiagram
 - **Transformation Pipeline**:
   1. `ConceptImportanceAllocator` samples concepts according to workspace importance weight and user mastery deficits.
   2. Invokes `QuizService.generate_quiz()`:
-     - Prompts LLM or version-seeded heuristic extractor to produce concept-balanced multiple-choice questions (4 options, correct answer index, explanation, and provenance links).
-     - **Version-Seeded Variation Engine**: Uses `version` seed (`random.Random(version * 41 + 203)`) to shuffle question stems, distractors, and concept priorities so consecutive quiz versions (`v1`, `v2`, `vN`) deliver novel diagnostic content.
+     - Prompts LLM capability via `AIServiceBus` to produce concept-balanced multiple-choice questions (4 options, correct answer index, explanation, and provenance links).
+     - **Local-First Read Timeout & Error Integrity**: LLM generation read requests run without artificial timeouts, and provider errors raise explicit exceptions rather than returning fake fallback text. Heuristic fallbacks execute only upon explicit exceptions.
+     - **Regeneration (`vN+1`)**: Generates a new immutable version record (`quiz_{ws}_vN+1`) with independent database identity and newly generated question content.
   3. `QuizService.grade_attempt()` evaluates user submissions, calculates score percentage, and persists an immutable `QuizAttemptTable` row.
 - **Persistence**: Writes `QuizTable`, `QuizQuestionTable`, and `QuizAttemptTable`.
 - **Event Emitted**: Publishes `QuizAttemptEvent`.

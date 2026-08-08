@@ -1,5 +1,6 @@
 import httpx
 import json
+import logging
 import time
 from typing import AsyncGenerator, List, Optional
 from app.core.config import settings
@@ -8,6 +9,8 @@ from app.domain.ai.capabilities import (
     TextGenerationResponse,
 )
 from app.domain.ai.provider_interface import BaseLLMProvider, LLMProviderCapabilities, LLMModelMetadataDTO
+
+logger = logging.getLogger(__name__)
 
 class OllamaTextGenAdapter(BaseLLMProvider):
     """Local Ollama LLM provider adapter conforming to BaseLLMProvider."""
@@ -42,8 +45,12 @@ class OllamaTextGenAdapter(BaseLLMProvider):
         """Update active default model at runtime."""
         self.default_model = model
 
-    def _get_client(self) -> httpx.AsyncClient:
-        return self._http_client or httpx.AsyncClient(timeout=10.0)
+    def _get_client(self, timeout: Optional[httpx.Timeout] = None) -> httpx.AsyncClient:
+        if self._http_client:
+            return self._http_client
+        if timeout is None:
+            timeout = httpx.Timeout(timeout=None, connect=10.0)
+        return httpx.AsyncClient(timeout=timeout)
 
     def _resolve_model(self) -> str:
         """Resolve the active Ollama model from persisted settings, falling back to default."""
@@ -74,7 +81,7 @@ class OllamaTextGenAdapter(BaseLLMProvider):
             return self._model_cache
 
         url = f"{self.base_url}/api/tags"
-        client = self._get_client()
+        client = self._get_client(timeout=httpx.Timeout(5.0))
         should_close = self._http_client is None
 
         try:
@@ -97,8 +104,8 @@ class OllamaTextGenAdapter(BaseLLMProvider):
                     self._model_cache = discovered
                     self._cache_timestamp = now
                     return discovered
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("OllamaTextGenAdapter.list_models request failed: %s", exc)
         finally:
             if should_close:
                 await client.aclose()
@@ -108,11 +115,20 @@ class OllamaTextGenAdapter(BaseLLMProvider):
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResponse:
         url = f"{self.base_url}/api/generate"
-        client = self._get_client()
+        client = self._get_client(timeout=httpx.Timeout(timeout=None, connect=10.0))
         should_close = self._http_client is None
 
+        resolved = self._resolve_model()
+        candidates = []
+        for m in [resolved, self.default_model, "llama3:8b"]:
+            if m and m not in candidates:
+                candidates.append(m)
+
+        last_err: Optional[Exception] = None
+        last_status: Optional[int] = None
+
         try:
-            for model_name in [self._resolve_model(), "llama3", "llama3:8b"]:
+            for model_name in candidates:
                 payload = {
                     "model": model_name,
                     "prompt": request.prompt,
@@ -125,6 +141,7 @@ class OllamaTextGenAdapter(BaseLLMProvider):
                 }
                 try:
                     response = await client.post(url, json=payload)
+                    last_status = response.status_code
                     if response.status_code == 200:
                         data = response.json()
                         return TextGenerationResponse(
@@ -132,14 +149,21 @@ class OllamaTextGenAdapter(BaseLLMProvider):
                             prompt_tokens=data.get("prompt_eval_count", 0),
                             completion_tokens=data.get("eval_count", 0),
                         )
-                except Exception:
+                    else:
+                        logger.warning(
+                            "Ollama generate HTTP %d for model '%s': %s",
+                            response.status_code,
+                            model_name,
+                            response.text[:200]
+                        )
+                except Exception as exc:
+                    last_err = exc
+                    logger.warning("Ollama generate exception for model '%s': %s", model_name, exc)
                     continue
 
-            return TextGenerationResponse(
-                text=f"Local AI Response (Ollama Offline Fallback): Processed request '{request.prompt[:40]}...'",
-                prompt_tokens=30,
-                completion_tokens=25
-            )
+            err_msg = f"Ollama generation failed across candidates {candidates} (last status={last_status}, last err={last_err})"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
         finally:
             if should_close:
                 await client.aclose()
@@ -152,7 +176,7 @@ class OllamaTextGenAdapter(BaseLLMProvider):
             "system": request.system_prompt or "",
             "stream": True,
         }
-        client = self._get_client()
+        client = self._get_client(timeout=httpx.Timeout(timeout=None, connect=10.0))
         should_close = self._http_client is None
 
         try:
@@ -163,10 +187,14 @@ class OllamaTextGenAdapter(BaseLLMProvider):
                             chunk = json.loads(line)
                             yield chunk.get("response", "")
                     return
-        except Exception:
-            pass
+                else:
+                    err_msg = f"Ollama stream HTTP {response.status_code}"
+                    logger.error(err_msg)
+                    raise RuntimeError(err_msg)
+        except Exception as exc:
+            logger.error("Ollama stream exception: %s", exc)
+            raise RuntimeError(f"Ollama stream failed: {exc}") from exc
         finally:
             if should_close:
                 await client.aclose()
 
-        yield f"Local AI Stream (Ollama Offline Fallback): Processed request '{request.prompt[:30]}...'."

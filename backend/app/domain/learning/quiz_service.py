@@ -1,8 +1,11 @@
 import json
+import logging
 import random
 import uuid
 from datetime import datetime
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from app.domain.ai.capabilities import TextGenerationRequest
 from app.domain.ai.service_bus import AIServiceBus
@@ -160,10 +163,12 @@ class QuizService:
         version: int,
     ) -> List[ExtractedQuestion]:
         if not self.ai_service_bus:
+            logger.warning("QuizService: ai_service_bus is None — LLM generation skipped, falling back to heuristic.")
             return []
         try:
             text_capability = self.ai_service_bus.get_text_capability()
-        except Exception:
+        except Exception as exc:
+            logger.warning("QuizService: failed to resolve text capability — %s", exc)
             return []
         try:
             gen_res = await text_capability.generate(
@@ -173,9 +178,16 @@ class QuizService:
                     max_tokens=2048,
                 )
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("QuizService: LLM generate() raised — %s", exc)
             return []
         parsed = parse_llm_quiz(gen_res.text)
+        if not parsed:
+            logger.warning(
+                "QuizService: parse_llm_quiz returned None/empty (response length=%d). "
+                "Falling back to heuristic.",
+                len(gen_res.text or ""),
+            )
         return parsed or []
 
     async def generate_quiz(

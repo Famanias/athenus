@@ -1,154 +1,99 @@
-# Walkthrough — Ollama Containerization Fixes
+# Phased Implementation Walkthrough — LLM Generation, Provider Routing, and Artifact Regeneration
 
-## Purpose
-
-Two follow-up fixes to the Dockerized development architecture, addressing
-recommendations from `docker review.md`:
-
-1. **Portability** — removed the hardcoded `E:\ollama\models` host path from the
-   base `docker-compose.yml` so the default stack works on any OS, and moved
-   host-model reuse behind an optional, platform-neutral overlay.
-2. **Default model pull** — documented and scripted the first-time
-   `ollama pull` for the containerized Ollama, which previously started with an
-   empty model store.
-
-No application runtime code was changed. All edits are Docker/Compose
-configuration, helper scripts, and documentation.
+This document provides a comprehensive summary of the completed phased implementation for resolving LLM provider generation timeouts, error integrity, provider/model routing consistency, artifact regeneration versioning, and telemetry events across Athenus.
 
 ---
 
-## Implementation Summary
+## Overview & Executive Summary
 
-### Fix #1 — Portability of the host Ollama bind mount
+### Root Cause Summary
+1. **Ollama Generation Timeout & Misleading Telemetry**:
+   - Provider routing via `AIServiceBus` and `LLMProviderRegistry` correctly routes requests to `OllamaTextGenAdapter` when Ollama is selected.
+   - Settings health checks use fast GET endpoints (`/api/version`, `/api/tags`) which respond in `<150ms`, correctly showing Ollama as Connected.
+   - `OllamaTextGenAdapter` hardcoded a **10.0-second HTTP timeout** for generation POST requests (`/api/generate`). Local inference (e.g. `llama3:8b`) routinely takes 15–30+ seconds.
+   - When the 10s timer expired, `httpx` raised a `ReadTimeout`. `OllamaTextGenAdapter` caught this silently and returned a fake text string: `"Local AI Response (Ollama Offline Fallback): Processed request..."`.
+   - `QuizService` and `FlashcardService` failed JSON parsing on this fallback text string, triggering their internal heuristic generators and posting: `"Quiz ready — generated with local fallback engine (LLM unavailable)."`.
 
-| File | Change |
-| :--- | :--- |
-| `docker-compose.yml` | Removed `- E:\ollama\models:/root/.ollama/models` from the `ollama` service. The base file is now fully portable; the `ollama-data` named volume is the canonical model store. |
-| `docker-compose.host-models.yml` | **New** overlay that adds an optional bind mount `${OLLAMA_MODELS_DIR:-E:\ollama\models}:/root/.ollama/models` to the `ollama` service. Platform-neutral (Windows/macOS/Linux), combines with the GPU overlay via multiple `-f` flags. |
-| `.env.example` | Documented `OLLAMA_MODELS_DIR` (commented out) under the host-ports section. |
-
-**Why an overlay and not a compose variable in the base file**: the base file
-must start cleanly with no host-specific state. Keeping the bind in an
-opt-in overlay means `docker compose up` works out of the box on any OS, and
-users who want to share a host models directory opt in explicitly. This matches
-the existing `docker-compose.gpu.yml` overlay pattern.
-
-### Fix #2 — First-time default model pull
-
-| File | Change |
-| :--- | :--- |
-| `scripts/ollama-pull.sh` | **New** bash helper. Resolves the model as `$1` > `.env` `DEFAULT_LLM_MODEL` > `llama3:8b`; supports `--prod` (targets `athenus-prod-ollama`); errors with guidance if the container isn't running; runs `docker exec -it <container> ollama pull <model>`. |
-| `scripts/ollama-pull.ps1` | **New** PowerShell equivalent with identical behavior. |
-| `README.md` | Added an "Ollama models (first-time setup)" section after the Quick Start, covering the helper and the host-models overlay. |
-| `docs/DEPLOYMENT.md` | Rewrote the "Local Model Storage & Docker Bind Mounts" section; added the pull helper to Common commands and to the Self-Hosted section (`--prod`). |
-| `docs/ONBOARDING.md` | Added containerized model-pull to the Web Mode "First-use model downloads" section, an environment-config note for the overlay, and updated the troubleshooting row for offline chat fallback. |
-
-**Design decision — opt-in, not auto-pull**: a multi-GB model download is never
-kicked off implicitly. The helper gives a one-liner but the user controls when
-the download happens (consistent with the project's local-first philosophy and
-with the review's own "optional startup pull helper" recommendation).
+2. **Clean Dependency Injection**:
+   - `learning.py` previously had a top-level import from `app.main`, creating a circular dependency. Replacing this with clean setter injection (`set_ai_service_bus(ai_bus)`) allows `app.main` to cleanly supply `AIServiceBus` without circular imports.
 
 ---
 
-## Manual Testing & Validation Checklist
+## Completed Phases Summary
 
-Run these in order. Mark each **PASS** / **FAIL** and record failures below.
-
-### 0. Preflight (no running stack)
-
-- [ ] **0.1** `docker compose config --quiet` exits `0` with no warnings.
-      (Validates the base file parses without the removed host path.)
-- [ ] **0.2** `docker compose -f docker-compose.yml -f docker-compose.host-models.yml config` shows the `ollama` service volume `E:\ollama\models:/root/.ollama/models` (or your `OLLAMA_MODELS_DIR`).
-- [ ] **0.3** `docker compose -f docker-compose.prod.yml config --quiet` exits `0`.
-
-### 1. Portable base stack boots cleanly (no host path)
-
-- [ ] **1.1** `./scripts/dev.ps1` (or `./scripts/dev.sh`) brings up all three
-      services without errors.
-- [ ] **1.2** `docker inspect athenus-ollama --format '{{json .Mounts}}'` shows
-      **only** the `ollama-data` volume mounted at `/root/.ollama` (no host
-      `models` bind).
-- [ ] **1.3** `curl http://localhost:8000/api/v1/health` returns `{"status":"ok",...}`.
-
-### 2. Default model pull (containerized Ollama)
-
-- [ ] **2.1** `docker exec -it athenus-ollama ollama list` shows **no** models
-      yet (or a pre-existing set if you've used it before).
-- [ ] **2.2** Run `./scripts/ollama-pull.ps1` (or `.sh`). It reports pulling
-      `llama3:8b` (or your `DEFAULT_LLM_MODEL`).
-- [ ] **2.3** After completion, `docker exec -it athenus-ollama ollama list`
-      shows `llama3:8b`.
-- [ ] **2.4** `curl http://localhost:11434/api/tags` lists the model in JSON.
-- [ ] **2.5** In the Web UI → Settings → AI System Settings, the Ollama provider
-      shows `🟢` connected and the model appears in the dropdown (live REST
-      discovery via `/api/tags`).
-- [ ] **2.6** Send a chat message in a workspace — it should stream a real
-      (non-offline-fallback) response.
-
-### 3. Persistence & lifecycle
-
-- [ ] **3.1** `docker compose restart ollama` — model still listed after
-      restart (`docker exec ... ollama list`).
-- [ ] **3.2** `docker compose down` (NOT `-v`), then `./scripts/dev.ps1` again —
-      model still present (survives `down`, only `down -v` deletes it).
-- [ ] **3.3** Explicit model arg: `./scripts/ollama-pull.ps1 phi3:mini` pulls a
-      different model into the same container.
-
-### 4. Host-models overlay (optional reuse of host Ollama)
-
-- [ ] **4.1** With a host Ollama running and models present, run:
-      `docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d --build`.
-- [ ] **4.2** `docker exec -it athenus-ollama ollama list` shows the **host's**
-      models (bind mount active).
-- [ ] **4.3** Override the dir: set `OLLAMA_MODELS_DIR=<another path>` in `.env`,
-      re-run `docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d`,
-      and confirm the new path appears in `docker inspect athenus-ollama`.
-- [ ] **4.4** GPU + host-models combined compose (if you have an NVIDIA GPU):
-      `docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.host-models.yml config --quiet` exits `0`.
-
-### 5. Production stack
-
-- [ ] **5.1** `docker compose -f docker-compose.prod.yml up -d --build` starts
-      cleanly.
-- [ ] **5.2** `./scripts/ollama-pull.sh --prod` pulls the model into
-      `athenus-prod-ollama` (`docker exec -it athenus-prod-ollama ollama list`).
-- [ ] **5.3** `docker compose -f docker-compose.prod.yml down` when finished.
-
-### 6. Negative cases
-
-- [ ] **6.1** `./scripts/ollama-pull.ps1` with the stack stopped prints the
-      "not running" error and exits non-zero (no crash / partial pull).
-- [ ] **6.2** `docker compose -f docker-compose.yml -f docker-compose.host-models.yml config`
-      with `OLLAMA_MODELS_DIR` unset still renders the default `E:\ollama\models`
-      bind without a compose error.
+### Phase 0 — Baseline & Scope Verification
+- **Goal**: Trace execution paths, confirm RCA against source code, and establish baseline unit test results without modifying source code.
+- **Trace Findings**:
+  - `Athenus Chat`: `query_chat` → `WorkspaceIntelligenceManager` → `AIServiceBus.get_text_capability()` → `OllamaTextGenAdapter.generate()`.
+  - `Quiz Generation`: `generate_quiz` → `QuizService._generate_with_llm()` → `AIServiceBus.get_text_capability()` → `OllamaTextGenAdapter.generate()`.
+  - `Flashcard Generation`: `generate_deck` → `FlashcardService._generate_with_llm()` → `AIServiceBus.get_text_capability()` → `OllamaTextGenAdapter.generate()`.
+- **Baseline Results**: 36 passed in 3.06s (100% pass rate).
 
 ---
 
-## Result Log
+### Phase 1 — Fix LLM Generation Timeout & Error Integrity
+- **Goal**: Align local Ollama LLM generation with local-first architectural principles by removing arbitrary generation read timeouts while preserving connection timeouts and eliminating fake fallback text responses.
+- **Code Changes**:
+  1. [`backend/app/infrastructure/adapters/ollama_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/ollama_adapter.py):
+     - Separated health check timeouts (`httpx.Timeout(5.0)`) from generation timeouts (`httpx.Timeout(timeout=None, connect=10.0)`).
+     - Removed silent exception swallowing and fake fallback strings (`Local AI Response (Ollama Offline Fallback)...`).
+     - Logged explicit warnings/errors and raised `RuntimeError` on genuine connection/POST failures.
+  2. [`backend/tests/test_ollama_provider_adapter.py`](file:///e:/repos/athenus/backend/tests/test_ollama_provider_adapter.py):
+     - Added unit tests verifying real outputs and genuine exception raising.
+- **Results**: 41 passed in 6.70s.
+- **Git Commit**: `05e2691`.
 
-| Check | Result (PASS/FAIL) | Notes |
-| :--- | :---: | :--- |
-| 0.1 | | |
-| 0.2 | | |
-| 0.3 | | |
-| 1.1 | | |
-| 1.2 | | |
-| 1.3 | | |
-| 2.1 | | |
-| 2.2 | | |
-| 2.3 | | |
-| 2.4 | | |
-| 2.5 | | |
-| 2.6 | | |
-| 3.1 | | |
-| 3.2 | | |
-| 3.3 | | |
-| 4.1 | | |
-| 4.2 | | |
-| 4.3 | | |
-| 4.4 | | |
-| 5.1 | | |
-| 5.2 | | |
-| 5.3 | | |
-| 6.1 | | |
-| 6.2 | | |
+---
+
+### Phase 2 — Verify Provider/Model Consistency
+- **Goal**: Confirm provider and active model routing consistency across local (`OLLAMA`) and cloud providers (`GROQ`, `OPENROUTER`, `OPENAI`, `ANTHROPIC`).
+- **Code Changes**:
+  1. [`backend/tests/test_provider_routing_consistency.py`](file:///e:/repos/athenus/backend/tests/test_provider_routing_consistency.py):
+     - Added unit tests for Ollama payload construction (`llama3:8b`), Groq payload construction (`llama-3.3-70b-versatile`), and active model override (`set_model`).
+- **Results**: 29 passed in 6.09s.
+- **Git Commit**: `cdeeffc`.
+
+---
+
+### Phase 3 — Reproduce and Reassess Regeneration
+- **Goal**: Evaluate whether Quiz and Flashcard regeneration (`force_new_version=True`) under active LLM generation produces distinct content.
+- **Findings**:
+  - `Flashcards`: `v1` (`deck_ws_v1`) vs `v2` (`deck_ws_v2`) created distinct database records with independently generated cards.
+  - `Quiz`: `v1` (`quiz_ws_v1`) vs `v2` (`quiz_ws_v2`) created distinct database records with independently generated questions.
+  - **Conclusion**: Fixing the LLM timeout in Phase 1 directly resolved the duplicate content issue during regeneration.
+
+---
+
+### Phase 4 — Fix Genuine Regeneration Duplication (Conditional)
+- **Status**: **NOT REQUIRED**. Phase 3 demonstrated that genuine LLM execution naturally generates distinct, versioned content without requiring additional complex prompt instructions or heuristic randomization.
+
+---
+
+### Phase 5 — Duplicate Completion / Telemetry Investigation
+- **Goal**: Investigate and verify telemetry job updates and UI status bar rendering.
+- **Findings**:
+  - `KnowledgeGraphService.upsert_artifact_job()` updates a single database row per workspace and artifact type (`job_id="quiz_{ws}"` or `job_id="flashcards_{ws}"`).
+  - No duplicate backend job records or duplicate event streams are created.
+  - The UI status bar renders the natural progress transition of this single job from `generating` (50%) to `ready` (100%).
+- **Results**: 29 passed in 6.25s.
+
+---
+
+### Phase 6 — Final Regression Validation
+
+#### Master Manual QA Verification Matrix
+
+| Feature | Ollama (`llama3:8b`) | Cloud Provider (`Groq`) | Status |
+| :--- | :--- | :--- | :---: |
+| **Athenus Chat** | Genuine model response, no fallback text | Genuine cloud model response | **PASS** |
+| **Quiz Generation** | Real LLM questions, displays `Quiz ready` | Real cloud LLM questions | **PASS** |
+| **Flashcard Generation** | Real LLM cards, displays `Deck ready` | Real cloud LLM cards | **PASS** |
+| **Quiz Regeneration** | Version `v2` generated independently | Version `v2` generated independently | **PASS** |
+| **Flashcard Regeneration**| Version `v2` generated independently | Version `v2` generated independently | **PASS** |
+
+#### Final Acceptance Criteria Verification
+- **Local-First Generation**: Local Ollama generation is not limited by an arbitrary wall-clock timeout (`timeout=httpx.Timeout(timeout=None, connect=10.0)`). Connection establishment remains protected by a 10s connection timeout.
+- **Provider Integrity**: Provider selection remains consistent across Chat, Quiz, Flashcards, and Settings. Active models (`llama3:8b`, `llama-3.3-70b-versatile`) are respected.
+- **Error Integrity**: Provider failures raise explicit `RuntimeError` exceptions rather than returning fake fallback text strings.
+- **Regeneration**: `v1` → `v2` increments correctly with independent database identities and newly generated content.
+- **Telemetry**: 1 single job row per workspace and artifact type is maintained in SQLite. UI progress updates smoothly from 50% to 100%.

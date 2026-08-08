@@ -1,63 +1,87 @@
-# Quiz Generation & Regeneration Architecture
+# Quiz and Flashcard Generation & Regeneration Architecture
 
-Read-only analysis of the prompt templates and LLM orchestration used for quiz
-generation and regeneration. No code was modified.
+This document serves as the canonical architectural specification for the AI-driven **Quiz** and **Flashcard** generation and regeneration pipelines in Athenus Knowledge OS.
+
+---
 
 ## Overview
 
-- Quiz generation is **LLM-first with a rule-based heuristic fallback**.
-- There is **only one prompt template**. Initial generation and regeneration
-  reuse the exact same `build_quiz_prompt`. Regeneration differs only in
-  orchestration (cache bypass + context rotation), never in prompt text.
-- No JSON-schema / tool / `response_format` parameter is passed to the LLM; the
-  output contract is expressed in the prompt text and enforced post-hoc by a
-  parser.
+- **LLM-First Architecture with Rule-Based Heuristic Fallbacks**: Both Quiz and Flashcard generation prioritize LLM capabilities via `AIServiceBus`. If LLM execution raises a genuine exception (e.g. provider offline or network failure), the system executes a concept-grounded heuristic fallback generator.
+- **Local-First Timeout Policy**: Text generation POST requests to local models (e.g. Ollama `llama3:8b`) operate without artificial wall-clock read timeouts (`httpx.Timeout(timeout=None, connect=10.0)`), allowing local inference to run to completion while protecting TCP connection establishment with a 10s timeout.
+- **Error Integrity**: Provider adapters log explicit errors and raise `RuntimeError` exceptions rather than returning fake fallback text strings. Heuristic fallbacks execute only upon explicit exceptions.
+- **Immutable Versioned Regeneration (`v1` → `v2` → `vN`)**: Regeneration (`force_new_version=True`) creates a new database record with an independent identity (`quiz_{ws}_vN+1` / `deck_{ws}_vN+1`), preserving all prior versions and user review/grading histories intact.
 
-## File references
+---
 
-| Concern | File | Function / line |
-|---|---|---|
-| Prompt template (single, shared) | `backend/app/domain/learning/quiz_generation.py` | `build_quiz_prompt()` lines **28-63** |
-| Response parser | `backend/app/domain/learning/quiz_generation.py` | `parse_llm_quiz()` lines **66-102** |
-| Heuristic fallback engine | `backend/app/domain/learning/quiz_generation.py` | `generate_quiz_heuristic()` lines **112-191** |
-| LLM dispatch | `backend/app/domain/learning/quiz_service.py` | `_generate_with_llm()` lines **155-173** |
-| Generation / regeneration orchestration | `backend/app/domain/learning/quiz_service.py` | `generate_quiz()` lines **175-247** |
-| Concept/chunk rotation (regeneration context) | `backend/app/domain/learning/quiz_service.py` | `_rotate_concepts_and_chunks()` lines **267-288**, `_concept_coverage()` lines **249-265** |
-| API entry (both flows) | `backend/app/presentation/api/v1/learning.py` | `generate_quiz()` line **312** |
-| Frontend triggers | `frontend/src/features/quiz/useQuiz.ts` | initial: line **264**; regenerate: lines **230-233** |
+## Architecture File References
 
-Dispatch chain:
-`learning.py:312` → `QuizService.generate_quiz()` → `_generate_with_llm()` →
-`AIServiceBus.get_text_capability()` (service_bus.py:37-70) → active provider
-adapter `.generate(TextGenerationRequest(prompt=...))`.
+| Subsystem | Concern | File Path | Key Functions / Classes |
+| :--- | :--- | :--- | :--- |
+| **Quiz** | Prompt Template & Builder | `backend/app/domain/learning/quiz_generation.py` | `build_quiz_prompt()` |
+| **Quiz** | JSON Response Parser | `backend/app/domain/learning/quiz_generation.py` | `parse_llm_quiz()` |
+| **Quiz** | Heuristic Fallback Engine | `backend/app/domain/learning/quiz_generation.py` | `generate_quiz_heuristic()` |
+| **Quiz** | LLM Generation & Persistence | `backend/app/domain/learning/quiz_service.py` | `QuizService.generate_quiz()`, `_generate_with_llm()` |
+| **Flashcard** | Prompt Template & Builder | `backend/app/domain/learning/flashcard_generation.py` | `build_flashcard_prompt()` |
+| **Flashcard** | JSON Response Parser | `backend/app/domain/learning/flashcard_generation.py` | `parse_llm_flashcards()` |
+| **Flashcard** | Heuristic Fallback Engine | `backend/app/domain/learning/flashcard_generation.py` | `generate_flashcards_heuristic()` |
+| **Flashcard** | LLM Generation & Persistence | `backend/app/domain/learning/flashcard_service.py` | `FlashcardService.generate_deck()`, `_generate_with_llm()` |
+| **Routing** | AI Capability Dispatcher | `backend/app/domain/ai/service_bus.py` | `AIServiceBus.get_text_capability()` |
+| **Routing** | Active Provider Resolver | `backend/app/domain/ai/provider_registry.py` | `LLMProviderRegistry.get_active_provider()` |
+| **Adapter** | Local Ollama Adapter | `backend/app/infrastructure/adapters/ollama_adapter.py` | `OllamaTextGenAdapter` |
+| **Adapter** | Cloud OpenAI-Compatible Adapter | `backend/app/infrastructure/adapters/openai_compatible_adapter.py` | `OpenAICompatibleProviderAdapter` |
 
-## Which model is used
+---
 
-The model is resolved at runtime from the active provider:
+## Generation & Regeneration Pipelines
 
-- **Default provider:** Ollama (local daemon at `http://localhost:11434`),
-  default model **`llama3:8b`** (`backend/app/core/config.py:37`). Overridable
-  via the `selected_ollama_model` DB setting (ollama_adapter.py:48-60).
-- **Hot-swappable cloud providers** (registered in `main.py:49-82`, selected via
-  Settings → persisted `default_llm` in SQLite):
-  - OpenRouter → `google/gemini-2.5-flash`
-  - Groq → `llama-3.3-70b-versatile`
-  - OpenAI → `gpt-4o-mini`
-  - Anthropic → `claude-3-5-sonnet-latest`
+```mermaid
+sequenceDiagram
+    participant UI as Frontend Studio (Quiz / Flashcards)
+    participant API as FastAPI Router (learning.py)
+    participant SVC as QuizService / FlashcardService
+    participant BUS as AIServiceBus / ProviderRegistry
+    participant LLM as Active LLM Provider (Ollama / Groq / OpenAI)
+    participant DB as SQLite Database
 
-Active provider resolution: `AIServiceBus.get_text_capability()` →
-`LLMProviderRegistry.get_active_provider()` → `config_resolver.get_active_provider_id()`
-→ DB `default_llm`, falling back to `.env LLM_PROVIDER` (`ollama`).
+    UI->>API: POST /quizzes/{ws}/generate or /decks/{ws}?force_new_version=true
+    API->>SVC: generate_quiz() or generate_deck()
+    SVC->>DB: Check latest version (vN) & create vN+1 record ("generating")
+    SVC->>BUS: get_text_capability()
+    BUS-->>SVC: Resolve Active Provider Adapter
+    SVC->>LLM: generate(TextGenerationRequest(prompt=...))
+    
+    alt LLM Success
+        LLM-->>SVC: Return JSON Response
+        SVC->>SVC: parse_llm_quiz() or parse_llm_flashcards()
+    else Genuine LLM Exception
+        LLM-->>SVC: Raise RuntimeError
+        SVC->>SVC: Execute Heuristic Generator (Fallback)
+    end
 
-## Generation prompt specification
-
-The prompt is a **single string** (system role + instructions + context all in
-`prompt`; `system_prompt` is `None`, so providers receive everything as one user
-prompt).
-
-Exact template (`quiz_generation.py:37-63`):
-
+    SVC->>DB: Persist Questions / Cards to DB & set status = "ready"
+    SVC-->>API: Return QuizContainer / FlashcardDeck DTO
+    API-->>UI: Render Version N+1 Artifact
 ```
+
+---
+
+## Model Resolution Strategy
+
+Model selection is determined dynamically by the active provider configured in Settings:
+
+- **Local Provider (Ollama)**: Base URL `http://localhost:11434`, default model `llama3:8b`. Overridable at runtime via SQLite settings (`selected_ollama_model`).
+- **Cloud Providers**: Registered in `main.py` and selected via Settings (`default_llm`):
+  - **Groq**: `llama-3.3-70b-versatile`
+  - **OpenRouter**: `google/gemini-2.5-flash`
+  - **OpenAI**: `gpt-4o-mini`
+  - **Anthropic**: `claude-3-5-sonnet-latest`
+
+---
+
+## Generation Prompt Specifications
+
+### 1. Quiz Prompt (`quiz_generation.py`)
+```text
 You are a comprehension-quiz author for an educational video transcript.
 
 Create {max_questions} novel, concept-balanced Quiz Version {version} comprehension questions that are:
@@ -72,7 +96,7 @@ Respond with ONLY a JSON object in exactly this shape:
       "question_text": "...",
       "options": ["A", "B", "C", "D"],
       "correct_index": 1,
-      "explanation": "Why this answer is correct (grounded in the transcript).",
+      "explanation": "...",
       "concept": "Concept Name",
       "source_chunk_ids": ["chunk_0"]
     }
@@ -86,83 +110,54 @@ Transcript chunks:
 {chunk_blob}
 ```
 
-### Dynamic variable map
+### 2. Flashcard Prompt (`flashcard_generation.py`)
+```text
+You are a spaced-repetition flashcard author for an educational video transcript.
 
-| Variable | Rendered from | Injection context |
-|---|---|---|
-| `{max_questions}` | `generate_quiz(max_questions=10)`; API query param default 10 (learning.py:313). Frontend never sends it → always 10 | quiz_service.py:165 |
-| `{version}` | `build_quiz_prompt(..., version=1)` — **always defaults to 1**; `_generate_with_llm` calls it WITHOUT passing version (quiz_service.py:165) | quiz_generation.py:39 |
-| `{concept_blob}` | one line per concept, format `- {name}: {description}  [chunks: {id1}, {id2}]` (quiz_generation.py:29-32) | built inside builder |
-| `{chunk_blob}` | one line per chunk, format `[chunk:{id}] ({start:.1f}s - {end:.1f}s) {text}` (quiz_generation.py:33-36) | built inside builder |
+Generate high-quality flashcards from the extracted concepts and transcript chunks below.
+Create a balanced mix of card types: "basic" (front/back Q&A), "cloze" (fill-in-the-blank statement with {{c1::answer}}), "definition" (term -> concise definition), and "true_false" (statement requiring true/false, with options ["True", "False"]).
 
-Context payload sources:
-- Concepts → `QuizService._concept_dicts()` (graph_service, quiz_service.py:137-150).
-- Chunks → `load_chunks()` (SQLite `TranscriptChunkTable`, quiz_service.py:27-53).
+Rules:
+- Every card MUST be grounded in the provided concepts and chunks.
+- Include "concept" matching one of the provided concept names, and reference "source_chunk_ids" exactly as given.
 
-Initial generation injects `concept_dicts[:12]` and all chunks
-(quiz_service.py:231-232).
+Respond with ONLY a JSON object in exactly this shape:
+{
+  "cards": [
+    {"card_type": "basic", "front": "...", "back": "...", "concept": "Concept Name", "source_chunk_ids": ["chunk_0"]},
+    {"card_type": "cloze", "cloze_text": "Statement with {{c1::answer}}", "back": "Explanation", "concept": "Concept Name", "source_chunk_ids": ["chunk_0"]},
+    {"card_type": "definition", "front": "Term", "back": "Definition", "concept": "Concept Name", "source_chunk_ids": ["chunk_0"]},
+    {"card_type": "true_false", "front": "Statement", "back": "True or False", "options": ["True", "False"], "concept": "Concept Name", "source_chunk_ids": ["chunk_0"]}
+  ]
+}
 
-### Structured output constraints
+Extracted concepts:
+{concept_blob}
 
-- **No JSON-schema / tool / `response_format` parameter is passed.**
-  `TextGenerationRequest` (capabilities.py:4-10) has no schema field; the schema
-  is expressed only inside the prompt text.
-- Contract enforced **post-hoc** by `parse_llm_quiz` (lines 66-102): extracts the
-  first `{...}` block via `re.search(r"\{.*\}", text, re.DOTALL)`, `json.loads`,
-  iterates `data["questions"]`, drops items lacking non-empty `question_text` or
-  `len(options) < 2`, coerces `correct_index` to int and clamps to
-  `[0, len(options)-1]`, maps into `ExtractedQuestion` (dataclass, lines 9-19).
-- Dispatch params: `temperature=0.3`, `max_tokens=2048` (quiz_service.py:166-167).
-- **No retry loop.** If parsing fails, `_generate_with_llm` returns `[]` and
-  `generate_quiz` falls back to the rule-based `generate_quiz_heuristic`
-  (quiz_service.py:236-237).
+Transcript chunks:
+{chunk_blob}
+```
 
-### Heuristic fallback (rule-based)
+---
 
-When the LLM path yields no questions (error, unparseable JSON, or offline),
-`generate_quiz_heuristic` (quiz_generation.py:112-191) generates questions using
-fixed templates (`"Which statement correctly characterizes '{name}'?"`, etc.),
-using concept descriptions as explanations and other concept names as distractor
-options, or True/False questions when no distractors exist. RNG is seeded by
-version for variation.
+## Structured Output & Post-Hoc Parsers
 
-## Regeneration prompt specification
+- **Contract Enforcement**: Enforced post-hoc via regex JSON match (`re.search(r"\{.*\}", text, re.DOTALL)`), `json.loads`, and structural validation.
+- **Quiz Parser (`parse_llm_quiz`)**: Validates `question_text`, minimum 2 options, clamps `correct_index`, maps to `ExtractedQuestion`.
+- **Flashcard Parser (`parse_llm_flashcards`)**: Validates `card_type` in `{"basic", "cloze", "definition", "true_false"}`, validates non-empty front/back, maps to `ExtractedFlashcard`.
+- **Dispatch Parameters**:
+  - Quiz: `temperature=0.3`, `max_tokens=2048`
+  - Flashcards: `temperature=0.4`, `max_tokens=2048`
 
-**There is no distinct regeneration/refinement prompt.** Regeneration (frontend
-`generateQuiz`, useQuiz.ts:230-233 → `POST /api/v1/learning/quizzes/{ws}/generate?force_new_version=true`)
-reuses the identical `build_quiz_prompt` with the same JSON output contract.
+---
 
-What actually changes for regeneration (`generate_quiz`, quiz_service.py:203-235):
+## Regeneration Context Rotation & Variation
 
-1. **Cache bypass** — `force_new_version=True` skips the ready-quiz return at
-   line 205; `version = latest + 1` (line 208); new `QuizTable` row status
-   `generating`.
-2. **Context rotation** — `_rotate_concepts_and_chunks` (lines 267-288) selects
-   the least-covered concepts: `_concept_coverage` (lines 249-265) counts prior
-   questions per `concept_id` from `QuizQuestionTable`, ranks by
-   `(coverage, name)`, takes first 12; chunks are rotated by a version-based
-   offset `(version-1) % len(chunks)`.
-3. **Same LLM call** — `_generate_with_llm(selected_concepts, rotated_chunks,
-   max_questions)` at line 235, same prompt/temperature/tokens.
+When `force_new_version=True` is supplied:
 
-### Regeneration context payload rules
-
-- Concepts injected = least-covered 12 (coverage from all prior versions), not
-  all concepts.
-- Chunks injected = all chunks, reordered by version offset; not filtered to the
-  selected concepts' source chunks.
-- No previous-version questions are fed to the model; novelty relies solely on
-  the prompt phrase "novel, concept-balanced ... fresh angles" plus the rotated
-  context.
-
-## Notes / caveats
-
-- The `{version}` placeholder is **dead in production** — the prompt always says
-  "Quiz Version 1" regardless of the actual regenerated version, because
-  `_generate_with_llm` never passes `version` to `build_quiz_prompt`. Likely a
-  latent bug in the regeneration prompt. Out of scope for this read-only task.
-- Fallback on parse/LLM failure silently swaps in heuristic questions, so the LLM
-  path is not strictly required for generation to succeed.
-- Ollama's adapter returns a placeholder string when the local daemon is offline
-  (ollama_adapter.py:138-142); `parse_llm_quiz` cannot parse it, so the heuristic
-  engine silently produces the quiz in that case.
+1. **Version Increment**: Computes `version = latest + 1` from `QuizTable` / `FlashcardDeckTable`.
+2. **Concept & Chunk Rotation**:
+   - Computes concept coverage across all prior versions via `_concept_coverage()`.
+   - Ranks concepts by `(coverage, name)` and selects top concepts.
+   - Rotates transcript chunks by a version-based offset `(version - 1) % len(chunks)`.
+3. **Independent Generation**: Executes a fresh LLM call via `_generate_with_llm()`, persisting the resulting items under the new version ID (`quiz_{ws}_vN+1` / `deck_{ws}_vN+1`).

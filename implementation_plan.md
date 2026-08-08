@@ -1,114 +1,888 @@
-# Architectural Review & Implementation Plan: Provider-Agnostic LLM Architecture (Revised Edition)
+# Phased Implementation Plan — Local-First LLM Generation, Timeout Policy, Fallback Integrity & Artifact Regeneration
 
-Refactor the current text generation provider architecture from hardcoded, provider-specific logic (OpenRouter, Groq, Ollama) into a **scalable, provider-agnostic LLM architecture** based on a central **Provider Registry**, **Two-Tier Adapter Classification**, **Layered Configuration Resolver (`ProviderConfigResolver`)**, **Chat-Model Catalog Filtering (`is_chat_model()`)**, and **Concurrent Dynamic Model Discovery with TTL Caching**.
+## Objective
 
-Comprehensive architectural documentation has been updated in [`docs/LLM_PROVIDER_ARCHITECTURE_REVIEW.md`](file:///e:/repos/athenus/docs/LLM_PROVIDER_ARCHITECTURE_REVIEW.md).
+Investigate and fix the current Athenus LLM generation and artifact regeneration issues while preserving the existing architecture and avoiding unnecessary complexity.
 
----
+There are currently two major observations:
 
-## Key Architectural Decisions (Revised per Independent Senior Review)
+1. **Local Ollama generation is incorrectly subject to a short HTTP generation timeout**, causing valid but slow local inference to be treated as a failure.
+2. **Artifact regeneration appears to produce duplicated content**, but investigation suggests this may be a downstream consequence of Ollama timing out and falling back to deterministic heuristic generation.
 
-> [!IMPORTANT]
-> **Key Architecture Decisions:**
-> 1. **Two-Tier Adapter Classification**:
->    - **Tier 1 (Zero-Code Extension)**: Generic `OpenAICompatibleProviderAdapter` serves all OpenAI-wire compatible providers (OpenRouter, Groq, OpenAI, DeepSeek, NVIDIA NIM, Together AI, Fireworks AI, LiteLLM, LM Studio, vLLM) with zero code changes.
->    - **Tier 2 (Dedicated Provider Adapters)**: Specialized classes inheriting from `BaseLLMProvider` handle non-OpenAI wire formats: `AnthropicProviderAdapter` (native `/v1/messages` format) and `OllamaLLMAdapter` (native daemon API).
-> 2. **Layered Configuration Resolver (`ProviderConfigResolver`)**:
->    - **Secrets Tier**: API keys live strictly in `.env` / process environment variables (never written to DB).
->    - **Runtime State Tier**: Active provider selection (`LLM_PROVIDER`), selected model override (`LLM_MODEL`), and custom endpoint URLs are stored in SQLite and hot-swappable in the UI **without restarting the server**.
-> 3. **Chat-Model Filtering (`is_chat_model()`)**: Automatically filters out embedding, reranker, guardrail, and speech models from discovered `/models` catalogs, eliminating dropdown clutter on OpenRouter (200+ models) and NVIDIA NIM.
-> 4. **Concurrent Health Checks & TTL Caching**: `LLMProviderRegistry.get_catalog()` aggregates health checks concurrently via `asyncio.gather` with a 30s health TTL cache and 1-hour model discovery TTL cache, preventing settings page load lag.
-> 5. **Capability-Checked Dispatching**: `AIServiceBus` negotiates capabilities (`supports_vision`, `supports_function_calling`) before dispatching requests, throwing typed `UnsupportedCapabilityError` exceptions when feature requirements are missing.
+There is also a secondary issue involving duplicate completion/status messages during artifact generation.
 
----
+The implementation must therefore proceed **incrementally**.
 
-## Resolved Design Questions
-
-> [!NOTE]
-> **Resolution to Model Filtering**: Rather than forcing a choice between dumping 200+ unfiltered models or hardcoding static whitelists, the adapter applies an automated `is_chat_model()` predicate at discovery time, returning clean chat models to the UI. The UI includes client-side search/sort for smooth UX.
-
----
-
-## Proposed Component Changes
-
-### Core Domain Abstraction (`app/domain/ai`)
-
-#### [NEW] [provider_interface.py](file:///e:/repos/athenus/backend/app/domain/ai/provider_interface.py)
-- Define `ILLMProvider` interface protocol and `BaseLLMProvider` abstract base class with default method contracts.
-- Implement `BaseLLMProvider.check_health()` to explicitly check credential presence (`api_key` or `is_local`) *before* invoking `list_models()`, ensuring unconfigured cloud providers accurately report `is_configured=False` and `is_available=False` (`🔴 Key missing in .env`).
-- Define DTOs: `LLMProviderCapabilities`, `LLMModelMetadataDTO`, `ProviderHealthDTO`.
-
-#### [NEW] [provider_registry.py](file:///e:/repos/athenus/backend/app/domain/ai/provider_registry.py)
-- Implement `LLMProviderRegistry` responsible for registering provider adapters, resolving active provider, exposing provider catalog via concurrent `asyncio.gather` health checks, and supporting 30s health TTL caching.
-
-#### [NEW] [config_resolver.py](file:///e:/repos/athenus/backend/app/domain/ai/config_resolver.py)
-- Implement `ProviderConfigResolver` to cleanly separate `.env` secrets from hot-swappable SQLite runtime preferences.
-
-#### [MODIFY] [service_bus.py](file:///e:/repos/athenus/backend/app/domain/ai/service_bus.py)
-- Update `AIServiceBus` to delegate text generation capabilities directly to `LLMProviderRegistry` with capability negotiation checks (`UnsupportedCapabilityError`).
-
-#### [MODIFY] [model_registry.py](file:///e:/repos/athenus/backend/app/domain/ai/model_registry.py)
-- Refactor `ModelRegistry` to pull model metadata dynamically from registered provider capabilities instead of maintaining brittle static lists.
+> **IMPORTANT: STOP AFTER EVERY PHASE.**
+>
+> Do not automatically continue to the next phase.
+>
+> At the end of each phase:
+>
+> 1. Show exactly what was changed.
+> 2. Show the tests that were executed.
+> 3. Show the results.
+> 4. Explain what was validated.
+> 5. Identify any remaining uncertainty.
+> 6. Provide a concise manual QA checklist for me.
+> 7. **STOP and wait for my approval before proceeding.**
 
 ---
 
-### Infrastructure Adapters (`app/infrastructure/adapters`)
+# Core Architectural Principles
 
-#### [NEW] [openai_compatible_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/openai_compatible_adapter.py)
-- Implement Tier 1 `OpenAICompatibleProviderAdapter` implementing `BaseLLMProvider`.
-- Provide generic support for OpenRouter, Groq, OpenAI, DeepSeek, NVIDIA NIM, Together AI, LiteLLM, LM Studio, etc.
-- Implement dynamic `/models` endpoint discovery with `is_chat_model()` filtering, 1-hour TTL caching, shared `httpx.AsyncClient` connection pool, and fallback defaults.
+These principles should guide every phase.
 
-#### [NEW] [anthropic_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/anthropic_adapter.py)
-- Implement Tier 2 `AnthropicProviderAdapter` implementing `BaseLLMProvider` for native `/v1/messages` execution.
+### 1. Local-first means generation is not arbitrarily time-limited
 
-#### [MODIFY] [ollama_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/ollama_adapter.py)
-- Adapt `OllamaLLMAdapter` to implement `BaseLLMProvider` interface, supporting native daemon status, reported model size bytes, and model discovery.
+A local LLM may take:
 
-#### [DELETE] [cloud_llm_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/cloud_llm_adapter.py)
-- Replaced by `OpenAICompatibleProviderAdapter` and `AnthropicProviderAdapter`.
+* 5 seconds
+* 30 seconds
+* 2 minutes
+* 5+ minutes
+
+depending on:
+
+* model size
+* hardware
+* GPU availability
+* prompt length
+* output length
+* concurrent workloads
+* model loading time
+
+Slow inference does **not** mean the provider is unavailable.
+
+Therefore:
+
+> **Athenus must not impose an arbitrary wall-clock timeout on AI generation.**
+
+This applies to all AI-related generation, including but not limited to:
+
+* Athenus Chat
+* Quiz generation
+* Quiz regeneration
+* Flashcard generation
+* Flashcard regeneration
+* Other LLM-powered artifact generation
+* Future local-model generation capabilities
+
+### 2. Distinguish different timeout types
+
+Do not blindly remove every timeout.
+
+These are different concerns:
+
+```text
+Health / discovery timeout
+        ↓
+Short timeout is appropriate
+
+Connection establishment timeout
+        ↓
+Reasonable timeout is appropriate
+
+AI generation timeout
+        ↓
+No arbitrary wall-clock timeout
+
+User cancellation
+        ↓
+Explicit mechanism for stopping generation
+```
+
+A health check should not hang indefinitely.
+
+An LLM generation request, however, should remain active until:
+
+* generation completes,
+* the provider reports a genuine failure,
+* the connection genuinely fails,
+* or the user explicitly cancels the generation.
+
+### 3. Provider adapters must report real failures
+
+A provider adapter must not convert a genuine generation failure into fake successful-looking LLM text.
+
+For example, this behavior is incorrect:
+
+```text
+Ollama generation fails
+        ↓
+catch exception
+        ↓
+return fake text:
+"Local AI Response (Ollama Offline Fallback)..."
+```
+
+The provider layer should instead propagate a structured/real error.
+
+If Athenus intentionally supports heuristic fallback generation, that decision must occur at the appropriate generation-service layer rather than being hidden inside the provider adapter.
+
+### 4. Do not solve the regeneration problem prematurely
+
+The current evidence suggests:
+
+```text
+Ollama
+  ↓
+10-second timeout
+  ↓
+fake fallback response
+  ↓
+LLM parsing fails
+  ↓
+heuristic generation
+  ↓
+similar/deterministic content
+  ↓
+v2 appears duplicated
+```
+
+Therefore:
+
+> **Do not immediately implement complex anti-duplication prompts, concept rotation, or heuristic randomization.**
+
+First fix the underlying LLM execution path and then re-test regeneration.
+
+Only implement additional regeneration logic if duplication can still be reproduced after genuine LLM generation is confirmed.
 
 ---
 
-### Configuration & Security (`app/core` & `app/main.py`)
+# Current Evidence
 
-#### [MODIFY] [config.py](file:///e:/repos/athenus/backend/app/core/config.py)
-- Expand Pydantic `Settings` schema to support environment variables for all supported providers (`LLM_PROVIDER`, `LLM_MODEL`, `OPENROUTER_*`, `GROQ_*`, `OPENAI_*`, `ANTHROPIC_*`, `CUSTOM_LLM_PROVIDERS`).
+## Ollama
 
-#### [NEW] [redaction_middleware.py](file:///e:/repos/athenus/backend/app/core/redaction_middleware.py)
-- Implement HTTP log and traceback redaction middleware sanitizing `Authorization` and `x-api-key` headers (`[REDACTED_API_KEY]`).
+Settings reports:
 
-#### [MODIFY] [main.py](file:///e:/repos/athenus/backend/app/main.py)
-- Initialize `LLMProviderRegistry` and `ProviderConfigResolver` during application boot.
-- Dynamically register Tier 1 and Tier 2 provider adapters with shared `httpx` connection pool.
+```text
+Ollama Status
+Connected v0.32.5
+
+REST Latency
+145 ms
+
+Catalog Providers
+5 Registered
+
+Active LLM
+OLLAMA
+
+Test Connection:
+OLLAMA: Available & Configured
+Active Model: llama3:8b
+
+Ollama
+🟢 Configured
+Discovered Models: 3
+```
+
+However, generation behaves differently.
+
+### Athenus Chat
+
+Input:
+
+```text
+this is a test. reply with hi
+```
+
+Current response:
+
+```text
+Local AI Response (Ollama Offline Fallback):
+Processed request 'You are Athenus AI, an intelligent learn...'
+```
+
+### Quiz
+
+```text
+Artifact:
+generating
+llm generation
+progress 50%
+Generating questions with AI model...
+
+Artifact:
+ready
+progress 100%
+Quiz ready — generated with local fallback engine (LLM unavailable).
+```
+
+### Flashcards
+
+```text
+Artifact:
+generating
+llm generation
+progress 50%
+Generating cards with AI model...
+
+Artifact:
+ready
+progress 100%
+Deck ready.
+```
+
+Investigation found:
+
+```text
+Ollama health:
+GET /api/version
+GET /api/tags
+
+Generation:
+POST /api/generate
+```
+
+The adapter currently uses:
+
+```text
+httpx.AsyncClient(timeout=10.0)
+```
+
+Local inference using `llama3:8b` can exceed 10 seconds.
+
+The resulting `ReadTimeout` is swallowed and converted into fallback text.
 
 ---
 
-### Presentation API & Frontend UI (`app/presentation/api/v1` & `frontend`)
+# PHASE 0 — Baseline & Scope Verification
 
-#### [MODIFY] [settings.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/settings.py)
-- Refactor `/api/v1/settings/providers` and `/settings/providers/catalog` endpoints to query `LLMProviderRegistry`.
-- Support hot-swapping active provider in SQLite via `ProviderConfigResolver`.
-- Expose `/api/v1/settings/providers/{id}/test` connection endpoint.
+## Goal
 
-#### [MODIFY] [settingsService.ts](file:///e:/repos/athenus/frontend/src/services/settingsService.ts)
-- Update TypeScript DTO interfaces to match dynamic provider catalog, model metadata, model sizes, and health status structures.
+Before changing anything, establish the current behavior and verify the investigation findings against the actual code.
 
-#### [MODIFY] [SystemSettings.tsx](file:///e:/repos/athenus/frontend/src/features/settings/SystemSettings.tsx)
-- Redesign Settings UI into an interactive configuration inspector and hot-swappable provider selector.
-- Render dynamic provider options, model dropdowns, model sizes, health badges, and an interactive `Test Connection` button.
+### Investigate
+
+Trace:
+
+```text
+Athenus Chat
+    ↓
+AIServiceBus
+    ↓
+OllamaTextGenAdapter
+    ↓
+HTTP request
+    ↓
+Ollama
+```
+
+Also trace:
+
+```text
+Quiz generation
+    ↓
+AIServiceBus
+    ↓
+Ollama
+    ↓
+LLM parsing
+    ↓
+heuristic fallback
+```
+
+and:
+
+```text
+Flashcard generation
+    ↓
+AIServiceBus
+    ↓
+Ollama
+    ↓
+LLM parsing
+    ↓
+heuristic fallback
+```
+
+Confirm:
+
+* active provider resolution
+* active model resolution
+* Ollama adapter usage
+* timeout configuration
+* exception handling
+* fallback behavior
+* artifact generation path
+
+Also inspect regeneration:
+
+* version calculation
+* artifact identity
+* previous artifact retrieval
+* generation prompt
+* persistence
+* telemetry
+
+### Do not modify code yet.
+
+### Required output
+
+Provide:
+
+1. Confirmed dependency/request flow.
+2. Exact files/functions responsible.
+3. Confirmation or contradiction of the current RCA.
+4. Any additional relevant findings.
+5. Minimal proposed change for Phase 1.
+
+### Automated validation
+
+Run appropriate existing tests and import checks.
+
+### Manual QA
+
+Do not ask me to test anything yet if no changes were made.
+
+### STOP
+
+Wait for approval before Phase 1.
 
 ---
 
-## Verification Plan
+# PHASE 1 — Fix LLM Generation Timeout & Error Integrity
 
-### Automated Tests
-- `pytest backend/tests/test_provider_registry.py` (Verify provider registration, fallback logic, active provider resolution, and concurrent health checks)
-- `pytest backend/tests/test_openai_compatible_adapter.py` (Verify text generation, streaming, `is_chat_model()` filtering, TTL caching using `respx` mock HTTP transports)
-- `pytest backend/tests/test_anthropic_adapter.py` (Verify Anthropic native `/v1/messages` format)
-- `pytest backend/tests/test_ai_service_bus.py` (Verify capability-checked dispatch and `UnsupportedCapabilityError` handling)
+## Goal
 
-### Manual Verification
-- Test hot-swapping active provider between Ollama, OpenRouter, Groq, and Anthropic in the Settings UI without server restart.
-- Verify log outputs to confirm `Authorization` headers are sanitized as `[REDACTED_API_KEY]`.
-- Test adding a custom OpenAI-compatible provider via `CUSTOM_LLM_PROVIDERS` in `.env` with zero code modifications.
+Make local LLM generation compatible with local-first behavior.
+
+### Required changes
+
+#### A. Remove arbitrary generation timeout
+
+Modify the Ollama adapter so generation does not fail merely because inference exceeds 10 seconds.
+
+Do NOT simply change:
+
+```text
+10 seconds → 120 seconds
+```
+
+unless there is a specific technical reason.
+
+Prefer separating:
+
+```text
+connection timeout
+health-check timeout
+generation read timeout
+```
+
+The generation read operation should be allowed to continue indefinitely or until explicit cancellation/provider failure.
+
+Follow the existing HTTP/client architecture rather than introducing a new networking abstraction.
+
+#### B. Preserve reasonable connection timeouts
+
+Do not make health checks or TCP connection establishment infinite.
+
+#### C. Remove fake successful responses
+
+Remove behavior where Ollama exceptions are converted into dummy text such as:
+
+```text
+Local AI Response (Ollama Offline Fallback)...
+```
+
+A real provider failure should propagate as a real error.
+
+#### D. Preserve intentional fallback behavior
+
+If Quiz/Flashcard heuristic fallback is an intentional feature, do not remove it unless evidence shows it is harmful.
+
+However, it must only activate after a genuine, explicit generation failure.
+
+Do not allow fake fallback text to masquerade as an LLM response.
+
+### Tests
+
+Add or update tests for:
+
+* generation exceeding 10 seconds
+* successful Ollama generation
+* Ollama connection failure
+* Ollama HTTP failure
+* Ollama generation exception
+* no fake fallback text returned from the provider adapter
+* intentional higher-level fallback behavior, if applicable
+
+### Manual QA
+
+I will verify:
+
+#### Ollama Chat
+
+Ask:
+
+```text
+this is a test. reply only with "hi"
+```
+
+Expected:
+
+```text
+hi
+```
+
+or a genuine model response.
+
+It must NOT say:
+
+```text
+Ollama Offline Fallback
+```
+
+#### Ollama Quiz
+
+Generate a quiz.
+
+Expected:
+
+```text
+Generating questions with AI model...
+        ↓
+actual Ollama inference
+        ↓
+Quiz ready
+```
+
+It must NOT report:
+
+```text
+LLM unavailable
+```
+
+when Ollama successfully generated the response.
+
+#### Ollama Flashcards
+
+Same verification.
+
+### STOP
+
+Wait for manual QA approval before proceeding.
+
+---
+
+# PHASE 2 — Verify Provider/Model Consistency
+
+## Goal
+
+Confirm that fixing timeout behavior did not affect provider/model routing.
+
+### Verify
+
+For Ollama:
+
+```text
+Provider = OLLAMA
+Model = llama3:8b
+```
+
+Confirm actual generation requests use that model.
+
+Do not rely solely on UI state.
+
+Trace/log the actual model passed to Ollama.
+
+Then verify a cloud provider such as Groq.
+
+Confirm:
+
+```text
+Settings selected provider
+        ↓
+AIServiceBus
+        ↓
+actual provider adapter
+        ↓
+selected model
+```
+
+### Important
+
+Do not redesign provider architecture.
+
+Do not change working cloud-provider behavior unless evidence requires it.
+
+### Tests
+
+Verify:
+
+* Ollama chat
+* Ollama quiz
+* Ollama flashcards
+* cloud chat
+* cloud quiz
+* cloud flashcards
+* active model selection
+
+### Manual QA
+
+I will manually switch between:
+
+```text
+Ollama
+Groq
+```
+
+and verify:
+
+* Chat uses the selected provider.
+* Quiz uses the selected provider.
+* Flashcards use the selected provider.
+* Selected model is respected.
+* No unexpected fallback occurs.
+
+### STOP
+
+Wait for approval.
+
+---
+
+# PHASE 3 — Reproduce and Reassess Regeneration
+
+## Goal
+
+Determine whether the regeneration duplication bug still exists after fixing genuine LLM generation.
+
+Do NOT implement anti-duplication logic yet.
+
+### Test sequence
+
+Create:
+
+```text
+Flashcards v1
+```
+
+Record:
+
+* version
+* artifact ID
+* card count
+* card contents
+
+Then:
+
+```text
+Regenerate
+```
+
+Record:
+
+* version
+* artifact ID
+* card contents
+* generation path
+* provider
+* model
+
+Repeat for Quiz.
+
+### Determine
+
+If:
+
+```text
+v1 ≠ v2
+```
+
+and both were genuinely generated by the LLM, then the previous duplication was likely caused by the timeout/fallback chain.
+
+If:
+
+```text
+v1 == v2
+```
+
+despite genuine LLM generation, continue investigation.
+
+### STOP
+
+Do not automatically implement a fix.
+
+Provide the evidence and wait for approval.
+
+---
+
+# PHASE 4 — Fix Genuine Regeneration Duplication Only If Still Reproducible
+
+This phase is conditional.
+
+Only proceed if Phase 3 demonstrates that independently generated LLM artifacts still produce duplicate or near-duplicate content.
+
+## Investigate
+
+Determine whether duplication originates from:
+
+* identical prompts
+* previous artifact being reused
+* deterministic seed
+* identical context selection
+* concept rotation
+* insufficient generation diversity
+* artifact persistence
+* version-specific state
+* frontend displaying stale content
+
+### Important distinction
+
+Versioning and content generation are separate:
+
+```text
+Version correctness:
+v1 → v2 → v3
+
+Content independence:
+v1 ≠ v2 ≠ v3
+```
+
+Verify both.
+
+### Preferred implementation order
+
+1. Fix incorrect artifact reuse.
+2. Ensure a new artifact identity is created.
+3. Ensure regeneration invokes the LLM again.
+4. Ensure the generation context is correct.
+5. Only then consider prompt-level novelty instructions.
+6. Only if necessary consider deterministic heuristic variation.
+
+Do not add randomness simply to hide a deeper bug.
+
+### Manual QA
+
+Verify:
+
+```text
+v1
+↓
+Regenerate
+↓
+v2
+↓
+Regenerate
+↓
+v3
+```
+
+Each version must:
+
+* have a distinct artifact ID
+* remain independently accessible
+* contain independently generated content
+* preserve the previous versions
+* not merely copy previous content
+
+### STOP
+
+Wait for approval.
+
+---
+
+# PHASE 5 — Duplicate Completion/Telemetry Investigation
+
+## Goal
+
+Resolve the duplicate:
+
+```text
+Artifact:
+ready
+progress 100%
+Deck ready.
+
+Artifact:
+ready
+progress 100%
+Deck ready.
+```
+
+### Investigate first
+
+Determine whether duplication originates from:
+
+```text
+Backend job updates
+        ↓
+SSE
+        ↓
+Frontend hooks
+        ↓
+refreshArtifactStatus()
+        ↓
+UI
+```
+
+Determine whether the cause is:
+
+* duplicate backend events
+* duplicate SSE delivery
+* duplicate polling/refresh
+* frontend state handling
+* toast + status UI representing the same event
+* actual duplicate generation jobs
+
+### Do not assume frontend is responsible.
+
+### Implementation
+
+Only modify the layer proven to be responsible.
+
+Avoid broad event-system changes.
+
+### Tests
+
+Verify one generation produces:
+
+```text
+one job
+one completion event
+one final artifact state
+```
+
+### Manual QA
+
+I will generate and regenerate:
+
+* Quiz
+* Flashcards
+
+and verify the UI does not display duplicate completion states.
+
+### STOP
+
+Wait for approval.
+
+---
+
+# PHASE 6 — Final Regression Validation
+
+Only after all previous phases have been individually approved.
+
+## Automated tests
+
+Run the complete relevant backend test suite.
+
+At minimum:
+
+```bash
+pytest backend/tests/test_quiz.py
+pytest backend/tests/test_flashcards.py
+pytest backend/tests/test_knowledge_graph.py
+```
+
+Also run the full test suite if practical:
+
+```bash
+pytest
+```
+
+Verify:
+
+* no import failures
+* no provider regressions
+* no generation regressions
+* no artifact version regressions
+* no telemetry regressions
+
+## Manual QA Matrix
+
+| Feature                | Ollama | Cloud Provider |
+| ---------------------- | ------ | -------------- |
+| Chat                   | ✅      | ✅              |
+| Quiz generation        | ✅      | ✅              |
+| Flashcard generation   | ✅      | ✅              |
+| Quiz regeneration      | ✅      | ✅              |
+| Flashcard regeneration | ✅      | ✅              |
+
+For each:
+
+* selected provider is respected
+* selected model is respected
+* generation is not artificially terminated
+* genuine failures are visible
+* intentional fallback behaves correctly
+* no fake LLM responses appear
+* artifacts are independently versioned
+* completion state is displayed once
+
+---
+
+# Final Acceptance Criteria
+
+The work is complete only when all of the following are true:
+
+### Local-first generation
+
+* Local LLM generation is not limited by an arbitrary wall-clock timeout.
+* Slow inference is treated as valid inference.
+* Health checks still have reasonable timeouts.
+* Connection establishment still has reasonable timeouts.
+* User cancellation remains the mechanism for intentionally stopping long generation.
+
+### Provider integrity
+
+* Ollama generation actually reaches Ollama.
+* The selected Ollama model is actually used.
+* Cloud providers continue working.
+* Provider selection remains consistent across Chat, Quiz, Flashcards, and Settings.
+
+### Error integrity
+
+* Provider failures are not converted into fake successful LLM responses.
+* Errors are observable and diagnosable.
+* Intentional heuristic fallback only occurs through the appropriate higher-level generation logic.
+
+### Regeneration
+
+* v1 → v2 → v3 increments correctly.
+* Each version has a distinct artifact identity.
+* Previous versions remain intact.
+* Regeneration invokes genuine generation.
+* Regenerated content is independently generated.
+* No unnecessary anti-duplication mechanisms are added if the timeout fix already resolves the issue.
+
+### Telemetry
+
+* One generation produces one authoritative completion state.
+* Duplicate completion events are eliminated at their actual source.
+* Progress remains accurate.
+
+---
+
+# Implementation Discipline
+
+Throughout the entire implementation:
+
+### DO
+
+* Investigate before modifying.
+* Make the smallest change that fixes the confirmed root cause.
+* Reuse existing architecture.
+* Preserve working cloud-provider behavior.
+* Add regression tests around every confirmed bug.
+* Provide evidence for conclusions.
+* Stop after each phase.
+
+### DO NOT
+
+* Refactor unrelated architecture.
+* Introduce a new DI framework.
+* Replace the provider system.
+* Rewrite the generation pipeline.
+* Add arbitrary timeouts merely to make requests terminate.
+* Add randomness to hide deterministic bugs.
+* Add complex anti-duplication logic before proving duplication persists.
+* Modify multiple layers when one layer is responsible.
+* Continue to the next phase without manual QA approval.
+
+## Most Important Rule
+
+**Do not optimize for completing all phases quickly. Optimize for proving each root cause and making the smallest correct change.**
+
+After each phase, stop and wait for my explicit approval.

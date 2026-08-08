@@ -25,6 +25,15 @@ quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_b
 _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
 
 
+def set_ai_service_bus(ai_bus) -> None:
+    """Inject the process-wide AIServiceBus instance built in main.py cleanly into services."""
+    global flashcard_service, quiz_service, _analytics
+    flashcard_service = FlashcardService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
+    quiz_service = QuizService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
+    _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
+
+
+
 class CardResponse(BaseModel):
     id: str
     deck_id: str

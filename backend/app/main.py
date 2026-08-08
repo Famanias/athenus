@@ -112,6 +112,10 @@ ai_service_bus.register_text_adapter("anthropic", anthropic_adapter)
 ai_service_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
 ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
 
+# Inject initialized AI service bus into learning module services
+from app.presentation.api.v1.learning import set_ai_service_bus as set_learning_ai_service_bus
+set_learning_ai_service_bus(ai_service_bus)
+
 # Global references (populated in lifespan)
 vector_store = None
 intelligence_manager = None

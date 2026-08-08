@@ -1,7 +1,10 @@
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from app.domain.ai.capabilities import TextGenerationRequest
 from app.domain.ai.service_bus import AIServiceBus
@@ -150,10 +153,12 @@ class FlashcardService:
     # ------------------------------------------------------------------
     async def _generate_with_llm(self, concepts: List[dict], chunks: List[dict]) -> List[ExtractedFlashcard]:
         if not self.ai_service_bus:
+            logger.warning("FlashcardService: ai_service_bus is None — LLM generation skipped, falling back to heuristic.")
             return []
         try:
             text_capability = self.ai_service_bus.get_text_capability()
-        except Exception:
+        except Exception as exc:
+            logger.warning("FlashcardService: failed to resolve text capability — %s", exc)
             return []
         try:
             gen_res = await text_capability.generate(
@@ -163,9 +168,16 @@ class FlashcardService:
                     max_tokens=2048,
                 )
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("FlashcardService: LLM generate() raised — %s", exc)
             return []
         parsed = parse_llm_flashcards(gen_res.text)
+        if not parsed:
+            logger.warning(
+                "FlashcardService: parse_llm_flashcards returned None/empty (response length=%d). "
+                "Falling back to heuristic.",
+                len(gen_res.text or ""),
+            )
         return parsed or []
 
     def _concept_dicts(self, workspace_id: str) -> List[dict]:
