@@ -1,0 +1,21 @@
+# Athenus — Host Ollama Models Override (optional)
+# Reuses an existing host Ollama models directory inside the container instead
+# of keeping model weights in the named `ollama-data` volume. This avoids
+# downloading the same model twice when you already run Ollama natively on the
+# host. Platform-neutral: works on Windows, macOS, and Linux.
+#
+# Set OLLAMA_MODELS_DIR in .env to point at your host models directory.
+# Windows default is E:\ollama\models (the standard Ollama install dir).
+# macOS/Linux example: OLLAMA_MODELS_DIR=/home/you/.ollama/models
+#
+# Usage (optionally combined with the GPU overlay):
+#   docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.host-models.yml up -d --build
+#
+# This is an overlay, not a standalone file: it only adds a bind mount to the
+# existing `ollama` service.
+
+services:
+  ollama:
+    volumes:
+      - "${OLLAMA_MODELS_DIR:-E:\\ollama\\models}:/root/.ollama/models"

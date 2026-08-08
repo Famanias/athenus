@@ -46,6 +46,11 @@ Open **http://localhost:3000** in your browser.
 
 ### First-use model downloads & Live Model Discovery
 - **Live Ollama REST API Discovery**: The backend uses `LocalModelProviderRegistry` and `OllamaProviderAdapter` to query `GET http://ollama:11434/api/tags`. Installed models automatically populate in UI dropdowns across all runtime environments—no manual folder mounts or path configuration needed.
+- **Containerized Ollama default model**: the container starts with an empty model store. Pull the default LLM once (persists in the `ollama-data` volume):
+  ```bash
+  ./scripts/ollama-pull.ps1          # Windows; macOS/Linux: ./scripts/ollama-pull.sh
+  # equivalent: docker exec -it athenus-ollama ollama pull llama3:8b
+  ```
 - **BGE + Whisper**: downloaded into the named `hf-cache` volume on first
   transcription/embedding, then reused across restarts.
 
@@ -255,6 +260,11 @@ containers, so most edits are picked up **without any rebuild**:
   If you move the backend port, also update `NEXT_PUBLIC_API_URL` in `docker-compose.yml`.
 - **Host Ollama passthrough**: set `OLLAMA_BASE_URL=http://host.docker.internal:11434`
   in `docker-compose.yml` (`host.docker.internal` is wired via `extra_hosts: host-gateway`).
+- **Reuse host Ollama models**: merge the optional
+  `docker-compose.host-models.yml` overlay to bind a host models directory
+  (default `E:\ollama\models`, override via `OLLAMA_MODELS_DIR` in `.env`) into
+  the container instead of keeping models in the `ollama-data` volume. See
+  `docs/DEPLOYMENT.md` §2.
 
 ---
 
@@ -266,7 +276,7 @@ containers, so most edits are picked up **without any rebuild**:
 | Backend stays `unhealthy` | First boot loads models/schema slowly — wait, then check `docker compose logs backend`. |
 | Port already in use | Set `PORT_*` overrides in `.env` (Section 8). |
 | GPU container fails to start | NVIDIA Container Toolkit not installed/configured — see Section 3; fall back to CPU mode. |
-| Chat returns offline-fallback text | Ollama still pulling `llama3:8b` or unreachable — check Ollama status in Settings diagnostic panel or `docker compose logs ollama`. |
+| Chat returns offline-fallback text | Ollama still pulling `llama3:8b` or unreachable — run `./scripts/ollama-pull.ps1` (or `docker exec -it athenus-ollama ollama pull llama3:8b`), then check Ollama status in Settings diagnostic panel or `docker compose logs ollama`. |
 | Unmounted host folder error in Docker | Containerized backend cannot reach host drive paths directly. Use live REST discovery (`GET /api/tags`) or mount directory in `docker-compose.yml`. |
 | `scripts/dev.ps1` blocked | `powershell -ExecutionPolicy Bypass -File scripts/dev.ps1`, or use compose commands directly. |
 

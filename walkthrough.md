@@ -1,177 +1,154 @@
-# Quiz Prompt Version Threading — WALKTHROUGH
+# Walkthrough — Ollama Containerization Fixes
 
-## Summary
+## Purpose
 
-### Root cause
-The `{version}` placeholder in the quiz generation prompt was dead in production.
-`build_quiz_prompt()` accepts and correctly renders a `version` argument, but the
-intermediate caller `QuizService._generate_with_llm()` never received or forwarded
-the version computed upstream, so **every LLM generation prompt rendered "Quiz
-Version 1"**, even on the 5th regeneration. A default argument (`version=1`) on
-`build_quiz_prompt` masked the omission instead of failing loudly, so no test
-caught it.
+Two follow-up fixes to the Dockerized development architecture, addressing
+recommendations from `docker review.md`:
 
-### What changed and why
-- `_generate_with_llm()` now takes a required `version: int` parameter and forwards
-  it to `build_quiz_prompt(..., version=version)`. Making it **required** (no
-  default) means a future caller that forgets to pass version gets an immediate
-  `TypeError` instead of silently regressing to "Quiz Version 1".
-- `generate_quiz()` passes its already-computed `version` into
-  `_generate_with_llm()`.
-- `evolve_workspace_quiz()` now computes `new_version` **before** the LLM call and
-  passes it through — the same dead-version bug existed on the auto-evolution path.
-- Added an automated regression test asserting the rendered prompt carries the
-  real version number.
+1. **Portability** — removed the hardcoded `E:\ollama\models` host path from the
+   base `docker-compose.yml` so the default stack works on any OS, and moved
+   host-model reuse behind an optional, platform-neutral overlay.
+2. **Default model pull** — documented and scripted the first-time
+   `ollama pull` for the containerized Ollama, which previously started with an
+   empty model store.
 
-This was a pure parameter-threading fix. No prompt text, schema, API contract, or
-frontend behavior changed. Initial generation still renders "Quiz Version 1"
-(unchanged), and the JSON output contract in the prompt is untouched.
-
-### Files / lines touched
-- `backend/app/domain/learning/quiz_service.py`
-  - `_generate_with_llm()` signature — line 155 (now `version: int` required)
-  - `build_quiz_prompt(..., version=version)` call — line 171
-  - `generate_quiz()` → `_generate_with_llm(..., version=version)` — line 241
-  - `evolve_workspace_quiz()` — `new_version` computed before call, passed through —
-    lines 339-340 (removed duplicate `latest_version`/`new_version` computation at
-    former lines 337-338)
-- `backend/tests/test_quiz.py`
-  - Added `FakeQuizCapability` / `FakeQuizBus` test doubles (lines 16-43)
-  - Added `test_generation_prompt_carries_version` (lines 168-180)
-
-## Manual testing steps
-
-These steps exercise the real backend endpoint. Use a workspace that already has
-concepts extracted (e.g. after processing a lecture), or seed one via the tests.
-
-1. **Start the backend.**
-   ```
-   cd backend
-   python -m uvicorn main:app --port 8000
-   ```
-
-2. **Capture prompts.** Add a temporary debug log inside
-   `_generate_with_llm()` right after the prompt is built:
-   ```python
-   import logging
-   logging.getLogger(__name__).debug("QUIZ_PROMPT_VERSION>>> %s", build_quiz_prompt(concepts, chunks, max_questions, version=version))
-   ```
-   Ensure debug logging is enabled for the module. (Remove this before merging.)
-
-3. **Initial generation.** Trigger it for a workspace `WS`:
-   ```
-   curl -X POST "http://127.0.0.1:8000/api/v1/learning/quizzes/WS/generate"
-   ```
-   **Expected:** the logged prompt contains `Quiz Version 1`; the response JSON has
-   `"version": 1` and `"status": "ready"`.
-
-4. **First regeneration.** Force a new version:
-   ```
-   curl -X POST "http://127.0.0.1:8000/api/v1/learning/quizzes/WS/generate?force_new_version=true"
-   ```
-   **Expected:** the logged prompt contains `Quiz Version 2`; the response has
-   `"version": 2`.
-
-5. **Second regeneration.** Repeat the force-new-version call.
-   **Expected:** the logged prompt contains `Quiz Version 3`; the response has
-   `"version": 3`.
-
-6. **Backward-compat check.** Start with a fresh workspace and run only the initial
-   generation (step 3) — confirm the prompt still says `Quiz Version 1`.
-
-7. **Remove the temporary debug logging** added in step 2 before merging.
-
-## Validation checklist
-
-- [ ] `cd backend && python -m pytest tests/test_quiz.py -q` — all pass, including
-      the new `test_generation_prompt_carries_version`.
-- [ ] `cd backend && python -m pytest tests/test_learning_evolution.py tests/test_flashcards.py tests/test_analytics.py -q` — pass (auto-evolution /
-      `evolve_workspace_quiz` path not regressed).
-- [ ] No other callers of `_generate_with_llm()` exist in `quiz_service.py` that
-      omit `version` (grep: only lines 241 and 340, both pass it).
-- [ ] `flashcard_service.py::_generate_with_llm` is a **separate** method (different
-      signature, no `version`) — untouched, flashcards unaffected.
-- [ ] `build_quiz_prompt()` unchanged; its `version=1` default remains (used by
-      `tests/test_quiz.py::test_quiz_prompt_contains_concepts_and_chunks`).
-- [ ] Heuristic fallback path unchanged — `generate_quiz_heuristic` still fires when
-      the LLM returns no questions (it already received `version`).
-- [ ] Initial generation behavior unchanged (renders "Quiz Version 1").
-
-### Known pre-existing failure (unrelated)
-`tests/test_learning_evolution.py::test_workspace_learning_settings_api` fails when
-the full suite is run against the persistent SQLite DB. This is a pre-existing
-test-isolation issue: the test PATCHes `auto_evolve_flashcards=True` into the
-persistent `data/athenus.db`, and that state leaks into later runs, breaking the
-"GET default settings is False" assertion. It fails identically with these changes
-**stashed** (i.e. on clean `main`), confirming it is not caused by this work. It is
-out of scope for this fix.
+No application runtime code was changed. All edits are Docker/Compose
+configuration, helper scripts, and documentation.
 
 ---
 
-# Heuristic Fallback Notification — WALKTHROUGH
+## Implementation Summary
 
-## Summary
+### Fix #1 — Portability of the host Ollama bind mount
 
-### Root cause (context)
-Quiz generation is LLM-first with a rule-based fallback. When
-`_generate_with_llm()` yields no questions (no AI bus configured, offline LLM, or
-unparseable response), `generate_quiz_heuristic()` silently takes over
-(quiz_service.py:242-244). Previously nothing told the user that the fallback
-engine was used — the artifact job just reported "Quiz ready."
+| File | Change |
+| :--- | :--- |
+| `docker-compose.yml` | Removed `- E:\ollama\models:/root/.ollama/models` from the `ollama` service. The base file is now fully portable; the `ollama-data` named volume is the canonical model store. |
+| `docker-compose.host-models.yml` | **New** overlay that adds an optional bind mount `${OLLAMA_MODELS_DIR:-E:\ollama\models}:/root/.ollama/models` to the `ollama` service. Platform-neutral (Windows/macOS/Linux), combines with the GPU overlay via multiple `-f` flags. |
+| `.env.example` | Documented `OLLAMA_MODELS_DIR` (commented out) under the host-ports section. |
 
-### What changed and why
-`generate_quiz()` now tracks whether the heuristic fallback executed and records
-it in the artifact job's final message:
+**Why an overlay and not a compose variable in the base file**: the base file
+must start cleanly with no host-specific state. Keeping the bind in an
+opt-in overlay means `docker compose up` works out of the box on any OS, and
+users who want to share a host models directory opt in explicitly. This matches
+the existing `docker-compose.gpu.yml` overlay pattern.
 
-- `used_fallback = not questions` captures the fallback condition (line 242).
-- The final `update_job("ready", ...)` message becomes
-  `"Quiz ready — generated with local fallback engine (LLM unavailable)."` when
-  the fallback ran, otherwise the unchanged `"Quiz ready."` (lines 253-257).
+### Fix #2 — First-time default model pull
 
-The frontend already polls `GET /learning/quizzes/workspace/{ws}/status` every 5s
-and renders `artifact.message` in the always-visible artifact status bar
-(`QuizStudio.tsx:111-113`), so the notice appears there automatically and
-persists until the next generation. **No frontend, schema, or API changes.**
+| File | Change |
+| :--- | :--- |
+| `scripts/ollama-pull.sh` | **New** bash helper. Resolves the model as `$1` > `.env` `DEFAULT_LLM_MODEL` > `llama3:8b`; supports `--prod` (targets `athenus-prod-ollama`); errors with guidance if the container isn't running; runs `docker exec -it <container> ollama pull <model>`. |
+| `scripts/ollama-pull.ps1` | **New** PowerShell equivalent with identical behavior. |
+| `README.md` | Added an "Ollama models (first-time setup)" section after the Quick Start, covering the helper and the host-models overlay. |
+| `docs/DEPLOYMENT.md` | Rewrote the "Local Model Storage & Docker Bind Mounts" section; added the pull helper to Common commands and to the Self-Hosted section (`--prod`). |
+| `docs/ONBOARDING.md` | Added containerized model-pull to the Web Mode "First-use model downloads" section, an environment-config note for the overlay, and updated the troubleshooting row for offline chat fallback. |
 
-This is a backend-only, single-location change consistent with the existing
-artifact-lifecycle design.
+**Design decision — opt-in, not auto-pull**: a multi-GB model download is never
+kicked off implicitly. The helper gives a one-liner but the user controls when
+the download happens (consistent with the project's local-first philosophy and
+with the review's own "optional startup pull helper" recommendation).
 
-### Files / lines touched
-- `backend/app/domain/learning/quiz_service.py`
-  - `generate_quiz()` — `used_fallback` capture (line 242) and conditional
-    "ready" message (lines 253-257)
+---
 
-## Manual testing steps
+## Manual Testing & Validation Checklist
 
-1. **Start the backend with the LLM unavailable** (e.g. Ollama daemon stopped):
-   ```
-   cd backend
-   python -m uvicorn main:app --port 8000
-   ```
-2. **Trigger quiz generation** for a workspace `WS` with concepts extracted:
-   ```
-   curl -X POST "http://127.0.0.1:8000/api/v1/learning/quizzes/WS/generate"
-   ```
-3. **Check the artifact status:**
-   ```
-   curl "http://127.0.0.1:8000/api/v1/learning/quizzes/workspace/WS/status"
-   ```
-   **Expected:** `"status": "ready"` and `"message"` contains
-   `generated with local fallback engine (LLM unavailable)`.
-4. **Confirm the UI notice.** Open the Quizzes tab; the artifact status bar shows
-   the fallback message.
-5. **Regression — normal LLM path.** Restart the backend with the LLM available
-   and regenerate (or generate on a fresh workspace).
-   **Expected:** the status bar message is plain `Quiz ready.` — no fallback
-   notice.
+Run these in order. Mark each **PASS** / **FAIL** and record failures below.
 
-## Validation checklist
+### 0. Preflight (no running stack)
 
-- [ ] `cd backend && python -m pytest tests/test_quiz.py -q` — all pass (incl.
-      `test_generation_prompt_carries_version`).
-- [ ] LLM-success path message unchanged (`Quiz ready.`).
-- [ ] Fallback path message set only when `generate_quiz_heuristic` runs.
-- [ ] No frontend files changed; the existing status-bar rendering surfaces the
-      message.
-- [ ] `evolve_workspace_quiz()` untouched (that auto-evolution path does not write
-      artifact-job progress; out of scope).
+- [ ] **0.1** `docker compose config --quiet` exits `0` with no warnings.
+      (Validates the base file parses without the removed host path.)
+- [ ] **0.2** `docker compose -f docker-compose.yml -f docker-compose.host-models.yml config` shows the `ollama` service volume `E:\ollama\models:/root/.ollama/models` (or your `OLLAMA_MODELS_DIR`).
+- [ ] **0.3** `docker compose -f docker-compose.prod.yml config --quiet` exits `0`.
+
+### 1. Portable base stack boots cleanly (no host path)
+
+- [ ] **1.1** `./scripts/dev.ps1` (or `./scripts/dev.sh`) brings up all three
+      services without errors.
+- [ ] **1.2** `docker inspect athenus-ollama --format '{{json .Mounts}}'` shows
+      **only** the `ollama-data` volume mounted at `/root/.ollama` (no host
+      `models` bind).
+- [ ] **1.3** `curl http://localhost:8000/api/v1/health` returns `{"status":"ok",...}`.
+
+### 2. Default model pull (containerized Ollama)
+
+- [ ] **2.1** `docker exec -it athenus-ollama ollama list` shows **no** models
+      yet (or a pre-existing set if you've used it before).
+- [ ] **2.2** Run `./scripts/ollama-pull.ps1` (or `.sh`). It reports pulling
+      `llama3:8b` (or your `DEFAULT_LLM_MODEL`).
+- [ ] **2.3** After completion, `docker exec -it athenus-ollama ollama list`
+      shows `llama3:8b`.
+- [ ] **2.4** `curl http://localhost:11434/api/tags` lists the model in JSON.
+- [ ] **2.5** In the Web UI → Settings → AI System Settings, the Ollama provider
+      shows `🟢` connected and the model appears in the dropdown (live REST
+      discovery via `/api/tags`).
+- [ ] **2.6** Send a chat message in a workspace — it should stream a real
+      (non-offline-fallback) response.
+
+### 3. Persistence & lifecycle
+
+- [ ] **3.1** `docker compose restart ollama` — model still listed after
+      restart (`docker exec ... ollama list`).
+- [ ] **3.2** `docker compose down` (NOT `-v`), then `./scripts/dev.ps1` again —
+      model still present (survives `down`, only `down -v` deletes it).
+- [ ] **3.3** Explicit model arg: `./scripts/ollama-pull.ps1 phi3:mini` pulls a
+      different model into the same container.
+
+### 4. Host-models overlay (optional reuse of host Ollama)
+
+- [ ] **4.1** With a host Ollama running and models present, run:
+      `docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d --build`.
+- [ ] **4.2** `docker exec -it athenus-ollama ollama list` shows the **host's**
+      models (bind mount active).
+- [ ] **4.3** Override the dir: set `OLLAMA_MODELS_DIR=<another path>` in `.env`,
+      re-run `docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d`,
+      and confirm the new path appears in `docker inspect athenus-ollama`.
+- [ ] **4.4** GPU + host-models combined compose (if you have an NVIDIA GPU):
+      `docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.host-models.yml config --quiet` exits `0`.
+
+### 5. Production stack
+
+- [ ] **5.1** `docker compose -f docker-compose.prod.yml up -d --build` starts
+      cleanly.
+- [ ] **5.2** `./scripts/ollama-pull.sh --prod` pulls the model into
+      `athenus-prod-ollama` (`docker exec -it athenus-prod-ollama ollama list`).
+- [ ] **5.3** `docker compose -f docker-compose.prod.yml down` when finished.
+
+### 6. Negative cases
+
+- [ ] **6.1** `./scripts/ollama-pull.ps1` with the stack stopped prints the
+      "not running" error and exits non-zero (no crash / partial pull).
+- [ ] **6.2** `docker compose -f docker-compose.yml -f docker-compose.host-models.yml config`
+      with `OLLAMA_MODELS_DIR` unset still renders the default `E:\ollama\models`
+      bind without a compose error.
+
+---
+
+## Result Log
+
+| Check | Result (PASS/FAIL) | Notes |
+| :--- | :---: | :--- |
+| 0.1 | | |
+| 0.2 | | |
+| 0.3 | | |
+| 1.1 | | |
+| 1.2 | | |
+| 1.3 | | |
+| 2.1 | | |
+| 2.2 | | |
+| 2.3 | | |
+| 2.4 | | |
+| 2.5 | | |
+| 2.6 | | |
+| 3.1 | | |
+| 3.2 | | |
+| 3.3 | | |
+| 4.1 | | |
+| 4.2 | | |
+| 4.3 | | |
+| 4.4 | | |
+| 5.1 | | |
+| 5.2 | | |
+| 5.3 | | |
+| 6.1 | | |
+| 6.2 | | |
