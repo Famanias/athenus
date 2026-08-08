@@ -48,7 +48,7 @@ export const EmbeddedChatWidget: React.FC<EmbeddedChatWidgetProps> = ({
       <div className="p-3 bg-surface-container-low border-b border-outline-variant flex justify-between items-center shrink-0">
         <div className="flex items-center gap-2">
           <span className="font-bold text-on-surface font-mono text-xs flex items-center gap-1">
-            <span>💬</span> AI Assistant
+            AI Assistant
           </span>
           <span className="bg-secondary/15 border border-secondary/40 text-secondary text-[10px] font-mono px-2 py-0.5 rounded-full">
             📍 {currentFormattedTime}
@@ -77,7 +77,7 @@ export const EmbeddedChatWidget: React.FC<EmbeddedChatWidgetProps> = ({
       {selectedTranscriptText && (
         <div className="p-2 bg-secondary/10 border-b border-secondary/30 flex justify-between items-center text-[11px] text-secondary font-mono shrink-0">
           <span className="truncate max-w-[85%]">
-            📝 Selected: "{selectedTranscriptText}"
+            Selected: "{selectedTranscriptText}"
           </span>
           <button onClick={onClearSelectedText} className="text-on-surface-variant hover:text-on-surface font-bold">
             ✕
@@ -114,7 +114,7 @@ export const EmbeddedChatWidget: React.FC<EmbeddedChatWidgetProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         {messages.length === 0 && (
           <div className="p-6 text-center text-on-surface-variant space-y-2 border border-dashed border-outline-variant rounded bg-surface-container-low/50 mt-4">
-            <span className="text-2xl block">🦉</span>
+            <img src="/icon-black-hat.png" alt="Athenus" className="w-12 h-12 block mx-auto drop-shadow" />
             <p className="font-bold text-xs">Context-Aware Video Assistant</p>
             <p className="text-[11px] leading-relaxed">
               Ask questions about what's being discussed at <span className="text-secondary font-mono font-bold">{currentFormattedTime}</span> without leaving the video.
@@ -127,11 +127,10 @@ export const EmbeddedChatWidget: React.FC<EmbeddedChatWidgetProps> = ({
           return (
             <div key={msg.id} className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} space-y-1`}>
               <div
-                className={`p-3 rounded-lg border max-w-[90%] text-xs leading-relaxed ${
-                  isUser
-                    ? 'bg-surface-container-high border-outline-variant text-on-surface'
-                    : 'bg-surface-container border-outline-variant text-on-surface space-y-2'
-                }`}
+                className={`p-3 rounded-lg border max-w-[90%] text-xs leading-relaxed ${isUser
+                  ? 'bg-surface-container-high border-outline-variant text-on-surface'
+                  : 'bg-surface-container border-outline-variant text-on-surface space-y-2'
+                  }`}
               >
                 <p className="whitespace-pre-wrap">{msg.content}</p>
 
@@ -159,7 +158,7 @@ export const EmbeddedChatWidget: React.FC<EmbeddedChatWidgetProps> = ({
 
         {isGenerating && (
           <div className="flex items-center gap-2 p-3 bg-surface-container rounded border border-outline-variant text-xs text-secondary font-mono animate-pulse">
-            <span>🦉</span> Processing contextual inquiry...
+            <img src="/icon-black-hat.png" alt="Athenus" className="w-5 h-5 shrink-0 animate-spin" /> Processing contextual inquiry...
           </div>
         )}
       </div>

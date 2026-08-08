@@ -390,7 +390,7 @@ export const VideoWorkspace: React.FC = () => {
                           <span className="text-[10px] font-mono text-on-surface-variant/60">
                             {seg.speaker}
                           </span>
-                          <button
+                          {/* <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -399,8 +399,8 @@ export const VideoWorkspace: React.FC = () => {
                             title="Ask AI about this segment"
                             className="px-1.5 py-0.5 rounded bg-surface-container hover:bg-secondary/20 hover:text-secondary text-[10px] font-mono text-on-surface-variant transition-colors"
                           >
-                            💬 Ask AI
-                          </button>
+                            Ask AI
+                          </button> */}
                         </div>
                       </div>
                       <p className="text-xs leading-relaxed select-text">{seg.text}</p>
