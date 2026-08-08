@@ -72,15 +72,19 @@ Both the web container and the native desktop shell share `./data/` (SQLite + Qd
 - **Platform Runtime Detection (`RuntimeService`)**: The backend automatically detects its execution environment (`NATIVE`, `DOCKER`, `TAURI`, `WEB`).
 - **Native Desktop Mode**: The backend runs directly on host OS with full filesystem access to custom model paths (e.g. `E:\ollama\models`).
 - **Docker Container Mode**: Unmounted host paths return friendly environment guidance explaining container boundaries.
-- **Optional Docker Host Bind Mount**: To allow a Docker containerized backend to scan a custom host directory (e.g., `E:\ollama\models`), add an optional bind mount under `services.backend.volumes` in `docker-compose.yml`:
-  ```yaml
-  volumes:
-    - ./backend:/app
-    - ./data:/app/data
-    - hf-cache:/root/.cache/huggingface
-    # Optional host model directory bind mount:
-    # - E:\ollama\models:/mnt/ollama
+- **Containerized Ollama model store**: model weights live in the named `ollama-data` volume (`/root/.ollama`). Nothing is baked into the image; pull the default model once with the helper:
+  ```bash
+  ./scripts/ollama-pull.ps1            # Windows; macOS/Linux: ./scripts/ollama-pull.sh
+  ./scripts/ollama-pull.sh --prod      # production stack (athenus-prod-ollama)
+  # equivalent: docker exec -it athenus-ollama ollama pull llama3:8b
   ```
+  The pulled model persists across restarts and survives `docker compose down` (only `down -v` deletes it).
+- **Optional Host Model Bind Mount (`docker-compose.host-models.yml`)**: To reuse an existing host Ollama models directory (avoids downloading models twice), merge the host-models overlay instead of editing `docker-compose.yml`:
+  ```bash
+  docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d --build
+  # optionally combined with GPU: docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.host-models.yml up -d --build
+  ```
+  The overlay bind-mounts `OLLAMA_MODELS_DIR` (default `E:\ollama\models`; set in `.env`, e.g. `OLLAMA_MODELS_DIR=/home/you/.ollama/models` on macOS/Linux) into the `ollama` service at `/root/.ollama/models`. It is platform-neutral and optional — the base compose file no longer contains any host-specific path.
 
 ### Environment configuration
 - `.env.example` keeps **native** defaults (`./data/...`, `http://localhost:11434`) so native dev keeps working.
@@ -95,6 +99,7 @@ docker compose ps                 # status / healthchecks
 docker compose logs -f backend    # follow backend logs
 docker compose down               # stop (keeps named volumes + ./data)
 docker compose down -v            # stop AND delete named volumes (models re-download)
+./scripts/ollama-pull.sh          # pull DEFAULT_LLM_MODEL (llama3:8b) into containerized Ollama
 ```
 
 ---
@@ -108,6 +113,11 @@ docker compose -f docker-compose.prod.yml up -d --build
 * Frontend: Next.js static export (`output: "export"`) served by nginx on port 80.
 * Ollama: containerized on 11434.
 * SQLite for single-node persistence; embedded Qdrant vector store.
+
+After the stack is up, pull the default model into the production container once:
+```bash
+./scripts/ollama-pull.sh --prod
+```
 
 > **Note — cloud LLM provider keys in production:** `docker-compose.prod.yml` does **not** use `env_file`, so keys from your local `.env` are not injected into the container automatically. To use cloud providers (Groq / OpenRouter / OpenAI / Anthropic / custom), pass the keys explicitly, e.g.:
 >

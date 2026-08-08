@@ -51,6 +51,23 @@ cd athenus
 
 Open http://localhost:3000. NVIDIA GPU users with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) can instead run `./scripts/dev.ps1 --gpu` (GPU profile for Faster-Whisper + Ollama).
 
+### Ollama models (first-time setup)
+
+The containerized Ollama starts with an empty model store. Pull the default model once (multi-GB download), then it persists in the `ollama-data` named volume across restarts:
+
+```bash
+./scripts/ollama-pull.ps1     # Windows; macOS/Linux: ./scripts/ollama-pull.sh
+# equivalent: docker exec -it athenus-ollama ollama pull llama3:8b
+```
+
+Want to reuse an Ollama you already run on the host instead of downloading models again? Merge the optional host-models overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.host-models.yml up -d --build
+# Set OLLAMA_MODELS_DIR in .env to point at your host models dir (default: E:\ollama\models).
+# See docs/DEPLOYMENT.md §2 for details.
+```
+
 ### Native (Desktop / Tauri) Quick Start
 
 ```bash
