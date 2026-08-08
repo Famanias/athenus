@@ -1,91 +1,177 @@
-# Quiz Submission Fix — WALKTHROUGH
+# Quiz Prompt Version Threading — WALKTHROUGH
 
-## Overview
+## Summary
 
-Fixed the "Failed to submit quiz results." error in the Quizzes tab. The root cause was an
-API contract mismatch introduced in commit `a0fb981`: the frontend began POSTing quiz
-submissions to a non-existent endpoint (`/learning/quizzes/container/{quiz_id}/attempts`)
-with a mismatched payload and response shape, while the backend only exposes the tested
-grading endpoint `POST /learning/quizzes/{quiz_id}/grade`. The frontend now calls the
-existing backend endpoint and consumes the backend's response shape exactly.
+### Root cause
+The `{version}` placeholder in the quiz generation prompt was dead in production.
+`build_quiz_prompt()` accepts and correctly renders a `version` argument, but the
+intermediate caller `QuizService._generate_with_llm()` never received or forwarded
+the version computed upstream, so **every LLM generation prompt rendered "Quiz
+Version 1"**, even on the 5th regeneration. A default argument (`version=1`) on
+`build_quiz_prompt` masked the omission instead of failing loudly, so no test
+caught it.
 
-## Files Modified
+### What changed and why
+- `_generate_with_llm()` now takes a required `version: int` parameter and forwards
+  it to `build_quiz_prompt(..., version=version)`. Making it **required** (no
+  default) means a future caller that forgets to pass version gets an immediate
+  `TypeError` instead of silently regressing to "Quiz Version 1".
+- `generate_quiz()` passes its already-computed `version` into
+  `_generate_with_llm()`.
+- `evolve_workspace_quiz()` now computes `new_version` **before** the LLM call and
+  passes it through — the same dead-version bug existed on the auto-evolution path.
+- Added an automated regression test asserting the rendered prompt carries the
+  real version number.
 
-- `frontend/src/features/quiz/useQuiz.ts`
-  - Restored `QuizAttemptDTO` to match the backend `QuizAttemptResponse` schema
-    (`quiz_id`, `version`, `total_questions`, `correct_count`, `time_taken`, and the
-    detailed per-question `answers` record).
-  - `submitQuiz` now POSTs to `/api/v1/learning/quizzes/{quiz_id}/grade` (instead of the
-    non-existent `/container/{quiz_id}/attempts`) and sends `time_taken` (instead of the
-    never-supported `time_seconds`) in the request body.
-- `frontend/src/features/quiz/QuizStudio.tsx`
-  - Results panel updated to render the backend fields: `correct_count` of
-    `total_questions` correct, elapsed time from `time_taken`, and progress bar width from
-    `score` (already a 0–100 percentage).
+This was a pure parameter-threading fix. No prompt text, schema, API contract, or
+frontend behavior changed. Initial generation still renders "Quiz Version 1"
+(unchanged), and the JSON output contract in the prompt is untouched.
 
-## Implementation Details
+### Files / lines touched
+- `backend/app/domain/learning/quiz_service.py`
+  - `_generate_with_llm()` signature — line 155 (now `version: int` required)
+  - `build_quiz_prompt(..., version=version)` call — line 171
+  - `generate_quiz()` → `_generate_with_llm(..., version=version)` — line 241
+  - `evolve_workspace_quiz()` — `new_version` computed before call, passed through —
+    lines 339-340 (removed duplicate `latest_version`/`new_version` computation at
+    former lines 337-338)
+- `backend/tests/test_quiz.py`
+  - Added `FakeQuizCapability` / `FakeQuizBus` test doubles (lines 16-43)
+  - Added `test_generation_prompt_carries_version` (lines 168-180)
 
-- **Endpoint alignment:** The frontend now hits the only submission route the backend
-  exposes, `POST /api/v1/learning/quizzes/{quiz_id}/grade` (learning.py:357), which calls
-  `QuizService.grade_attempt` (quiz_service.py:491) and returns a 404-free 200 on success.
-- **Payload alignment:** The body now uses `time_taken`, matching `GradeAttemptRequest`
-  (learning.py:118-121); previously the backend would have silently defaulted elapsed time
-  to `0.0`.
-- **Response alignment:** The frontend DTO matches `QuizAttemptResponse` (learning.py:105-115),
-  so the results panel renders real values instead of `undefined`/`NaN`.
-- **Restored downstream effects:** Because submissions now succeed, attempts are persisted to
-  `quiz_attempts` and `QuizAttemptEvent` is published, which `AnalyticsService` consumes to
-  update `total_quiz_attempts`, `quiz_correct/quiz_attempts`, and `avg_quiz_score`.
-- No backend changes were required; the existing grading contract and its tests are unchanged.
+## Manual testing steps
 
-## Manual Testing Guide
+These steps exercise the real backend endpoint. Use a workspace that already has
+concepts extracted (e.g. after processing a lecture), or seed one via the tests.
 
-Prerequisites: backend running, a workspace with extracted concepts, and a generated quiz
-with at least one question loaded in the Quizzes tab.
+1. **Start the backend.**
+   ```
+   cd backend
+   python -m uvicorn main:app --port 8000
+   ```
 
-1. **Open the Quizzes tab and load a quiz.**
-   - Expected: Questions render with options; no error banner.
+2. **Capture prompts.** Add a temporary debug log inside
+   `_generate_with_llm()` right after the prompt is built:
+   ```python
+   import logging
+   logging.getLogger(__name__).debug("QUIZ_PROMPT_VERSION>>> %s", build_quiz_prompt(concepts, chunks, max_questions, version=version))
+   ```
+   Ensure debug logging is enabled for the module. (Remove this before merging.)
 
-2. **Answer all questions** (click an option for each; use Next Question → to advance).
-   - Expected: Each selection shows immediate correct/incorrect feedback and an explanation.
+3. **Initial generation.** Trigger it for a workspace `WS`:
+   ```
+   curl -X POST "http://127.0.0.1:8000/api/v1/learning/quizzes/WS/generate"
+   ```
+   **Expected:** the logged prompt contains `Quiz Version 1`; the response JSON has
+   `"version": 1` and `"status": "ready"`.
 
-3. **On the last question, click Submit Quiz.**
-   - Expected: No error banner. A results panel appears with a percentage score heading
-     (e.g., "Quiz Complete — 67%"), a "X of Y correct" line, elapsed time, and a progress
-     bar filled to the score percentage.
+4. **First regeneration.** Force a new version:
+   ```
+   curl -X POST "http://127.0.0.1:8000/api/v1/learning/quizzes/WS/generate?force_new_version=true"
+   ```
+   **Expected:** the logged prompt contains `Quiz Version 2`; the response has
+   `"version": 2`.
 
-4. **Verify the score math.**
-   - Expected: `X` equals the number of correct answers, `Y` equals total questions, and the
-     displayed percentage equals `round(X / Y * 100)`.
+5. **Second regeneration.** Repeat the force-new-version call.
+   **Expected:** the logged prompt contains `Quiz Version 3`; the response has
+   `"version": 3`.
 
-5. **Verify elapsed time is recorded.**
-   - Expected: The results panel shows the actual time spent (tens of seconds), not 0:00.
+6. **Backward-compat check.** Start with a fresh workspace and run only the initial
+   generation (step 3) — confirm the prompt still says `Quiz Version 1`.
 
-6. **Verify analytics updated.**
-   - Go to the Analytics tab and check the mastery/quiz stats.
-   - Expected: `Quiz attempts` increased by 1 and the workspace quiz score reflects the
-     completed attempt. (Requires analytics refresh.)
+7. **Remove the temporary debug logging** added in step 2 before merging.
 
-7. **Regression: regenerate a quiz.**
-   - Click Regenerate in the Quizzes tab.
-   - Expected: A new version is generated, loads, and is submittable via the same flow.
+## Validation checklist
 
-8. **Edge case: empty answers.**
-   - Submit a quiz without selecting options (or skip some) to confirm it still submits
-     (ungraded questions count as incorrect).
-   - Expected: Submission succeeds; correct count reflects only answered-correctly questions.
+- [ ] `cd backend && python -m pytest tests/test_quiz.py -q` — all pass, including
+      the new `test_generation_prompt_carries_version`.
+- [ ] `cd backend && python -m pytest tests/test_learning_evolution.py tests/test_flashcards.py tests/test_analytics.py -q` — pass (auto-evolution /
+      `evolve_workspace_quiz` path not regressed).
+- [ ] No other callers of `_generate_with_llm()` exist in `quiz_service.py` that
+      omit `version` (grep: only lines 241 and 340, both pass it).
+- [ ] `flashcard_service.py::_generate_with_llm` is a **separate** method (different
+      signature, no `version`) — untouched, flashcards unaffected.
+- [ ] `build_quiz_prompt()` unchanged; its `version=1` default remains (used by
+      `tests/test_quiz.py::test_quiz_prompt_contains_concepts_and_chunks`).
+- [ ] Heuristic fallback path unchanged — `generate_quiz_heuristic` still fires when
+      the LLM returns no questions (it already received `version`).
+- [ ] Initial generation behavior unchanged (renders "Quiz Version 1").
 
-9. **Edge case: network/backend down.**
-   - Stop the backend, then submit.
-   - Expected: The existing "Failed to submit quiz results." error banner appears — this is
-     the expected failure path, not the bug.
+### Known pre-existing failure (unrelated)
+`tests/test_learning_evolution.py::test_workspace_learning_settings_api` fails when
+the full suite is run against the persistent SQLite DB. This is a pre-existing
+test-isolation issue: the test PATCHes `auto_evolve_flashcards=True` into the
+persistent `data/athenus.db`, and that state leaks into later runs, breaking the
+"GET default settings is False" assertion. It fails identically with these changes
+**stashed** (i.e. on clean `main`), confirming it is not caused by this work. It is
+out of scope for this fix.
 
-## Notes
+---
 
-- Assumption: `score` returned by the backend is the 0–100 percentage (set in
-  `grade_attempt`), which the results panel already treats as a percentage.
-- The frontend `next lint` script exists but no ESLint config is present in the repo, so
-  lint cannot run; TypeScript `tsc --noEmit` passes for the modified files.
-- Out of scope (not changed): adding a separate `/container/{quiz_id}/attempts` route,
-  refactoring the results panel UI, or adding `passed`/`percentage` convenience fields to the
-  backend response. The frontend contract is now fully aligned with the existing backend API.
+# Heuristic Fallback Notification — WALKTHROUGH
+
+## Summary
+
+### Root cause (context)
+Quiz generation is LLM-first with a rule-based fallback. When
+`_generate_with_llm()` yields no questions (no AI bus configured, offline LLM, or
+unparseable response), `generate_quiz_heuristic()` silently takes over
+(quiz_service.py:242-244). Previously nothing told the user that the fallback
+engine was used — the artifact job just reported "Quiz ready."
+
+### What changed and why
+`generate_quiz()` now tracks whether the heuristic fallback executed and records
+it in the artifact job's final message:
+
+- `used_fallback = not questions` captures the fallback condition (line 242).
+- The final `update_job("ready", ...)` message becomes
+  `"Quiz ready — generated with local fallback engine (LLM unavailable)."` when
+  the fallback ran, otherwise the unchanged `"Quiz ready."` (lines 253-257).
+
+The frontend already polls `GET /learning/quizzes/workspace/{ws}/status` every 5s
+and renders `artifact.message` in the always-visible artifact status bar
+(`QuizStudio.tsx:111-113`), so the notice appears there automatically and
+persists until the next generation. **No frontend, schema, or API changes.**
+
+This is a backend-only, single-location change consistent with the existing
+artifact-lifecycle design.
+
+### Files / lines touched
+- `backend/app/domain/learning/quiz_service.py`
+  - `generate_quiz()` — `used_fallback` capture (line 242) and conditional
+    "ready" message (lines 253-257)
+
+## Manual testing steps
+
+1. **Start the backend with the LLM unavailable** (e.g. Ollama daemon stopped):
+   ```
+   cd backend
+   python -m uvicorn main:app --port 8000
+   ```
+2. **Trigger quiz generation** for a workspace `WS` with concepts extracted:
+   ```
+   curl -X POST "http://127.0.0.1:8000/api/v1/learning/quizzes/WS/generate"
+   ```
+3. **Check the artifact status:**
+   ```
+   curl "http://127.0.0.1:8000/api/v1/learning/quizzes/workspace/WS/status"
+   ```
+   **Expected:** `"status": "ready"` and `"message"` contains
+   `generated with local fallback engine (LLM unavailable)`.
+4. **Confirm the UI notice.** Open the Quizzes tab; the artifact status bar shows
+   the fallback message.
+5. **Regression — normal LLM path.** Restart the backend with the LLM available
+   and regenerate (or generate on a fresh workspace).
+   **Expected:** the status bar message is plain `Quiz ready.` — no fallback
+   notice.
+
+## Validation checklist
+
+- [ ] `cd backend && python -m pytest tests/test_quiz.py -q` — all pass (incl.
+      `test_generation_prompt_carries_version`).
+- [ ] LLM-success path message unchanged (`Quiz ready.`).
+- [ ] Fallback path message set only when `generate_quiz_heuristic` runs.
+- [ ] No frontend files changed; the existing status-bar rendering surfaces the
+      message.
+- [ ] `evolve_workspace_quiz()` untouched (that auto-evolution path does not write
+      artifact-job progress; out of scope).

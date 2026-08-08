@@ -152,7 +152,13 @@ class QuizService:
     # ------------------------------------------------------------------
     # Generation
     # ------------------------------------------------------------------
-    async def _generate_with_llm(self, concepts: List[dict], chunks: List[dict], max_questions: int) -> List[ExtractedQuestion]:
+    async def _generate_with_llm(
+        self,
+        concepts: List[dict],
+        chunks: List[dict],
+        max_questions: int,
+        version: int,
+    ) -> List[ExtractedQuestion]:
         if not self.ai_service_bus:
             return []
         try:
@@ -162,7 +168,7 @@ class QuizService:
         try:
             gen_res = await text_capability.generate(
                 TextGenerationRequest(
-                    prompt=build_quiz_prompt(concepts, chunks, max_questions),
+                    prompt=build_quiz_prompt(concepts, chunks, max_questions, version=version),
                     temperature=0.3,
                     max_tokens=2048,
                 )
@@ -232,8 +238,9 @@ class QuizService:
             prompt_chunks = chunks
 
         update_job("llm_generation", 50, "Generating questions with AI model...")
-        questions = await self._generate_with_llm(selected_concepts, prompt_chunks, max_questions)
-        if not questions:
+        questions = await self._generate_with_llm(selected_concepts, prompt_chunks, max_questions, version=version)
+        used_fallback = not questions
+        if used_fallback:
             questions = generate_quiz_heuristic(selected_concepts, prompt_chunks, max_questions, version=version)
 
         update_job("persist", 85, "Saving questions to database...")
@@ -243,7 +250,11 @@ class QuizService:
             question_count=saved,
             concept_ids=concept_ids,
         )
-        update_job("ready", 100, "Quiz ready.", status="ready")
+        update_job(
+            "ready", 100,
+            "Quiz ready — generated with local fallback engine (LLM unavailable)." if used_fallback else "Quiz ready.",
+            status="ready",
+        )
         return self.get_quiz(quiz_id)
 
     def _concept_coverage(self, workspace_id: str) -> dict:
@@ -330,12 +341,11 @@ class QuizService:
         seen: set = set()
         chunks = [c for c in all_chunks if not (c["id"] in seen or seen.add(c["id"]))]
 
-        new_questions = await self._generate_with_llm(new_concepts, chunks, target_budget)
+        new_version = self._latest_version(workspace_id) + 1
+        new_questions = await self._generate_with_llm(new_concepts, chunks, target_budget, version=new_version)
         if not new_questions:
             new_questions = generate_quiz_heuristic(new_concepts, chunks, target_budget)
 
-        latest_version = self._latest_version(workspace_id)
-        new_version = latest_version + 1
         new_quiz_id = f"quiz_{workspace_id}_v{new_version}"
         self._upsert_quiz(new_quiz_id, workspace_id, title, new_version, "generating")
 

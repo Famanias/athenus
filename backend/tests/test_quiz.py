@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 
+from app.domain.ai.capabilities import TextGenerationResponse
 from app.domain.learning.quiz_generation import (
     build_quiz_prompt,
     generate_quiz_heuristic,
@@ -10,6 +11,34 @@ from app.domain.learning.quiz_service import QuizService
 from app.domain.knowledge.entities import ConceptNode
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.db.session import init_db
+
+
+class FakeQuizCapability:
+    """Fake text capability that captures prompts and returns a parseable quiz."""
+
+    def __init__(self):
+        self.prompts = []
+
+    async def generate(self, request):
+        self.prompts.append(request.prompt)
+        return TextGenerationResponse(
+            text=(
+                '{"questions": [{"question_text": "Sample question?", '
+                '"options": ["A", "B"], "correct_index": 0, '
+                '"explanation": "Because.", "concept": "Overfitting"}]}'
+            )
+        )
+
+
+class FakeQuizBus:
+    """Minimal fake AIServiceBus exposing only get_text_capability()."""
+
+    def __init__(self, capability):
+        self._capability = capability
+
+    def get_text_capability(self):
+        return self._capability
+
 
 
 def _seed_graph(workspace_id: str) -> None:
@@ -136,3 +165,16 @@ def test_grade_attempt():
     attempts = service.get_attempts(ws)
     assert len(attempts) == 1
     assert attempts[0].correct_count == 1
+
+
+def test_generation_prompt_carries_version():
+    init_db()
+    ws = f"ws_prompt_{uuid.uuid4().hex[:8]}"
+    _seed_graph(ws)
+    capability = FakeQuizCapability()
+    service = QuizService(ai_service_bus=FakeQuizBus(capability))
+    v1 = asyncio.run(service.generate_quiz(workspace_id=ws, max_questions=2))
+    v2 = asyncio.run(service.generate_quiz(workspace_id=ws, force_new_version=True, max_questions=2))
+    assert "Quiz Version 1" in capability.prompts[0]
+    assert "Quiz Version 2" in capability.prompts[-1]
+    assert v2.version == 2
