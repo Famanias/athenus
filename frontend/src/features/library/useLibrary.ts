@@ -32,16 +32,19 @@ export function useLibrary(targetWorkspaceId?: string) {
           workspaces.find((w) => w.id === effectiveWorkspaceId) || workspaces[0];
 
         if (currentWs && currentWs.media_item_ids && currentWs.media_item_ids.length > 0) {
-          const realAssets: MediaAsset[] = currentWs.media_item_ids.map((id, idx) => ({
-            id,
-            title: `Indexed Lecture ${idx + 1}`,
-            description: `Media Item ID ${id} stored in workspace collection.`,
-            duration: '00:00',
-            wordCount: 0,
-            masteryScore: 0,
-            thumbnailEmoji: '🎥',
-            uploadedAt: 'Recently',
-          }));
+          const realAssets: MediaAsset[] = currentWs.media_item_ids.map((id, idx) => {
+            const isDoc = id.startsWith('doc_') || id.toLowerCase().includes('pdf') || id.toLowerCase().includes('doc');
+            return {
+              id,
+              title: isDoc ? `Document Asset ${idx + 1}` : `Indexed Lecture ${idx + 1}`,
+              description: `${isDoc ? 'Document' : 'Media Item'} ${id} stored in workspace collection.`,
+              duration: isDoc ? 'N/A' : '00:00',
+              wordCount: 0,
+              masteryScore: 0,
+              thumbnailEmoji: isDoc ? '📄' : '🎬',
+              uploadedAt: 'Recently',
+            };
+          });
           setAssets(realAssets);
         } else {
           setAssets([]);

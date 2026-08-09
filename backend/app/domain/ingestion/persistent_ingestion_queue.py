@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.infrastructure.db.session import engine
 from app.infrastructure.events.event_bus import EventBus, DomainEvent
@@ -89,9 +89,9 @@ class PersistentIngestionWorker:
                 message="Processing audio extraction & ASR pipeline...",
             )
 
-            # Fetch media item file path from DB
-            file_path = self._get_media_file_path(media_id)
-            if not file_path:
+            # Fetch media item from DB
+            media_item = self._get_media_item(media_id)
+            if not media_item or not media_item.file_path:
                 self._update_job_status(
                     job_id=job_id,
                     status="failed",
@@ -102,18 +102,50 @@ class PersistentIngestionWorker:
                 )
                 return
 
-            # Publish MediaUploadedEvent to trigger TranscriptWorker -> EmbeddingWorker -> GraphWorker chain
-            await self.event_bus.publish(
-                DomainEvent(
-                    event_type="MediaUploadedEvent",
-                    aggregate_id=media_id,
-                    payload={
-                        "media_id": media_id,
-                        "workspace_id": workspace_id,
-                        "file_path": file_path,
-                    },
-                )
+            file_path = media_item.file_path
+            is_document = (
+                getattr(media_item, "media_type", "") == "document"
+                or media_id.startswith("doc_")
             )
+
+            if is_document:
+                self._update_job_status(
+                    job_id=job_id,
+                    status="processing",
+                    stage="document_parsing",
+                    progress=10,
+                    message="Parsing document structure (AnyDoc)...",
+                )
+                await self.event_bus.publish(
+                    DomainEvent(
+                        event_type="DocumentUploadedEvent",
+                        aggregate_id=media_id,
+                        payload={
+                            "media_id": media_id,
+                            "workspace_id": workspace_id,
+                            "file_path": file_path,
+                        },
+                    )
+                )
+            else:
+                self._update_job_status(
+                    job_id=job_id,
+                    status="processing",
+                    stage="audio_extraction",
+                    progress=10,
+                    message="Processing audio extraction & ASR pipeline...",
+                )
+                await self.event_bus.publish(
+                    DomainEvent(
+                        event_type="MediaUploadedEvent",
+                        aggregate_id=media_id,
+                        payload={
+                            "media_id": media_id,
+                            "workspace_id": workspace_id,
+                            "file_path": file_path,
+                        },
+                    )
+                )
 
     async def _handle_job_completed(self, event: DomainEvent) -> None:
         media_id = event.payload.get("media_id") or event.aggregate_id
@@ -195,6 +227,17 @@ class PersistentIngestionWorker:
                     session.commit()
         except Exception:
             pass
+
+    def _get_media_item(self, media_id: str) -> Optional[Any]:
+        if not engine or not Session:
+            return None
+        try:
+            from app.infrastructure.db.models import MediaItemTable
+            with Session(engine) as session:
+                return session.get(MediaItemTable, media_id)
+        except Exception:
+            pass
+        return None
 
     def _get_media_file_path(self, media_id: str) -> Optional[str]:
         if not engine or not Session:

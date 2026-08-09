@@ -186,6 +186,10 @@ async def query_chat(
             citations=citations_list,
             context_provenance=result.get("context_provenance")
         )
+    except HTTPException:
+        raise
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

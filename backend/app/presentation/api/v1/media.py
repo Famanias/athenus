@@ -47,23 +47,49 @@ async def upload_media(
     workspace_id: str = Form("default"),
     title: Optional[str] = Form(None)
 ):
-    media_id = f"med_{uuid.uuid4().hex[:8]}"
-    item_title = title or file.filename or "Untitled Video"
-    
+    filename = file.filename or "Untitled"
+    ext = os.path.splitext(filename)[1].lower()
+
+    doc_exts = {".pdf", ".docx", ".pptx", ".xlsx", ".epub", ".md", ".txt"}
+    audio_exts = {".mp3", ".wav", ".m4a", ".aac", ".flac"}
+
+    is_doc = ext in doc_exts
+    is_audio = ext in audio_exts
+
+    media_id = f"doc_{uuid.uuid4().hex[:8]}" if is_doc else f"med_{uuid.uuid4().hex[:8]}"
+    item_title = title or filename
+
     os.makedirs(settings.UPLOADS_DIR, exist_ok=True)
-    file_location = os.path.join(settings.UPLOADS_DIR, f"{media_id}_{file.filename}")
+    file_location = os.path.join(settings.UPLOADS_DIR, f"{media_id}_{filename}")
     
     with open(file_location, "wb") as f:
         content = await file.read()
         f.write(content)
+
+    file_size = len(content)
+
+    # Enforce safety size limits (100MB for documents, 2GB for video/audio)
+    if is_doc and file_size > 100 * 1024 * 1024:
+        os.remove(file_location)
+        raise HTTPException(
+            status_code=413,
+            detail="File size exceeds maximum allowed safety limit of 100MB for documents."
+        )
+
+    if is_doc:
+        media_type = MediaType.DOCUMENT
+    elif is_audio:
+        media_type = MediaType.AUDIO
+    else:
+        media_type = MediaType.VIDEO
 
     media_item = MediaItem(
         id=media_id,
         workspace_id=workspace_id,
         title=item_title,
         file_path=file_location,
-        media_type=MediaType.VIDEO,
-        file_size_bytes=len(content),
+        media_type=media_type,
+        file_size_bytes=file_size,
         status=ProcessingStatus.UPLOADED
     )
     media_repository.upsert(media_item)
@@ -74,9 +100,10 @@ async def upload_media(
     if persistent_ingestion_worker:
         persistent_ingestion_worker.enqueue_media(media_id, workspace_id, file_location)
     else:
+        event_name = "DocumentUploadedEvent" if is_doc else "MediaUploadedEvent"
         async def trigger_event():
             await event_bus.publish(DomainEvent(
-                event_type="MediaUploadedEvent",
+                event_type=event_name,
                 aggregate_id=media_id,
                 payload={
                     "media_id": media_id,

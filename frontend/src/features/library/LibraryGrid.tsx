@@ -9,11 +9,16 @@ import { useAppStore } from '@/store/useAppStore';
 
 export const LibraryGrid: React.FC = () => {
   const { assets, loading, isOffline } = useLibrary();
-  const { setActiveView, setActiveMediaId, setActiveSourceType, activeSourceType } = useAppStore();
+  const { setActiveView, setActiveMediaId, setActiveDocumentId, setActiveSourceType } = useAppStore();
 
-  const handleSelectAsset = (id: string) => {
-    setActiveMediaId(id);
-    setActiveSourceType('video');
+  const handleSelectAsset = (id: string, isDoc: boolean) => {
+    if (isDoc) {
+      setActiveDocumentId(id);
+      setActiveSourceType('pdf');
+    } else {
+      setActiveMediaId(id);
+      setActiveSourceType('video');
+    }
     setActiveView('view-video');
   };
 
@@ -72,16 +77,16 @@ export const LibraryGrid: React.FC = () => {
             // Determine asset modality — document assets use the 📄 icon,
             // video/audio assets use the 🎬 icon.
             const isDocument =
-              asset.duration === '00:00' ||
               asset.thumbnailEmoji === '📄' ||
-              asset.id.toLowerCase().includes('doc') ||
-              asset.id.toLowerCase().includes('pdf');
+              asset.id.toLowerCase().startsWith('doc_') ||
+              asset.id.toLowerCase().includes('pdf') ||
+              asset.id.toLowerCase().includes('doc');
 
             return (
               <Card
                 key={asset.id}
                 hoverable
-                onClick={() => handleSelectAsset(asset.id)}
+                onClick={() => handleSelectAsset(asset.id, isDocument)}
                 className="flex flex-col justify-between"
               >
                 <div>

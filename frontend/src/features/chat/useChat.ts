@@ -162,13 +162,21 @@ export function useChat() {
 
       addMessage(assistantMsg);
       addEvidence(mappedCitations);
-    } catch {
-      setBackendUnavailable(true);
+    } catch (err: any) {
+      const errMsg = err?.message || '';
+      const isNetworkFail = !errMsg || errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError');
+      if (isNetworkFail) {
+        setBackendUnavailable(true);
+      }
+
+      const contentText = isNetworkFail
+        ? `Backend Service Unavailable: Unable to process "${query}". Please ensure the FastAPI backend is running at http://localhost:8000.`
+        : `⚠️ Chat Error: ${errMsg}`;
 
       const errorMsg: ChatMessage = {
         id: `asst_${Date.now()}`,
         sender: 'assistant',
-        content: `Backend Service Unavailable: Unable to process "${query}". Please ensure the FastAPI backend is running at http://localhost:8000.`,
+        content: contentText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
