@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol
 
 class RelationType(str, Enum):
     PREREQUISITE_FOR = "prerequisite_for"
@@ -20,6 +20,18 @@ class TimestampWindow:
         return max(0.0, self.end_time - self.start_time)
 
 @dataclass
+class SourceContentUnit:
+    id: str
+    source_id: str
+    workspace_id: str
+    text: str
+    location: Dict[str, Any] = field(default_factory=dict)
+    chunk_index: int = 0
+    word_count: int = 0
+    embedding: Optional[List[float]] = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+@dataclass
 class TranscriptChunk:
     id: str
     media_id: str
@@ -29,8 +41,10 @@ class TranscriptChunk:
     end_time: float
     chunk_index: int
     word_count: int = 0
+    location: Optional[Dict[str, Any]] = None
     embedding: Optional[List[float]] = None
     created_at: datetime = field(default_factory=datetime.utcnow)
+
 
 @dataclass
 class ConceptNode:

@@ -1,9 +1,10 @@
-# Walkthrough — Milestone 2 & Milestone 3: Local Parsing & Document Worker Pipeline
+# Walkthrough — Milestone 2 & Milestone 3: Local Parsing, Document Worker & Chunker Pipeline
 
 This walkthrough documents the completed implementation of:
 - **Milestone 2, Phase 2.1**: `DocumentParsingPort` & `AnyDocDocumentParsingAdapter`
 - **Milestone 2, Phase 2.2**: `OCRPort` & `RapidOCROCRAdapter`
 - **Milestone 3, Phase 3.1**: `DocumentWorker` & Additive Document Event Infrastructure
+- **Milestone 3, Phase 3.2**: Chunker Generalization (`SourceContentUnit`) & `EmbeddingWorker` Document Ingestion
 
 ---
 
@@ -85,13 +86,35 @@ This walkthrough documents the completed implementation of:
 
 ---
 
+## Phase 3.2 Implementation Overview (Chunker Generalization & `EmbeddingWorker` Integration)
+
+### 1. Generalized Content Units & Chunker ([entities.py](file:///e:/repos/athenus/backend/app/domain/knowledge/entities.py#L23-L35) & [chunker.py](file:///e:/repos/athenus/backend/app/domain/knowledge/chunker.py#L39-L77))
+- Implemented `SourceContentUnit`: DTO capturing text, source ID, workspace ID, location dictionary (`type: "document"`, `page`, `section`, `bbox`), chunk index, and word count.
+- Updated `SemanticChunker`: Added `chunk_document_pages(pages, document_id, workspace_id)` to group document pages preserving exact location metadata and section titles.
+
+### 2. Embedding Worker Document Indexing ([embedding_worker.py](file:///e:/repos/athenus/backend/app/services/workers/embedding_worker.py#L27-L105))
+- Updated `EmbeddingWorker`: Subscribes to `DocumentParsedEvent`.
+- Processes document pages via `SemanticChunker.chunk_document_pages`.
+- Generates 384-dimensional dense vectors via `AIServiceBus.get_embedding_capability().embed_texts`.
+- Index vectors into Embedded Qdrant with payload metadata (`source_type: "pdf"`, `page_number`, `section_title`, `location_json`).
+- Emits `ChunksIndexedEvent`, automatically triggering downstream `GraphExtractionWorker` for concept and relationship extraction!
+
+### Phase 3.2 Manual Validation / QA Matrix
+
+| Test | How to Conduct the Test | Expected Behaviour |
+| :--- | :--- | :--- |
+| **1. Page-Aware Document Chunker Test** | Run `python -c "from app.domain.knowledge.chunker import SemanticChunker; pages = [{'page_number': 1, 'text': 'Page 1 Text', 'section_title': 'Intro'}]; print(SemanticChunker().chunk_document_pages(pages, 'doc_1', 'ws_1'))"` from `backend/`. | Returns a list of `SourceContentUnit` objects with `location={'type': 'document', 'page': 1, 'section': 'Intro', ...}`. |
+| **2. Document Vector Indexing End-to-End Test** | Run `python -c "import asyncio; from app.infrastructure.events.event_bus import event_bus, DomainEvent; from app.domain.ai.service_bus import AIServiceBus; from app.domain.ai.model_registry import ModelRegistry; from app.domain.ai.provider_router import ProviderRouter; from app.services.workers.embedding_worker import EmbeddingWorker; reg = ModelRegistry(); router = ProviderRouter(reg); ai_bus = AIServiceBus(reg, router); worker = EmbeddingWorker(event_bus, ai_bus); event_bus.subscribe('ChunksIndexedEvent', lambda e: print('INDEXED CHUNKS:', e.payload['chunk_count'])); asyncio.run(event_bus.publish(DomainEvent(event_type='DocumentParsedEvent', aggregate_id='doc_full', payload={'document_id': 'doc_full', 'workspace_id': 'ws_1', 'pages': [{'page_number': 1, 'text': 'Grounded chunk text for indexing'}]})))"` from `backend/`. | Embeds the document chunk and prints `INDEXED CHUNKS: 1` when `ChunksIndexedEvent` is emitted. |
+
+---
+
 ## Automated Verification & Testing
 
 ### Test Suite Execution
 Executed unit test suite across all parser adapters and worker services:
 
 ```bash
-python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py -v
+python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py tests/test_chunker_generalization.py -v
 ```
 
 ### Test Results
@@ -99,25 +122,27 @@ python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/te
 ============================= test session starts =============================
 platform win32 -- Python 3.11.5, pytest-8.3.5, pluggy-1.5.0
 rootdir: E:\repos\athenus\backend
-collected 11 items
+collected 13 items
 
-tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  9%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 18%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 27%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 36%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 45%]
-tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 54%]
-tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 63%]
-tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 72%]
-tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 81%]
-tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 90%]
-tests/test_document_worker.py::test_document_worker_failure_handling PASSED [100%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  7%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 15%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 23%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 30%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 38%]
+tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 46%]
+tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 53%]
+tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 61%]
+tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 69%]
+tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 76%]
+tests/test_document_worker.py::test_document_worker_failure_handling PASSED [ 84%]
+tests/test_chunker_generalization.py::test_chunk_document_pages PASSED   [ 92%]
+tests/test_chunker_generalization.py::test_embedding_worker_handle_document_parsed PASSED [100%]
 
-============================= 11 passed in 0.25s ==============================
+============================= 13 passed in 0.39s ==============================
 ```
 
 ---
 
 ## Discovered Issues & Known Limitations
 
-1. **Downstream Chunker Input Data Structure**: `DocumentWorker` produces structured page DTOs (`DocumentParsedEvent`). Updating `SemanticChunker` to ingest these generalized page units is scheduled for **Phase 3.2 (Chunker Generalization to `SourceContentUnit`)**.
+1. **RAG Context Assembly & Prompt Formatting**: Document chunks and vector payloads are now stored in Qdrant with `source_type: "pdf"` and `location_json`. Generalizing `MultiStageRetriever` context assembly to render document citations (`[Doc.pdf, p. 12]`) alongside timestamp citations (`[Video.mp4 @ 14:20]`) is scheduled for **Milestone 4 (Retrieval, Citation & UI Integration)**.

@@ -20,8 +20,89 @@ class EmbeddingWorker:
         self.vector_store = vector_store or EmbeddedQdrantVectorStoreAdapter()
         self.chunker = SemanticChunker()
 
-        # Subscribe to TranscriptCompletedEvent
+        # Subscribe to TranscriptCompletedEvent and DocumentParsedEvent
         self.event_bus.subscribe("TranscriptCompletedEvent", self.handle_transcript_completed)
+        self.event_bus.subscribe("DocumentParsedEvent", self.handle_document_parsed)
+
+    async def handle_document_parsed(self, event: DomainEvent) -> None:
+        document_id = event.aggregate_id
+        workspace_id = event.payload.get("workspace_id", "default")
+        pages = event.payload.get("pages", [])
+
+        try:
+            current_stage = "chunking"
+            await self.event_bus.publish(DomainEvent(
+                event_type="StageProgressEvent",
+                aggregate_id=document_id,
+                payload={
+                    "media_id": document_id,
+                    "workspace_id": workspace_id,
+                    "stage": "chunking",
+                    "progress": 75,
+                    "message": "Generating page-aware document chunks..."
+                }
+            ))
+
+            units = self.chunker.chunk_document_pages(pages, document_id=document_id, workspace_id=workspace_id)
+            if not units:
+                await self.event_bus.publish(DomainEvent(
+                    event_type="ChunksIndexedEvent",
+                    aggregate_id=document_id,
+                    payload={"media_id": document_id, "workspace_id": workspace_id, "chunk_count": 0}
+                ))
+                return
+
+            current_stage = "vector_indexing"
+            await self.event_bus.publish(DomainEvent(
+                event_type="StageProgressEvent",
+                aggregate_id=document_id,
+                payload={
+                    "media_id": document_id,
+                    "workspace_id": workspace_id,
+                    "stage": "vector_indexing",
+                    "progress": 90,
+                    "message": f"Embedding {len(units)} document chunks and indexing into Qdrant..."
+                }
+            ))
+
+            embedding_capability = self.ai_service_bus.get_embedding_capability()
+            chunk_texts = [u.text for u in units]
+            embeddings = await embedding_capability.embed_texts(chunk_texts)
+
+            point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, u.id)) for u in units]
+            payloads = [
+                {
+                    "chunk_id": u.id,
+                    "media_id": u.source_id,
+                    "document_id": u.source_id,
+                    "workspace_id": u.workspace_id,
+                    "source_type": "pdf",
+                    "text": u.text,
+                    "page_number": u.location.get("page", 1),
+                    "section_title": u.location.get("section", ""),
+                    "location": u.location,
+                    "chunk_index": u.chunk_index
+                }
+                for u in units
+            ]
+            await self.vector_store.upsert(ids=point_ids, vectors=embeddings, payloads=payloads)
+
+            await self.event_bus.publish(DomainEvent(
+                event_type="ChunksIndexedEvent",
+                aggregate_id=document_id,
+                payload={
+                    "media_id": document_id,
+                    "workspace_id": workspace_id,
+                    "chunk_count": len(units)
+                }
+            ))
+        except Exception as e:
+            err_msg = str(e).strip() or repr(e)
+            await self.event_bus.publish(DomainEvent(
+                event_type="ProcessingFailedEvent",
+                aggregate_id=document_id,
+                payload={"media_id": document_id, "stage": current_stage, "error": err_msg}
+            ))
 
     async def handle_transcript_completed(self, event: DomainEvent) -> None:
         media_id = event.aggregate_id

@@ -1,9 +1,9 @@
-from typing import List
+from typing import Any, Dict, List
 from app.domain.ai.capabilities import TranscriptSegmentDTO
-from app.domain.knowledge.entities import TranscriptChunk
+from app.domain.knowledge.entities import SourceContentUnit, TranscriptChunk
 
 class SemanticChunker:
-    """Timestamp-aware semantic chunker grouping transcript segments while preserving exact time windows."""
+    """Timestamp & page-aware semantic chunker grouping segments or document pages while preserving location metadata."""
     
     def __init__(self, target_word_count: int = 250, min_word_count: int = 50) -> None:
         self.target_word_count = target_word_count
@@ -37,6 +37,47 @@ class SemanticChunker:
 
         return chunks
 
+    def chunk_document_pages(self, pages: List[Dict[str, Any]], document_id: str, workspace_id: str) -> List[SourceContentUnit]:
+        """Chunk document pages preserving page numbers, section titles, and location metadata."""
+        if not pages:
+            return []
+
+        units: List[SourceContentUnit] = []
+        chunk_idx = 0
+
+        for page in pages:
+            text = str(page.get("text", "")).strip()
+            if not text:
+                continue
+
+            page_num = page.get("page_number", 1)
+            section = page.get("section_title") or f"Page {page_num}"
+            page_type = page.get("page_type", "text")
+            words = text.split()
+
+            location = {
+                "type": "document",
+                "page": page_num,
+                "section": section,
+                "page_type": page_type,
+                "bbox": None
+            }
+
+            units.append(
+                SourceContentUnit(
+                    id=f"{document_id}_chunk_{chunk_idx}",
+                    source_id=document_id,
+                    workspace_id=workspace_id,
+                    text=text,
+                    location=location,
+                    chunk_index=chunk_idx,
+                    word_count=len(words)
+                )
+            )
+            chunk_idx += 1
+
+        return units
+
     def _create_chunk(
         self,
         segments: List[TranscriptSegmentDTO],
@@ -49,6 +90,12 @@ class SemanticChunker:
         end_time = segments[-1].end_time if segments else 0.0
         text = " ".join([s.text for s in segments])
 
+        location = {
+            "type": "video",
+            "start_time": start_time,
+            "end_time": end_time
+        }
+
         return TranscriptChunk(
             id=f"{media_id}_chunk_{chunk_idx}",
             media_id=media_id,
@@ -57,5 +104,7 @@ class SemanticChunker:
             start_time=start_time,
             end_time=end_time,
             chunk_index=chunk_idx,
-            word_count=len(words)
+            word_count=len(words),
+            location=location
         )
+
