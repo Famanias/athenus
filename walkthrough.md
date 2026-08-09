@@ -114,16 +114,16 @@ Chronological record of implementation and manual QA verification executed again
 
 ---
 
-## Phase 2.3 — Single Authoritative Video Player & Zero-Delay Highlight Synchronization Fix
+## Phase 2.3 — Single Authoritative Video Player & Exact Timestamp String Matching Fix
 
 ### Implementation Summary
-- **Objective**: Ensure single authoritative video player execution, eliminate duplicate background video playback, and eliminate the 1-tick delay/flicker when clicking transcript timestamps.
+- **Objective**: Ensure single authoritative video player execution, eliminate duplicate background video playback, and eliminate the 1-tick delay/flicker (intermediate `00:44` highlight) when clicking transcript timestamps (`00:46`).
 - **Root Cause Addressed**:
-  - `PersistentMediaPlayer.tsx` rendered `playerContent` into an off-screen `opacity-0` container when `isVideoWorkspaceView` was true but `targetSlot` was `null` (during initial render before `setTimeout` resolved `#video-player-slot`). Transitioning to `createPortal` 1 tick later left a duplicate background `<video>` element playing audio off-screen.
-  - HTML5 `<video>` elements emit a transient pre-seek `timeupdate` event (carrying the pre-seek timestamp like `00:44`) right when `.currentTime = seconds` is assigned. Because `targetSeekSeconds` was cleared on the same tick, `handleTimeUpdate` processed that transient event, causing `currentTime` in store to briefly revert to `00:44` before updating to `00:46`.
+  - `useVideo.ts`'s `useEffect` parsed `"00:46"` back into numeric `46.0` seconds. Segment 15 in the backend had fractional bounds `44.88` to `46.54` (displaying as `00:44`). Because `46.0` fell inside Segment 15's range (`44.88`–`46.54`), setting `currentTime` to `"00:46"` caused `useVideo` to incorrectly highlight Segment 15 (`00:44`) first.
+  - `PersistentMediaPlayer.tsx` rendered `playerContent` into an off-screen `opacity-0` container when `isVideoWorkspaceView` was true but `targetSlot` was `null`, leaving a duplicate background `<video>` element playing audio off-screen.
 - **Key Code Changes**:
-  - Updated [`frontend/src/features/video/PersistentMediaPlayer.tsx`](file:///e:/repos/athenus/frontend/src/features/video/PersistentMediaPlayer.tsx): Returns `null` when `isVideoWorkspaceView` is true and `targetSlot` is not yet available, ensuring an off-screen fallback `<video>` element is **never rendered** in Video Workspace view. Guarded `handleTimeUpdate` with `videoEl.seeking` check (`if (!videoEl || videoEl.seeking || targetSeekSeconds !== null) return;`) to ignore transient pre-seek events emitted while seeking.
-  - Updated [`frontend/src/features/video/useVideo.ts`](file:///e:/repos/athenus/frontend/src/features/video/useVideo.ts): Refactored `seekToSeconds` to synchronously calculate and set `activeSegmentIndex` **immediately on click (0ms delay)**, ensuring the clicked segment (`00:46`) is highlighted instantly without intermediate states.
+  - Updated [`frontend/src/features/video/useVideo.ts`](file:///e:/repos/athenus/frontend/src/features/video/useVideo.ts): Added primary exact timestamp string matching (`seg.timestamp === currentTime`) inside `useEffect([currentTime, segments])`. Clicking `00:46` matches Segment 16 (`00:46`) **instantly on the first evaluation tick with 0ms delay**.
+  - Updated [`frontend/src/features/video/PersistentMediaPlayer.tsx`](file:///e:/repos/athenus/frontend/src/features/video/PersistentMediaPlayer.tsx): Added `lastSeekTargetRef` to filter out trailing pre-seek `timeupdate` events until the video reaches the seek target. Returns `null` when `isVideoWorkspaceView` is true and `targetSlot` is not yet available.
 - **Verification Results**:
   - Frontend TypeScript (`npx tsc --noEmit`): Passed cleanly with 0 errors.
 

@@ -171,6 +171,15 @@ export function useVideo() {
       if (activeSegmentIndex !== -1) setActiveSegmentIndex(-1);
       return;
     }
+
+    // 1. Primary match: exact formatted timestamp string match (0ms delay, zero rounding error)
+    const exactMatchIdx = segments.findIndex((seg) => seg.timestamp === currentTime);
+    if (exactMatchIdx !== -1) {
+      setActiveSegmentIndex(exactMatchIdx);
+      return;
+    }
+
+    // 2. Fallback match: numeric range check for continuous playback between timestamp boundaries
     const parts = currentTime.split(':');
     let currentSecs = 0;
     if (parts.length === 2) {
@@ -185,10 +194,8 @@ export function useVideo() {
       (seg) => currentSecs >= seg.start_seconds && currentSecs < seg.end_seconds
     );
     if (foundIdx !== -1) {
-      console.log('[DEBUG useVideo recompute]', { currentTime, currentSecs, foundIdx });
       setActiveSegmentIndex(foundIdx);
     } else if (segments.length > 0 && currentSecs >= segments[segments.length - 1].end_seconds) {
-      console.log('[DEBUG useVideo recompute-tail]', { currentTime, currentSecs, idx: segments.length - 1 });
       setActiveSegmentIndex(segments.length - 1);
     }
   }, [currentTime, segments]);
@@ -206,7 +213,6 @@ export function useVideo() {
   };
 
   const seekToSeconds = useCallback((seconds: number) => {
-    console.log('[DEBUG seekToSeconds]', { seconds, videoCurrent: videoRef.current?.currentTime });
     setTargetSeekSeconds(seconds);
     const tsStr = formatSecondsToTimestamp(seconds);
     setCurrentTime(tsStr);
@@ -216,10 +222,8 @@ export function useVideo() {
         (seg) => seconds >= seg.start_seconds && seconds < seg.end_seconds
       );
       if (foundIdx !== -1) {
-        console.log('[DEBUG seekToSeconds] optimistic setActiveSegmentIndex', foundIdx);
         setActiveSegmentIndex(foundIdx);
       } else if (seconds >= segments[segments.length - 1].end_seconds) {
-        console.log('[DEBUG seekToSeconds] optimistic setActiveSegmentIndex tail', segments.length - 1);
         setActiveSegmentIndex(segments.length - 1);
       }
     }

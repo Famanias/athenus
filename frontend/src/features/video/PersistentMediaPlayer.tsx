@@ -38,6 +38,7 @@ export const PersistentMediaPlayer: React.FC = () => {
   // can deliver the next 'timeupdate', so the guard is armed before any stale
   // event can be processed.
   const pendingSeekRef = useRef(false);
+  const lastSeekTargetRef = useRef<number | null>(null);
 
   // Sync internal ref with global module ref
   useEffect(() => {
@@ -85,36 +86,20 @@ export const PersistentMediaPlayer: React.FC = () => {
   }, [activeMediaId]);
 
   // Target seek handler (e.g. grounded citation click).
-  //
-  // Must be a useLayoutEffect: it runs synchronously during the click's commit,
-  // so pendingSeekRef is armed and the <video> element is moved to the target
-  // position BEFORE the browser can dispatch another 'timeupdate'. With a
-  // passive useEffect this happened after paint — during playback the video
-  // was still emitting 'timeupdate' at the old position while the guard was
-  // still false, so handleTimeUpdate overwrote currentTime and the transcript
-  // briefly re-highlighted the previous segment.
   useLayoutEffect(() => {
-    console.log('[DEBUG PMP seek-layout]', { targetSeekSeconds, hasEl: !!videoElementRef.current, videoCurrent: videoElementRef.current?.currentTime, seeking: videoElementRef.current?.seeking });
     if (targetSeekSeconds !== null && videoElementRef.current) {
       const videoEl = videoElementRef.current;
 
-      // No-op seek (target already matches current position): the browser will
-      // NOT fire 'seeking'/'seeked', so don't arm the guard or it would stick
-      // forever and freeze subsequent highlight updates. Just sync state.
       if (Math.abs(videoEl.currentTime - targetSeekSeconds) < 0.05) {
         setCurrentTime(formatSecondsToTimestamp(targetSeekSeconds));
         setTargetSeekSeconds(null);
         return;
       }
 
-      // Arm the guard FIRST, synchronously, before touching currentTime — any
-      // 'timeupdate' event that fires while the browser is still processing
-      // the seek (still reporting the OLD position) will now be ignored by
-      // handleTimeUpdate instead of briefly overwriting the highlight state.
       pendingSeekRef.current = true;
+      lastSeekTargetRef.current = targetSeekSeconds;
       videoEl.currentTime = targetSeekSeconds;
       videoEl.play().catch(() => { });
-      console.log('[DEBUG PMP seek-layout] AFTER arm+set', { pending: pendingSeekRef.current, videoCurrent: videoEl.currentTime, seeking: videoEl.seeking });
       setCurrentTime(formatSecondsToTimestamp(targetSeekSeconds));
       setTargetSeekSeconds(null);
     }
@@ -130,7 +115,6 @@ export const PersistentMediaPlayer: React.FC = () => {
   const handleLoadedMetadata = () => {
     const videoEl = videoElementRef.current;
     if (!videoEl) return;
-    console.log('[DEBUG PMP loadedmetadata]', { targetSeekSeconds, pending: pendingSeekRef.current, current: videoEl.currentTime });
 
     videoEl.playbackRate = playbackSpeed;
 
@@ -146,30 +130,29 @@ export const PersistentMediaPlayer: React.FC = () => {
     }
   };
 
-  // Native confirmation that a seek is in flight — belt-and-suspenders
-  // alongside pendingSeekRef, in case a seek is ever triggered by something
-  // other than the targetSeekSeconds effect above (e.g. the user dragging
-  // the native scrubber).
   const handleSeeking = () => {
-    console.log('[DEBUG PMP seeking]', { current: videoElementRef.current?.currentTime });
     pendingSeekRef.current = true;
   };
 
-  // Native confirmation that currentTime now reflects the actual seek
-  // target. Only now is it safe to trust 'timeupdate' events again.
   const handleSeeked = () => {
-    console.log('[DEBUG PMP seeked]', { current: videoElementRef.current?.currentTime });
     pendingSeekRef.current = false;
   };
 
   const handleTimeUpdate = () => {
     const videoEl = videoElementRef.current;
     if (!videoEl || videoEl.seeking || pendingSeekRef.current) {
-      console.log('[DEBUG PMP timeupdate BLOCKED]', { currentSecs: videoEl?.currentTime, seeking: videoEl?.seeking, pending: pendingSeekRef.current });
       return;
     }
     const currentSecs = videoEl.currentTime;
-    console.log('[DEBUG PMP timeupdate WRITE]', { currentSecs });
+
+    // Filter out trailing pre-seek timeupdate events until the video reaches the seek target
+    if (lastSeekTargetRef.current !== null) {
+      if (currentSecs < lastSeekTargetRef.current - 0.5) {
+        return;
+      }
+      lastSeekTargetRef.current = null;
+    }
+
     setCurrentTime(formatSecondsToTimestamp(currentSecs));
 
     if (activeMediaId && currentSecs > 0) {
