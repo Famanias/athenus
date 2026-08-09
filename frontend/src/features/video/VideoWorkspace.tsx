@@ -224,18 +224,7 @@ export const VideoWorkspace: React.FC = () => {
               <DocumentViewer />
             </div>
           ) : (
-            <>
-              <video
-                ref={videoRef}
-                src={mediaSrc || undefined}
-                controls
-                onPlay={() => setIsPlaying(true)}
-                onPause={() => setIsPlaying(false)}
-                onLoadedMetadata={handleLoadedMetadata}
-                onTimeUpdate={handleTimeUpdate}
-                className="w-full h-full object-contain rounded border border-outline-variant shadow-lg"
-              />
-            </>
+            <div id="video-player-slot" className="w-full h-full flex items-center justify-center relative" />
           )}
         </div>
 

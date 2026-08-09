@@ -35,6 +35,9 @@ export const DesktopShell: React.FC = () => {
       {/* Decoupled Background Task Engine Runtime */}
       <BackgroundTaskRuntime />
 
+      {/* Persistent Single Authoritative Video Player */}
+      <PersistentMediaPlayer />
+
       {/* Categorized Navigation Sidebar */}
       <Sidebar />
 
