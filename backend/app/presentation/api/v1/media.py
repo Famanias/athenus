@@ -219,6 +219,59 @@ def get_media_file(media_id: str):
         raise HTTPException(status_code=404, detail="Media file not found on disk")
     return FileResponse(item.file_path, filename=os.path.basename(item.file_path))
 
+
+class MediaInfoResponse(BaseModel):
+    """Read-only document/media metadata used by the frontend document
+    viewer to dispatch the appropriate format renderer (PDF / image / text /
+    fallback). This endpoint is purely informational and does NOT touch the
+    ingestion pipeline (AnyDoc, RapidOCR, vector indexing, etc.).
+    """
+    media_id: str
+    title: str
+    file_path: str
+    file_name: str
+    media_type: str
+    file_size_bytes: int
+    mime_type: str
+    url: str
+
+
+def _infer_mime_type(file_path: str) -> str:
+    """Best-effort MIME type inference from file extension."""
+    import mimetypes
+    mime, _ = mimetypes.guess_type(file_path)
+    return mime or "application/octet-stream"
+
+
+@router.get("/media/{media_id}/info", response_model=MediaInfoResponse)
+def get_media_info(media_id: str):
+    """Return file metadata for the document viewer to choose the correct
+    renderer. Read-only — does not affect ingestion state."""
+    item = media_repository.get(media_id)
+    if not item or not item.file_path:
+        raise HTTPException(status_code=404, detail="Media item not found")
+
+    file_path = item.file_path
+    file_name = os.path.basename(file_path)
+    file_size = (
+        os.path.getsize(file_path)
+        if os.path.exists(file_path)
+        else (item.file_size_bytes or 0)
+    )
+    mime_type = _infer_mime_type(file_path)
+
+    return MediaInfoResponse(
+        media_id=item.id,
+        title=item.title or file_name,
+        file_path=file_path,
+        file_name=file_name,
+        media_type=item.media_type.value if hasattr(item.media_type, "value") else str(item.media_type),
+        file_size_bytes=file_size,
+        mime_type=mime_type,
+        url=f"/api/v1/media/{item.id}/file",
+    )
+
+
 @router.get("/media/{media_id}/stream")
 async def stream_media_processing_events(media_id: str):
     """Server-Sent Events (SSE) endpoint emitting real-time stage progress updates."""

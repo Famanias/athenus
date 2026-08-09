@@ -1,41 +1,53 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
+import { getMediaInfo, getMediaUrl, type MediaInfoDTO } from '@/services/mediaService';
+import { DocumentRenderer } from '@/features/document/renderers/DocumentRenderer';
+import type { DocumentMetadataDTO } from '@/features/document/types';
 
-// DocumentViewer — clean, responsive reader for PDF/Markdown document content.
+// DocumentViewer — lightweight orchestrator for document-type-agnostic
+// presentation. Owns viewer state (active page, target page jump, page
+// navigation controls) and delegates the actual rendering to the
+// format-specific renderer resolved by the RendererRegistry via
+// DocumentRenderer.
 //
-// Features:
-// - Page navigation: Previous Page, Next Page, "Page N of M", direct jump input
-// - Auto-scrolls to the active target page when `targetPage` state changes
-//   (triggered by clicking a `📄 Page X` citation badge in chat)
-// - Highlights the target section briefly after navigation
-// - Reads document metadata from `useAppStore` (activeDocumentId, currentPage, targetPage)
+// Behavior preserved from the previous implementation:
+//   - Page navigation: Previous Page, Next Page, "Page N of M", direct jump
+//   - Auto-scrolls/re-pages to the active target page when `targetPage`
+//     changes (triggered by clicking a `📄 Page X` citation badge in chat)
+//   - Highlights the target page briefly after navigation
+//
+// New behavior:
+//   - Fetches file metadata via GET /media/{id}/info (mime type, file size,
+//     filename) to drive renderer dispatch
+//   - Resolves the appropriate renderer from the RendererRegistry
+//   - Renders the actual file binary (PDF / image / text / fallback card):
+//       • PDFs are rendered in a browser-native iframe (`#page=N` fragment)
+//       • Images are rendered via <img> with zoom/pan controls
+//       • Text/Markdown is fetched and rendered with an inline Markdown
+//         renderer (no innerHTML)
+//       • Office formats (.docx/.pptx/.xlsx/.epub) fall back to a clean
+//         metadata card with a "Download Original File" button
 
-interface PageSection {
-  id: string;
-  pageNumber: number;
-  title?: string;
-  body: string;
-}
-
-interface DocumentViewerProps {
-  // Total number of pages in the loaded document. Falls back to a sensible
-  // default so the viewer still renders for documents with no extracted metadata.
-  totalPages?: number;
-  // Optional page-by-page content (rendered as Markdown-style blocks).
-  // When omitted, the viewer still shows page navigation & placeholders.
-  pageSections?: PageSection[];
-}
-
-const DEFAULT_TOTAL_PAGES = 1;
 const PLACEHOLDER_TITLE = 'Document Reader';
+const HIGHLIGHT_DURATION_MS = 2500;
 
-export const DocumentViewer: React.FC<DocumentViewerProps> = ({
-  totalPages = DEFAULT_TOTAL_PAGES,
-  pageSections,
-}) => {
+function buildMetadata(info: MediaInfoDTO, mediaId: string): DocumentMetadataDTO {
+  return {
+    id: info.media_id || mediaId,
+    title: info.title || info.file_name || 'Untitled Document',
+    file_path: info.file_path || '',
+    media_type: info.media_type || 'document',
+    file_size_bytes: info.file_size_bytes || 0,
+    mime_type: info.mime_type || '',
+    url: getMediaUrl(info.media_id || mediaId),
+    file_format: info.file_name,
+  };
+}
+
+export const DocumentViewer: React.FC = () => {
   const {
     activeDocumentId,
     currentPage,
@@ -46,38 +58,76 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
 
   const [pageInput, setPageInput] = useState<string>('');
   const [highlightPage, setHighlightPage] = useState<number | null>(null);
+  const [metadata, setMetadata] = useState<DocumentMetadataDTO | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState<boolean>(false);
+  const [infoError, setInfoError] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const safeTotalPages = useMemo(
-    () => (totalPages && totalPages > 0 ? totalPages : DEFAULT_TOTAL_PAGES),
-    [totalPages]
-  );
+  // The orchestrator does not know the document's actual page count from
+  // the backend metadata. The browser-native PDF viewer displays the real
+  // page count internally; the orchestrator only needs an upper bound for
+  // citation-jump validation. We use 1 as the safe default — renderers
+  // handle page navigation internally regardless of this value.
+  const safeTotalPages = 1;
 
   const activePage = useMemo<number>(() => {
-    if (typeof currentPage === 'number' && currentPage >= 1 && currentPage <= safeTotalPages) {
+    if (typeof currentPage === 'number' && currentPage >= 1) {
       return currentPage;
     }
     return 1;
-  }, [currentPage, safeTotalPages]);
+  }, [currentPage]);
+
+  // Fetch file metadata when the active document changes.
+  const fetchMetadata = useCallback(async (mediaId: string) => {
+    setLoadingInfo(true);
+    setInfoError(null);
+    try {
+      const info = await getMediaInfo(mediaId);
+      setMetadata(buildMetadata(info, mediaId));
+    } catch (err: unknown) {
+      // Soft fallback — keep the viewer usable with bare metadata so the
+      // FallbackRenderer can still render its metadata card.
+      setInfoError(
+        err instanceof Error ? err.message : 'Failed to load document metadata.'
+      );
+      setMetadata({
+        id: mediaId,
+        title: PLACEHOLDER_TITLE,
+        file_path: '',
+        media_type: 'document',
+        file_size_bytes: 0,
+        mime_type: '',
+        url: getMediaUrl(mediaId),
+      });
+    } finally {
+      setLoadingInfo(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeDocumentId) {
+      fetchMetadata(activeDocumentId);
+    } else {
+      setMetadata(null);
+      setInfoError(null);
+    }
+  }, [activeDocumentId, fetchMetadata]);
 
   // React to target page changes triggered by citation clicks.
   useEffect(() => {
     if (
       targetPage !== null &&
       targetPage >= 1 &&
-      targetPage <= safeTotalPages &&
       targetPage !== activePage
     ) {
       setCurrentPage(targetPage);
-      // Highlight the target page briefly so the user sees the jump landed.
       setHighlightPage(targetPage);
       if (highlightTimeoutRef.current) {
         clearTimeout(highlightTimeoutRef.current);
       }
       highlightTimeoutRef.current = setTimeout(() => {
         setHighlightPage(null);
-      }, 2500);
-      // Clear the target page so a stale value doesn't re-trigger.
+      }, HIGHLIGHT_DURATION_MS);
       setTargetPage(null);
     }
     return () => {
@@ -86,10 +136,10 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetPage, safeTotalPages]);
+  }, [targetPage]);
 
   const goToPage = (page: number) => {
-    if (page < 1 || page > safeTotalPages) return;
+    if (page < 1) return;
     setCurrentPage(page);
     setHighlightPage(page);
     if (highlightTimeoutRef.current) {
@@ -97,7 +147,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     }
     highlightTimeoutRef.current = setTimeout(() => {
       setHighlightPage(null);
-    }, 2500);
+    }, HIGHLIGHT_DURATION_MS);
   };
 
   const handlePrev = () => goToPage(activePage - 1);
@@ -112,29 +162,66 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
     }
   };
 
-  const currentSection =
-    pageSections?.find((p) => p.pageNumber === activePage) ?? null;
+  // Active render content — handles loading, error, and ready states.
+  let renderContent: React.ReactNode;
+  if (loadingInfo && !metadata) {
+    renderContent = (
+      <div className="flex-1 flex items-center justify-center">
+        <span className="text-xs text-on-surface-variant font-mono animate-pulse">
+          Loading document metadata…
+        </span>
+      </div>
+    );
+  } else if (metadata) {
+    renderContent = (
+      <DocumentRenderer
+        metadata={metadata}
+        activePage={activePage}
+        safeTotalPages={safeTotalPages}
+        targetPage={targetPage}
+        onPageChange={goToPage}
+      />
+    );
+  } else {
+    renderContent = (
+      <div className="flex-1 flex items-center justify-center p-12">
+        <div className="max-w-md text-center space-y-3">
+          <span className="text-5xl block">📄</span>
+          <h4 className="font-bold text-sm text-on-surface">
+            No document selected
+          </h4>
+          <p className="text-xs text-on-surface-variant">
+            Upload a document in the Pipelines tab or select an existing
+            document asset from the Library to view it here.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col bg-surface-container-lowest overflow-hidden h-full">
       {/* Header / Toolbar */}
       <div className="p-3 bg-surface-container-low border-b border-outline-variant flex flex-wrap justify-between items-center gap-3 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <span className="text-2xl">📄</span>
-          <div className="flex flex-col">
-            <h3 className="font-type-light text-sm font-bold text-on-surface">
-              {PLACEHOLDER_TITLE}
+          <div className="flex flex-col min-w-0">
+            <h3 className="font-type-light text-sm font-bold text-on-surface truncate">
+              {metadata?.title && metadata.title !== PLACEHOLDER_TITLE
+                ? metadata.title
+                : PLACEHOLDER_TITLE}
             </h3>
-            <span className="text-[11px] font-mono text-on-surface-variant">
+            <span className="text-[11px] font-mono text-on-surface-variant truncate">
               {activeDocumentId
                 ? `Document ID: ${activeDocumentId}`
                 : 'No document selected'}
+              {metadata?.mime_type && ` • ${metadata.mime_type}`}
             </span>
           </div>
         </div>
 
         {/* Page Navigation Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="secondary"
             size="sm"
@@ -144,13 +231,11 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             ← Prev
           </Button>
           <span className="font-mono text-xs text-on-surface px-2">
-            Page <span className="text-secondary font-bold">{activePage}</span> of{' '}
-            <span className="text-on-surface font-bold">{safeTotalPages}</span>
+            Page <span className="text-secondary font-bold">{activePage}</span>
           </span>
           <Button
             variant="secondary"
             size="sm"
-            disabled={activePage >= safeTotalPages}
             onClick={handleNext}
           >
             Next →
@@ -161,7 +246,6 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
             <input
               type="number"
               min={1}
-              max={safeTotalPages}
               value={pageInput}
               onChange={(e) => setPageInput(e.target.value)}
               placeholder="Jump…"
@@ -174,57 +258,21 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         </div>
       </div>
 
-      {/* Document Page Content Area */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-        {currentSection ? (
-          <div
-            className={`max-w-3xl mx-auto p-6 bg-surface-container border rounded-md shadow-sm transition-all ${
-              highlightPage === activePage
-                ? 'border-accent ring-2 ring-accent/40 bg-accent/10'
-                : 'border-outline-variant'
-            }`}
-          >
-            {currentSection.title && (
-              <h2 className="text-lg font-bold text-on-surface mb-3 border-b border-outline-variant/40 pb-2">
-                {currentSection.title}
-              </h2>
-            )}
-            <p className="text-sm leading-relaxed text-on-surface whitespace-pre-wrap">
-              {currentSection.body}
-            </p>
-            <div className="mt-6 pt-3 border-t border-outline-variant/40 text-[10px] font-mono text-on-surface-variant/60 flex justify-between">
-              <span>Page {activePage} of {safeTotalPages}</span>
-              <span>Document ID: {activeDocumentId ?? 'N/A'}</span>
-            </div>
-          </div>
-        ) : (
-          <div
-            className={`max-w-3xl mx-auto p-12 border border-dashed rounded-md text-center space-y-3 transition-all ${
-              highlightPage === activePage
-                ? 'border-accent bg-accent/10 ring-2 ring-accent/40'
-                : 'border-outline-variant bg-surface-container-low'
-            }`}
-          >
-            <span className="text-5xl block">📄</span>
-            <h4 className="font-bold text-sm text-on-surface">
-              Viewing Page {activePage} of {safeTotalPages}
-            </h4>
-            <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
-              Document content for this page is not yet loaded. Navigate to other
-              pages, or click a <code className="font-mono">📄 Page X</code>{' '}
-              citation badge in chat to jump directly to a cited page.
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Document Renderer (format-agnostic) */}
+      <div className="flex-1 overflow-hidden">{renderContent}</div>
 
       {/* Footer status bar */}
-      <div className="p-2 bg-surface-container-low border-t border-outline-variant text-[10px] font-mono text-on-surface-variant/60 flex justify-between items-center shrink-0">
+      <div className="p-2 bg-surface-container-low border-t border-outline-variant text-[10px] font-mono text-on-surface-variant/60 flex justify-between items-center shrink-0 gap-3">
         <span>📄 Document Reader</span>
+        {infoError && (
+          <span className="text-rose-400 truncate max-w-xs" title={infoError}>
+            ⚠ metadata unavailable — showing fallback
+          </span>
+        )}
         <span>
-          {activePage === safeTotalPages
-            ? 'End of document'
-            : `${safeTotalPages - activePage} page(s) remaining`}
+          {highlightPage === activePage && highlightPage !== null
+            ? `📍 Jumped to Page ${activePage}`
+            : `Active page: ${activePage}`}
         </span>
       </div>
     </div>

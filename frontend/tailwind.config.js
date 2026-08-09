@@ -27,6 +27,7 @@ module.exports = {
         'outline-variant': '#45464c',
         'primary': '#c2c6d8',
         'primary-container': '#1a1f2c',
+        'accent': '#e9c349',
       },
       spacing: {
         'sidebar-width': '260px',

@@ -21,6 +21,23 @@ export interface MediaUploadDTO {
   status: string;
 }
 
+/** Read-only file metadata returned by GET /media/{id}/info. */
+export interface MediaInfoDTO {
+  media_id: string;
+  title: string;
+  file_path: string;
+  file_name: string;
+  media_type: string;
+  file_size_bytes: number;
+  mime_type: string;
+  url: string;
+}
+
+/** Fetch file metadata for the active document (read-only). */
+export async function getMediaInfo(mediaId: string): Promise<MediaInfoDTO> {
+  return apiClient<MediaInfoDTO>(`/api/v1/media/${encodeURIComponent(mediaId)}/info`);
+}
+
 export async function getTranscript(mediaId: string, workspaceId?: string): Promise<BackendTranscriptDTO> {
   const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
   return apiClient<BackendTranscriptDTO>(`/api/v1/media/${encodeURIComponent(mediaId)}/transcript${query}`);

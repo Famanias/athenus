@@ -1,194 +1,150 @@
-# Implementation Plan — Frontend Integration for Generalized Document & PDF Ingestion Architecture
+# Implementation Plan — Refined Document-Type-Agnostic Presentation Architecture
 
-This implementation plan defines the step-by-step frontend execution roadmap to integrate the **Generalized Document and PDF Ingestion Architecture** into the Athenus frontend.
-
-The backend implementation (documented in [walkthrough.md](file:///e:/repos/athenus/walkthrough.md) and [ADR 0021](file:///e:/repos/athenus/docs/adr/0021-generalized-document-pdf-ingestion-architecture.md)) is complete. This plan specifies the minimal, clean, non-breaking frontend updates required to consume the new backend capabilities.
+Build an extensible **Document-Type-Agnostic Presentation Architecture** for Athenus so that uploaded source documents (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.txt`, `.md`, etc.) are rendered visually using a modular **Renderer Registry**, completely decoupled from AI ingestion processing (`AnyDoc` + `RapidOCR`).
 
 ---
 
-## User Review Required
+## 1. Architectural Principles & Reuse of Existing Codebase
 
-> [!IMPORTANT]
-> **Zero Video Regression Guarantee**: Existing video workflows (video uploads, video player seeking, `⏱ MM:SS` timestamp citation clicks, PiP detachment prevention) must remain 100% operational with zero regressions.
+### 1. Ingestion Support vs. Presentation Support
+A document can be **100% usable by the AI agent** for RAG search, flashcards, and quizzes even when native visual browser preview is not implemented. Ingestion capability is distinct from visual presentation.
 
-> [!IMPORTANT]
-> **Phase Execution Gate**: Each phase must be implemented, type-checked, and validated against its corresponding **Manual Validation / QA Matrix** before proceeding to the subsequent phase.
+### 2. Reuse of Existing Codebase Infrastructure
+Before creating new abstractions, the implementation will reuse existing Athenus utilities, types, API clients, and UI components:
+- **`mediaService.ts`**: Reuses existing `getMediaUrl(mediaId)` endpoint helper.
+- **`useAppStore.ts`**: Reuses existing `activeDocumentId`, `currentPage`, `targetPage`, `setCurrentPage`, `setTargetPage` state primitives.
+- **`Button.tsx`**: Reuses existing UI design system buttons.
+- **Upload Validation Alignment**: Aligns image & document format detection with actual upload filters in `UploadDropzone.tsx` (`.pdf`, `.docx`, `.pptx`, `.xlsx`, `.epub`, `.txt`, `.md`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`).
 
----
-
-## Proposed Changes
-
-### Component 1: Domain Types & API Client Contracts
-
-#### [MODIFY] [chatService.ts](file:///e:/repos/athenus/frontend/src/services/chatService.ts)
-- Extend `BackendCitationDTO` schema:
-  - Add optional fields: `source_type?: 'video' | 'pdf'`, `page_number?: number | null`, `section_title?: string | null`, `location?: Record<string, any> | null`.
-- Extend `sendChatQuery`:
-  - Accept parameters: `documentId?: string`, `sourceType?: 'video' | 'pdf'`, `currentPage?: number`.
-  - Pass `document_id`, `source_type`, and `current_page` in JSON body payload to `POST /api/v1/chat/query`.
-- Update `mapBackendCitations`:
-  - Map `sourceType`, `pageNumber`, `sectionTitle`, and `location` onto frontend `Citation` DTO objects.
-
-#### [MODIFY] [types.ts](file:///e:/repos/athenus/frontend/src/features/chat/types.ts)
-- Extend `Citation` interface:
-  - Add `sourceType?: 'video' | 'pdf'`, `pageNumber?: number`, `sectionTitle?: string`, `location?: Record<string, any>`.
-
-#### [MODIFY] [workspaceContext.ts](file:///e:/repos/athenus/frontend/src/types/workspaceContext.ts)
-- Extend `WorkspaceContext` interface:
-  - Add `documentId?: string | null`, `sourceType?: 'video' | 'pdf'`, `currentPage?: number | null`.
-
----
-
-### Component 2: Global State Management (Zustand Store)
-
-#### [MODIFY] [useAppStore.ts](file:///e:/repos/athenus/frontend/src/store/useAppStore.ts)
-- Add active source context state variables to `UISlice`:
-  - `activeDocumentId: string | null`
-  - `activeSourceType: 'video' | 'pdf'`
-  - `currentPage: number | null`
-  - `targetPage: number | null`
-- Add actions:
-  - `setActiveDocumentId: (id: string | null) => void`
-  - `setActiveSourceType: (type: 'video' | 'pdf') => void`
-  - `setCurrentPage: (page: number | null) => void`
-  - `setTargetPage: (page: number | null) => void`
-
----
-
-### Component 3: Ingestion UI & Multi-Format File Upload Support
-
-#### [MODIFY] [UploadDropzone.tsx](file:///e:/repos/athenus/frontend/src/features/ingestion/UploadDropzone.tsx)
-- Update `<input type="file">` element `accept` attribute:
-  - `accept="video/*,audio/*,.pdf,.docx,.pptx,.xlsx,.epub,.md,.txt,application/pdf"`
-- Update header and drag-and-drop user copy:
-  - Header: `"Upload video, audio, or document learning materials to extract transcripts and index vector embeddings."`
-  - Subtext: `"Supports MP4, MKV, MP3, PDF, DOCX, PPTX, XLSX, EPUB, TXT (Up to 100MB)"`
-
-#### [MODIFY] [useIngestion.ts](file:///e:/repos/athenus/frontend/src/features/ingestion/useIngestion.ts)
-- Update `STAGE_INDEX_BY_NAME`:
-  - Map `document_parsing: 0` and `ocr_processing: 1`.
-- Update stage stepper mapping logic:
-  - Dynamically render `"Parsing Document Structure (AnyDoc)"` for `document_parsing` stage.
-  - Dynamically render `"Extracting Text from Scanned Pages (RapidOCR)"` for `ocr_processing` stage.
-
----
-
-### Component 4: Chat Interface & Generalized Citation Rendering
-
-#### [MODIFY] [ChatMessageItem.tsx](file:///e:/repos/athenus/frontend/src/features/chat/ChatMessageItem.tsx)
-- Update citation rendering in assistant message bubbles:
-  - Inspect `cit.sourceType`.
-  - If `cit.sourceType === 'pdf'` or `cit.pageNumber` is present: Render interactive `📄 Page X (Section)` badge styled with `bg-accent/15 border-accent/40 text-accent`.
-  - If `cit.sourceType === 'video'`: Render legacy `⏱ MM:SS` badge styled with `bg-secondary/15`.
-- Update click handlers:
-  - Video citation click: Seeks video player via `setTargetSeekSeconds(secs)` and sets view to `view-video`.
-  - Document citation click: Sets `activeDocumentId`, calls `setTargetPage(pageNumber)`, and switches view to document reader workspace.
-
-#### [MODIFY] [useChat.ts](file:///e:/repos/athenus/frontend/src/features/chat/useChat.ts)
-- Inspect active source state (`activeSourceType`, `activeMediaId`, `activeDocumentId`, `currentTime`, `currentPage`) from `useAppStore`.
-- Transmit `document_id`, `source_type`, and `current_page` to `sendChatQuery` whenever the active workspace context is a document.
-
----
-
-### Component 5: Workspace Layout & Document Viewer Integration
-
-#### [NEW] [DocumentViewer.tsx](file:///e:/repos/athenus/frontend/src/components/DocumentViewer.tsx)
-- Implement a clean, responsive document viewer component for PDF/Markdown content.
-- Features page navigation controls (Previous Page, Next Page, Page $N$ of $M$, Direct Jump input).
-- Listens to `targetPage` state in `useAppStore` to automatically scroll/navigate to cited pages upon citation badge clicks.
-
-#### [MODIFY] [VideoWorkspace.tsx](file:///e:/repos/athenus/frontend/src/features/video/VideoWorkspace.tsx)
-- Read `activeSourceType` from `useAppStore`.
-- Dynamically render `PersistentMediaPlayer` when `activeSourceType === 'video'`, or `DocumentViewer` when `activeSourceType === 'pdf'`.
-
-#### [MODIFY] [LibraryGrid.tsx](file:///e:/repos/athenus/frontend/src/features/library/LibraryGrid.tsx)
-- Update library asset cards to display document icons (`📄`) for document assets and video icons (`🎬`) for video assets.
-- On card click, update `activeSourceType` accordingly (`'pdf'` vs `'video'`).
-
----
-
-## Phased Execution Roadmap
-
-```mermaid
-graph LR
-    P1["Phase 1: Domain Types, API Client Contracts & State Foundations"] --> P2["Phase 2: Ingestion UI & Multi-Format File Upload"]
-    P2 --> P3["Phase 3: Generalized Citation Component & Page Queries"]
-    P3 --> P4["Phase 4: Document Viewer Integration & End-to-End Verification"]
+```text
+                               Original Source Document File
+                                             │
+               ┌─────────────────────────────┴─────────────────────────────┐
+               ▼                                                           ▼
+        Processing Path                                             Presentation Path
+      (AI RAG Knowledge)                                          (Human Visual Reader)
+               │                                                           │
+      AnyDoc + RapidOCR                                           Generic DocumentViewer
+               │                                                           │
+       Markdown & Pages                                            Renderer Registry
+               │                                                           │
+        Semantic Chunker                                   ┌───────────────┼───────────────┐
+               │                                           ▼               ▼               ▼
+ 384-d Vector Embedding (bge-small-en-v1.5)            PdfRenderer    ImageRenderer     TextRenderer
+               │                                       (PDF Binary)   (PNG/JPG/SVG)    (TXT/MD Source)
+    Qdrant & Knowledge Graph                                               │
+               │                                                           ▼
+       RAG Chat & Citations                                        FallbackRenderer
+                                                                  (Office/Metadata +
+                                                                   "Open Original File")
 ```
 
 ---
 
-### Phase 1: Domain Types, API Client Contracts & State Foundations
+## 2. Component Responsibility & Renderer Registry Design
 
-#### Objective
-Update frontend domain types, API service contracts, and Zustand state store to support backend generalized document DTOs.
+### Component Breakdown
+- **`DocumentViewer.tsx` (Viewer Orchestrator)**: Manages viewer state (`activeDocumentId`, `activePage`, `targetPage`), fetches file metadata/URL via `getMediaUrl()`, and renders top navigation controls (page counter, jump input).
+- **`DocumentRenderer.tsx` (Dispatcher)**: Queries the `RendererRegistry` for the appropriate renderer based on MIME type and file extension.
+- **`RendererRegistry.ts` (Central Registry)**: Maps format categories (`PDF`, `IMAGE`, `TEXT`, `FALLBACK`) to specific renderer components.
 
-#### Tasks
-1. Extend `BackendCitationDTO` and `sendChatQuery` parameters in `chatService.ts`.
-2. Extend `Citation` interface in `types.ts`.
-3. Extend `WorkspaceContext` in `workspaceContext.ts`.
-4. Add document state variables (`activeDocumentId`, `activeSourceType`, `currentPage`, `targetPage`) and actions in `useAppStore.ts`.
-5. Run TypeScript type checks (`npx tsc --noEmit`).
-
-#### Phase 1 Manual Validation / QA Matrix
-| Test | How to Conduct the Test | Expected Behaviour |
-| :--- | :--- | :--- |
-| **1. Citation DTO Mapping Test** | Map a mock PDF `BackendCitationDTO` (`source_type: "pdf"`, `page_number: 14`, `section_title: "Proof"`). | `mapBackendCitations` returns a `Citation` object preserving `sourceType: "pdf"` and `pageNumber: 14` without NaN errors. |
-| **2. Video Citation Backward Compatibility Test** | Map a legacy video `BackendCitationDTO` (`start_time: 90.0`, `end_time: 120.0`). | Returns `Citation` object with formatted `startTime: "01:30"` and `endTime: "02:00"`. |
-
----
-
-### Phase 2: Ingestion UI & Multi-Format File Upload Support
-
-#### Objective
-Allow users to upload PDFs and office documents through `UploadDropzone` and display accurate stage progression for `document_parsing` and `ocr_processing`.
-
-#### Tasks
-1. Update `<input type="file">` `accept` attribute in `UploadDropzone.tsx`.
-2. Update drag-and-drop header and subtext copy.
-3. Update `STAGE_INDEX_BY_NAME` and dynamic stage mapping in `useIngestion.ts`.
-4. Run frontend build checks.
-
-#### Phase 2 Manual Validation / QA Matrix
-| Test | How to Conduct the Test | Expected Behaviour |
-| :--- | :--- | :--- |
-| **1. PDF File Selection Test** | Open the Upload view (`view-ingestion`) and select a local PDF file in the file picker. | The UI accepts the file, displays `Selected: filename.pdf`, and enables the upload button. |
-| **2. Document Stage Stepper Test** | Trigger an ingestion job emitting `stage: "document_parsing"` or `stage: "ocr_processing"`. | The status monitor highlights the active stage with correct progress percentage without falling back to `N/A`. |
+```text
+Source Document Metadata
+           │
+           ▼
+    RendererRegistry
+           ├── PDF      → PdfRenderer (Verified renderer implementation; flexible engine choice)
+           ├── IMAGE    → ImageRenderer (PNG, JPG, JPEG, WEBP, SVG with zoom/fit)
+           ├── TEXT     → TextRenderer (Raw TXT & Markdown source viewer)
+           └── FALLBACK → FallbackRenderer (Office docs / metadata card + file download)
+```
 
 ---
 
-### Phase 3: Generalized Citation Component & Page-Aware Chat Queries
+## 3. Detailed Renderer Specifications
 
-#### Objective
-Generalize citation rendering in chat messages to display interactive `📄 Page X` badges for documents, and update `useChat` to transmit active document context parameters (`document_id`, `source_type`, `current_page`) to the backend.
+### 1. `PdfRenderer`
+- Renders original PDF binary loaded from backend `getMediaUrl(mediaId)`.
+- Flexible implementation choice: uses the most reliable, cross-platform verified rendering approach in Tauri/browser environment (e.g. iframe, object Blob URL, or pdfjs).
+- Implements programmatic page navigation and scrolling to target page.
+- Handles citation jumps (`📄 Page X`) reliably by updating view offset and applying a temporary highlight ring overlay.
+- Handles single-page, multi-page, scanned PDFs, and unusual page dimensions.
 
-#### Tasks
-1. Update citation badge rendering in `ChatMessageItem.tsx` to branch on `sourceType === 'pdf'`.
-2. Implement `handleDocumentCitationClick` to trigger `setTargetPage(pageNumber)` and switch view.
-3. Update `useChat.ts` to transmit document parameters to `sendChatQuery`.
-4. Run frontend build checks.
+### 2. `ImageRenderer`
+- Renders image assets consistent with upload support (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`).
+- Provides fit-to-screen, zoom-in/out, and pan controls.
 
-#### Phase 3 Manual Validation / QA Matrix
-| Test | How to Conduct the Test | Expected Behaviour |
-| :--- | :--- | :--- |
-| **1. PDF Citation Badge Rendering Test** | Send a chat question about an ingested document. | The assistant message renders a `📄 Page X (Section)` badge instead of a `⏱` timestamp badge. |
-| **2. Video Citation Regression Test** | Send a chat question about a video asset and click a `⏱ MM:SS` citation. | The video player seeks to `MM:SS` and resumes playback without error. |
+### 3. `TextRenderer`
+- Renders plain text (`.txt`) and Markdown (`.md`) files.
+- Provides clean typography, syntax formatting, and section anchor jumping.
+
+### 4. `FallbackRenderer`
+- Used when a file format is accepted by Athenus ingestion (e.g. `.docx`, `.pptx`, `.xlsx`, `.epub`), but native visual browser preview is not currently implemented.
+- Displays a clean card with file metadata, size, ingestion status, and a **"Download Original File" / "Open Source Location"** button.
+- Explicitly informs the user:
+  > *"This document format is fully indexed and usable by the Athenus AI agent, but visual browser preview is not currently supported for this file type."*
 
 ---
 
-### Phase 4: Document Viewer Integration & End-to-End Verification
+## 4. Proposed File Changes
 
-#### Objective
-Provide a clean workspace view for reading documents and receiving page jump navigation triggers when clicking document citations.
+### Frontend Architecture
 
-#### Tasks
-1. Create `DocumentViewer.tsx` component supporting page navigation and target page scrolling.
-2. Update `VideoWorkspace.tsx` layout to switch dynamically between `PersistentMediaPlayer` and `DocumentViewer`.
-3. Update asset cards in `LibraryGrid.tsx` with modality icons (`🎬` vs `📄`).
-4. Run complete frontend build (`npm run build` in `frontend/`).
+#### [NEW] `frontend/src/features/document/types.ts`
+- `FormatCategory`: `'pdf' | 'image' | 'text' | 'fallback'`
+- `DocumentMetadataDTO`: `id`, `title`, `file_path`, `media_type`, `file_size_bytes`, `mime_type`, `url`
+- `RendererProps`: `url`, `metadata`, `activePage`, `safeTotalPages`, `targetPage`, `onPageChange`
 
-#### Phase 4 Manual Validation / QA Matrix
-| Test | How to Conduct the Test | Expected Behaviour |
+#### [NEW] `frontend/src/features/document/registry/RendererRegistry.ts`
+- Format detection & registry resolver: `resolveRenderer(filenameOrUrl?: string, mimeType?: string): RendererComponent`
+
+#### [NEW] `frontend/src/features/document/renderers/PdfRenderer.tsx`
+- PDF renderer with verified programmatic page jumping & citation highlight ring.
+
+#### [NEW] `frontend/src/features/document/renderers/ImageRenderer.tsx`
+- Image renderer for `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg` with zoom & fit controls.
+
+#### [NEW] `frontend/src/features/document/renderers/TextRenderer.tsx`
+- Source code / Markdown / plain text renderer.
+
+#### [NEW] `frontend/src/features/document/renderers/FallbackRenderer.tsx`
+- Ingestion-supported fallback renderer with metadata card and source file download/open button.
+
+#### [NEW] `frontend/src/features/document/renderers/DocumentRenderer.tsx`
+- Dispatcher component that queries `RendererRegistry`.
+
+#### [MODIFY] `frontend/src/components/DocumentViewer.tsx`
+- Refactor top-level viewer container to use state orchestration, consume `getMediaUrl()`, and mount `<DocumentRenderer />`.
+
+---
+
+## 5. Verification & Testing Matrix
+
+### Automated Verification
+- `npx tsc --noEmit` in `frontend/` (report actual execution result).
+- `python -m pytest` in `backend/` (report actual executed test count and pass/fail summary).
+
+### Real-World Manual Test Suite
+
+| Category | Test Case | Description & Expected Result |
 | :--- | :--- | :--- |
-| **1. End-to-End Document Citation Jump Test** | Click a `📄 Page 14` citation badge in a chat response. | The active view switches to the document viewer, navigates directly to Page 14, and highlights the target section. |
-| **2. Dual Modality Workspace Switching Test** | Switch between a video asset and a PDF document asset in the Library grid. | The workspace seamlessly toggles between the Video Player view and Document Reader view without state corruption. |
+| **PDF Rendering** | Single-page & Multi-page PDF | Native PDF displayed cleanly; page controls update seamlessly. |
+| **PDF Edge Cases** | Large PDF (100+ pages) | Page jumping and scrolling performant without memory leak. |
+| **Scanned PDF** | Scanned PDF file | Rendered visually as exact original scanned pages; independent of RapidOCR text extraction. |
+| **Visual Fidelity** | PDF with tables & diagrams | Preserves original layout, typography, and embedded figures. |
+| **Images** | High-res PNG / JPG / WEBP / SVG | Displayed centered in `ImageRenderer` with zoom controls. |
+| **Text / Markdown** | `.md` / `.txt` file | Displayed in `TextRenderer` with formatted syntax. |
+| **Office Documents** | `.docx` / `.pptx` file | `FallbackRenderer` displays metadata card + "Download Original File" button. AI chat operates on indexed content. |
+| **Citation Jumps** | Citation click (`📄 Page 7`) | Viewer lands on Page 7 with brief accent highlight ring. |
+| **Boundary Tests** | Citation to Page 1 / Last Page / Invalid Page | Graceful handling without crash or blank screen. |
+| **Error Resiliency** | Missing file / Backend down | Displays clean error state without crashing application shell. |
+| **Video Parity** | Toggle to Video Workspace | Video player loads and plays without regression. |
+
+---
+
+## 6. Extensibility Strategy
+
+To add visual support for a new format (e.g. EPUB, CAD) in the future:
+1. Create a renderer component in `renderers/` (e.g. `EpubRenderer.tsx`).
+2. Register the format mapping in `RendererRegistry.ts`.
+3. **Minimize and avoid modifications to core `DocumentViewer.tsx` orchestrator where possible.**
