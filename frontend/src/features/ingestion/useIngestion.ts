@@ -44,11 +44,12 @@ const STAGE_FRIENDLY_NAMES: Record<string, string> = {
 // Heuristic: is the active job a document/PDF ingestion flow?
 function isDocumentJob(job: { job_type?: string; stage?: string; media_id?: string; title?: string } | null | undefined): boolean {
   if (!job) return false;
-  const hint = `${job.job_type || ''} ${job.stage || ''} ${job.title || ''}`.toLowerCase();
+  const hint = `${job.job_type || ''} ${job.stage || ''} ${job.media_id || ''} ${job.title || ''}`.toLowerCase();
   return (
     hint.includes('document') ||
     hint.includes('pdf') ||
     hint.includes('docx') ||
+    (job.media_id ? job.media_id.startsWith('doc_') : false) ||
     job.stage === 'document_parsing' ||
     job.stage === 'ocr_processing'
   );
@@ -249,6 +250,7 @@ export function useIngestion() {
         job_id: jobId,
         media_id: data.media_id,
         workspace_id: activeWorkspaceId || 'default',
+        title: file.name,
         job_type: 'ingestion',
         stage: 'queued',
         progress: 5,

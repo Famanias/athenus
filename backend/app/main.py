@@ -33,6 +33,7 @@ from app.infrastructure.adapters.openai_compatible_adapter import OpenAICompatib
 from app.infrastructure.adapters.anthropic_adapter import AnthropicProviderAdapter
 from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
 from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
+from app.services.workers.document_worker import DocumentWorker
 from app.services.workers.transcript_worker import TranscriptWorker
 from app.services.workers.embedding_worker import EmbeddingWorker
 from app.services.workers.graph_extraction_worker import GraphExtractionWorker
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
     global vector_store, intelligence_manager, persistent_ingestion_worker
     vector_store = EmbeddedQdrantVectorStoreAdapter()
     
+    document_worker = DocumentWorker(event_bus)
     transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
     embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
     graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=KnowledgeGraphService())
