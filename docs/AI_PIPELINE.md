@@ -6,9 +6,10 @@
 
 ## Overview
 
-The AI Engine comprises two core pipelines:
-1. **Knowledge Ingestion Pipeline**: Video Audio Extraction $\rightarrow$ Speech-to-Text $\rightarrow$ Semantic Chunking $\rightarrow$ Vector Indexing.
-2. **8-Stage Layered Retrieval Pipeline**: Query Rewriting $\rightarrow$ Intent Detection $\rightarrow$ Context Injection $\rightarrow$ Graph Traversal $\rightarrow$ Hybrid Search $\rightarrow$ Re-Ranking $\rightarrow$ Context Compression $\rightarrow$ Grounded Prompt Assembly.
+The AI Engine comprises three core pipelines:
+1. **Video/Audio Ingestion Pipeline**: Audio Extraction $\rightarrow$ Speech-to-Text $\rightarrow$ Semantic Chunking $\rightarrow$ Vector Indexing.
+2. **Document/PDF Ingestion Pipeline**: Document Upload $\rightarrow$ AnyDoc Structure Parsing $\rightarrow$ RapidOCR ONNX Pass (Scanned Pages) $\rightarrow$ Page-Aware Semantic Chunking $\rightarrow$ Qdrant Vector Indexing.
+3. **8-Stage Multi-Source Retrieval Pipeline**: Query Rewriting $\rightarrow$ Active Video/Document Context Injection $\rightarrow$ Graph Traversal $\rightarrow$ Hybrid Search $\rightarrow$ Re-Ranking $\rightarrow$ Context Compression $\rightarrow$ Grounded Multi-Source Prompt Assembly.
 
 ---
 

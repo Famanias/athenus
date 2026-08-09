@@ -9,6 +9,11 @@ export interface Citation {
   endTime: string;
   score: number;
   textSnippet: string;
+  // Generalized document/PDF ingestion fields (optional for backward compat)
+  sourceType?: 'video' | 'pdf';
+  pageNumber?: number;
+  sectionTitle?: string;
+  location?: Record<string, any>;
 }
 
 export interface ChatMessage {

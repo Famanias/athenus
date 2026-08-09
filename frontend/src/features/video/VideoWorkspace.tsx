@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { PersistentMediaPlayer } from './PersistentMediaPlayer';
+import { DocumentViewer } from '@/components/DocumentViewer';
 import { useVideo } from './useVideo';
 import { EmbeddedChatWidget } from './EmbeddedChatWidget';
 import { Button } from '@/components/ui/Button';
@@ -28,7 +29,7 @@ export const VideoWorkspace: React.FC = () => {
     handleTimeUpdate,
   } = useVideo();
 
-  const { activeMediaId, setActiveView } = useAppStore();
+  const { activeMediaId, activeDocumentId, activeSourceType, setActiveView } = useAppStore();
 
   // Workspace asset inventory — drives the empty state when no videos remain.
   const { assets: workspaceAssets, loading: assetsLoading } = useLibrary();
@@ -184,17 +185,21 @@ export const VideoWorkspace: React.FC = () => {
   // Empty state when no media asset is selected or none exists in the workspace.
   // `mounted` ensures server & first client render agree before reading
   // hydration-dependent state like activeMediaId.
-  if (mounted && !loading && !activeMediaId && segments.length === 0) {
+  if (mounted && !loading && !activeMediaId && !activeDocumentId && segments.length === 0) {
     return (
       <div className="flex-1 p-12 flex flex-col items-center justify-center text-center space-y-4 bg-surface-container-lowest">
-        <span className="text-5xl">🎬</span>
-        <h3 className="font-type-light text-xl font-bold text-on-surface">No Video Selected</h3>
+        <span className="text-5xl">{activeSourceType === 'pdf' ? '📄' : '🎬'}</span>
+        <h3 className="font-type-light text-xl font-bold text-on-surface">
+          {activeSourceType === 'pdf' ? 'No Document Selected' : 'No Video Selected'}
+        </h3>
         <p className="text-xs text-on-surface-variant max-w-md leading-relaxed">
-          Please upload a lecture video in Pipelines or select an existing asset from the Workspace Library.
+          {activeSourceType === 'pdf'
+            ? 'Please upload a PDF or document in Pipelines or select an existing document asset from the Workspace Library.'
+            : 'Please upload a lecture video in Pipelines or select an existing asset from the Workspace Library.'}
         </p>
         <div className="flex gap-3 pt-2">
           <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>
-            Upload Video
+            {activeSourceType === 'pdf' ? 'Upload Document' : 'Upload Video'}
           </Button>
           <Button variant="secondary" icon="grid_view" onClick={() => setActiveView('view-dashboard')}>
             Browse Library
@@ -211,25 +216,37 @@ export const VideoWorkspace: React.FC = () => {
 
   return (
     <div ref={containerRef} className="flex-1 flex overflow-hidden w-full h-full relative">
-      {/* Primary Video Player Area */}
+      {/* Primary Player Area (Video Player or Document Viewer) */}
       <div className="flex-1 bg-black flex flex-col border-r border-outline-variant min-w-0">
-        <div className="flex-1 bg-surface-container-lowest flex flex-col items-center justify-center p-4 relative overflow-hidden">
-          <video
-            ref={videoRef}
-            src={mediaSrc || undefined}
-            controls
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-            onLoadedMetadata={handleLoadedMetadata}
-            onTimeUpdate={handleTimeUpdate}
-            className="w-full h-full object-contain rounded border border-outline-variant shadow-lg"
-          />
+        <div className="flex-1 bg-surface-container-lowest flex flex-col items-stretch justify-stretch p-0 relative overflow-hidden">
+          {activeSourceType === 'pdf' ? (
+            <div className="w-full h-full">
+              <DocumentViewer />
+            </div>
+          ) : (
+            <>
+              <video
+                ref={videoRef}
+                src={mediaSrc || undefined}
+                controls
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onLoadedMetadata={handleLoadedMetadata}
+                onTimeUpdate={handleTimeUpdate}
+                className="w-full h-full object-contain rounded border border-outline-variant shadow-lg"
+              />
+            </>
+          )}
         </div>
 
-        {/* Video Control Bar */}
+        {/* Control Bar */}
         <div className="p-3 bg-surface-container-low border-t border-outline-variant flex flex-wrap justify-between items-center text-xs gap-3 shrink-0">
           <div className="flex items-center gap-3">
-            {workspaceAssets.length > 0 ? (
+            {activeSourceType === 'pdf' ? (
+              <h3 className="font-bold text-on-surface text-xs truncate max-w-xs">
+                {activeDocumentId ? `Document: ${activeDocumentId}` : 'Indexed Document'}
+              </h3>
+            ) : workspaceAssets.length > 0 ? (
               <select
                 value={activeMediaId || ''}
                 onChange={(e) => useAppStore.setState({ activeMediaId: e.target.value || null })}
@@ -247,9 +264,11 @@ export const VideoWorkspace: React.FC = () => {
                 {activeMediaId ? `Media Asset: ${activeMediaId}` : 'Indexed Lecture Video'}
               </h3>
             )}
-            <span className="font-mono text-secondary text-[11px]">
-              Time: {currentTime}
-            </span>
+            {activeSourceType !== 'pdf' && (
+              <span className="font-mono text-secondary text-[11px]">
+                Time: {currentTime}
+              </span>
+            )}
           </div>
 
           {/* Right Panel Tab Switcher & Tools */}
@@ -293,8 +312,8 @@ export const VideoWorkspace: React.FC = () => {
         </div>
       </div>
 
-      {/* Draggable Resize Handle */}
-      {!isCollapsed && (
+      {/* Draggable Resize Handle — hidden in document mode (viewer has its own controls) */}
+      {!isCollapsed && activeSourceType !== 'pdf' && (
         <div
           onMouseDown={() => setIsDragging(true)}
           className={`w-1.5 bg-outline-variant/30 hover:bg-secondary cursor-col-resize transition-colors z-10 shrink-0 ${isDragging ? 'bg-secondary' : ''
@@ -302,8 +321,8 @@ export const VideoWorkspace: React.FC = () => {
         />
       )}
 
-      {/* Side Panel (Transcript Sync or Embedded AI Chat Widget) */}
-      {!isCollapsed && (
+      {/* Side Panel (Transcript Sync or Embedded AI Chat Widget) — hidden in document mode */}
+      {!isCollapsed && activeSourceType !== 'pdf' && (
         <div
           style={{ width: `${transcriptWidth}px` }}
           className="flex flex-col bg-surface-container-lowest shrink-0 min-w-[260px] max-w-[650px] h-full overflow-hidden"

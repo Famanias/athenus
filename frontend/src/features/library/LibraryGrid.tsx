@@ -9,10 +9,11 @@ import { useAppStore } from '@/store/useAppStore';
 
 export const LibraryGrid: React.FC = () => {
   const { assets, loading, isOffline } = useLibrary();
-  const { setActiveView, setActiveMediaId } = useAppStore();
+  const { setActiveView, setActiveMediaId, setActiveSourceType, activeSourceType } = useAppStore();
 
   const handleSelectAsset = (id: string) => {
     setActiveMediaId(id);
+    setActiveSourceType('video');
     setActiveView('view-video');
   };
 
@@ -32,7 +33,7 @@ export const LibraryGrid: React.FC = () => {
             Knowledge Library & Workspaces
           </h2>
           <p className="text-xs text-on-surface-variant mt-1">
-            Manage active workspace video assets, transcripts, and vector indexes.
+            Manage active workspace media and document assets, transcripts, and vector indexes.
           </p>
         </div>
         <Button
@@ -67,32 +68,42 @@ export const LibraryGrid: React.FC = () => {
       {/* Asset Grid */}
       {!loading && assets.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {assets.map((asset) => (
-            <Card
-              key={asset.id}
-              hoverable
-              onClick={() => handleSelectAsset(asset.id)}
-              className="flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex justify-between items-start mb-3">
-                  <span className="text-3xl">{asset.thumbnailEmoji}</span>
-                  <Badge variant="active">{asset.masteryScore}% Mastered</Badge>
-                </div>
-                <h4 className="font-bold text-sm text-on-surface mb-1 line-clamp-2">
-                  {asset.title}
-                </h4>
-                <p className="text-xs text-on-surface-variant line-clamp-2 leading-relaxed">
-                  {asset.description}
-                </p>
-              </div>
+          {assets.map((asset) => {
+            // Determine asset modality — document assets use the 📄 icon,
+            // video/audio assets use the 🎬 icon.
+            const isDocument =
+              asset.duration === '00:00' ||
+              asset.thumbnailEmoji === '📄' ||
+              asset.id.toLowerCase().includes('doc') ||
+              asset.id.toLowerCase().includes('pdf');
 
-              <div className="mt-6 pt-3 border-t border-outline-variant/40 text-[11px] font-mono text-on-surface-variant/60 flex justify-between items-center">
-                <span>⏱ {asset.duration}</span>
-                <span>📄 {asset.wordCount} words</span>
-              </div>
-            </Card>
-          ))}
+            return (
+              <Card
+                key={asset.id}
+                hoverable
+                onClick={() => handleSelectAsset(asset.id)}
+                className="flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex justify-between items-start mb-3">
+                    <span className="text-3xl">{isDocument ? '📄' : '🎬'}</span>
+                    <Badge variant="active">{asset.masteryScore}% Mastered</Badge>
+                  </div>
+                  <h4 className="font-bold text-sm text-on-surface mb-1 line-clamp-2">
+                    {asset.title}
+                  </h4>
+                  <p className="text-xs text-on-surface-variant line-clamp-2 leading-relaxed">
+                    {asset.description}
+                  </p>
+                </div>
+
+                <div className="mt-6 pt-3 border-t border-outline-variant/40 text-[11px] font-mono text-on-surface-variant/60 flex justify-between items-center">
+                  <span>{isDocument ? '📄 Document' : '🎬 Video'}</span>
+                  <span>{asset.wordCount > 0 ? `${asset.wordCount} words` : 'No transcript'}</span>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

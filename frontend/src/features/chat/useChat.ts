@@ -35,6 +35,10 @@ export function useChat() {
 
   const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
   const activeMediaId     = useAppStore((s) => s.activeMediaId);
+  const activeDocumentId  = useAppStore((s) => s.activeDocumentId);
+  const activeSourceType  = useAppStore((s) => s.activeSourceType);
+  const currentPage       = useAppStore((s) => s.currentPage);
+  const currentTime       = useAppStore((s) => s.currentTime);
 
   // Synchronize chat history whenever workspace or session changes
   useEffect(() => {
@@ -116,13 +120,29 @@ export function useChat() {
     setGenerating(true);
 
     try {
+      // Transmit document context params whenever the active workspace context
+      // is a document (sourceType 'pdf'). For video, fall back to legacy payload
+      // (media_id + current_timestamp) — zero regression guarantee.
+      const isDocumentContext = activeSourceType === 'pdf';
+      const documentIdToSend = isDocumentContext
+        ? activeDocumentId ?? undefined
+        : undefined;
+      const sourceTypeToSend = isDocumentContext ? 'pdf' : undefined;
+      const currentPageToSend =
+        isDocumentContext && typeof currentPage === 'number'
+          ? currentPage
+          : undefined;
+
       const data = await sendChatQuery(
         query,
         activeWorkspaceId,
         activeSessionId,
         activeMediaId ?? undefined,
         currentTimestamp,
-        selectedText
+        selectedText,
+        documentIdToSend,
+        sourceTypeToSend,
+        currentPageToSend
       );
       setBackendUnavailable(false);
 

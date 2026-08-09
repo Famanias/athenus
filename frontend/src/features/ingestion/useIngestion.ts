@@ -17,19 +17,49 @@ const INITIAL_STAGES: PipelineStage[] = [
   { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
 ];
 
+// Document-aware stage templates (used for PDF/DOCX/PPTX/etc ingestion flows)
+const DOCUMENT_STAGES: PipelineStage[] = [
+  { id: 'stg_doc_1', name: 'Receiving Document Upload', status: 'pending', progress: 0 },
+  { id: 'stg_doc_2', name: 'Parsing Document Structure (AnyDoc)', status: 'pending', progress: 0 },
+  { id: 'stg_doc_3', name: 'Extracting Text from Scanned Pages (RapidOCR)', status: 'pending', progress: 0 },
+  { id: 'stg_doc_4', name: 'Indexing Vector Embeddings', status: 'pending', progress: 0 },
+];
+
 // Maps backend stage ids to the frontend pipeline stage index.
 const STAGE_INDEX_BY_NAME: Record<string, number> = {
   audio_extraction: 0,
+  document_parsing: 0,
   transcription: 1,
+  ocr_processing: 1,
   chunking: 2,
   vector_indexing: 3,
 };
+
+// Dynamic friendly stage name overrides (used by dynamic stage rendering)
+const STAGE_FRIENDLY_NAMES: Record<string, string> = {
+  document_parsing: 'Parsing Document Structure (AnyDoc)',
+  ocr_processing: 'Extracting Text from Scanned Pages (RapidOCR)',
+};
+
+// Heuristic: is the active job a document/PDF ingestion flow?
+function isDocumentJob(job: { job_type?: string; stage?: string; media_id?: string; title?: string } | null | undefined): boolean {
+  if (!job) return false;
+  const hint = `${job.job_type || ''} ${job.stage || ''} ${job.title || ''}`.toLowerCase();
+  return (
+    hint.includes('document') ||
+    hint.includes('pdf') ||
+    hint.includes('docx') ||
+    job.stage === 'document_parsing' ||
+    job.stage === 'ocr_processing'
+  );
+}
 
 export function useIngestion() {
   const {
     activeWorkspaceId,
     activeMediaId,
     setActiveMediaId,
+    setActiveSourceType,
     setActiveView,
     jobs,
     activeJobId,
@@ -93,24 +123,34 @@ export function useIngestion() {
     (activeMediaId ? jobs[`ingestion_${activeMediaId}`] : undefined) ||
     workspaceJobs[0];
 
+  // Choose the right base stage template based on whether this is a video or document job
+  const baseStages = isDocumentJob(currentJob) ? DOCUMENT_STAGES : INITIAL_STAGES;
+  const stageIdPrefix = isDocumentJob(currentJob) ? 'stg_doc_' : 'stg_';
+  const stageCount = baseStages.length;
+
   // Map job state to visual stages array
   const stages: PipelineStage[] = (() => {
-    if (!currentJob) return INITIAL_STAGES;
+    if (!currentJob) return baseStages;
 
     const { stage, progress, status } = currentJob;
 
     if (status === 'completed' || stage === 'completed' || stage === 'ready') {
-      return [
-        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
-        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
-        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'completed', progress: 100 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'completed', progress: 100 },
-      ];
+      return baseStages.map((s, idx) => ({
+        ...s,
+        id: `${stageIdPrefix}${idx + 1}`,
+        name: STAGE_FRIENDLY_NAMES[s.name.toLowerCase().includes('parsing')
+          ? 'document_parsing'
+          : s.name.toLowerCase().includes('ocr')
+          ? 'ocr_processing'
+          : ''] || s.name,
+        status: 'completed',
+        progress: 100,
+      }));
     }
 
     if (status === 'failed' || stage === 'failed') {
       const activeStageIdx = STAGE_INDEX_BY_NAME[stage] ?? 0;
-      return INITIAL_STAGES.map((s, idx) => {
+      return baseStages.map((s, idx) => {
         if (idx < activeStageIdx) return { ...s, status: 'completed', progress: 100 };
         if (idx === activeStageIdx) return { ...s, status: 'failed', progress: 0 };
         return { ...s, status: 'pending', progress: 0 };
@@ -118,46 +158,58 @@ export function useIngestion() {
     }
 
     if (stage === 'queued') {
-      return [
-        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'processing', progress: 15 },
-        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'pending', progress: 0 },
-        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
-      ];
+      return baseStages.map((s, idx) => ({
+        ...s,
+        id: `${stageIdPrefix}${idx + 1}`,
+        status: idx === 0 ? 'processing' : 'pending',
+        progress: idx === 0 ? progress || 15 : 0,
+      }));
     }
 
     // Dynamic stage progression
-    if (stage === 'audio_extraction' || stage === 'uploaded') {
-      return [
-        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'processing', progress: progress || 50 },
-        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'pending', progress: 0 },
-        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
-      ];
-    } else if (stage === 'transcription') {
-      return [
-        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
-        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'processing', progress: progress || 60 },
-        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'pending', progress: 0 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
-      ];
+    if (stage === 'audio_extraction' || stage === 'uploaded' || stage === 'document_parsing') {
+      return baseStages.map((s, idx) => ({
+        ...s,
+        id: `${stageIdPrefix}${idx + 1}`,
+        status: idx === 0 ? 'processing' : 'pending',
+        progress: idx === 0 ? progress || 50 : 0,
+      }));
+    } else if (stage === 'transcription' || stage === 'ocr_processing') {
+      return baseStages.map((s, idx) => {
+        const isCompleted = idx < 1;
+        const isProcessing = idx === 1;
+        return {
+          ...s,
+          id: `${stageIdPrefix}${idx + 1}`,
+          status: isCompleted ? 'completed' : isProcessing ? 'processing' : 'pending',
+          progress: isCompleted ? 100 : isProcessing ? progress || 60 : 0,
+        };
+      });
     } else if (stage === 'chunking' || stage === 'vector_indexing') {
-      return [
-        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
-        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
-        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'processing', progress: progress || 75 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'pending', progress: 0 },
-      ];
+      return baseStages.map((s, idx) => {
+        const isCompleted = idx < 2;
+        const isProcessing = idx === 2;
+        return {
+          ...s,
+          id: `${stageIdPrefix}${idx + 1}`,
+          status: isCompleted ? 'completed' : isProcessing ? 'processing' : 'pending',
+          progress: isCompleted ? 100 : isProcessing ? progress || 75 : 0,
+        };
+      });
     } else if (stage === 'graph_extraction' || stage === 'collect_context' || stage === 'llm_generation' || stage === 'validation') {
-      return [
-        { id: 'stg_1', name: 'Hermes is Receiving Your Lecture', status: 'completed', progress: 100 },
-        { id: 'stg_2', name: 'Apollo is Listening to Every Word', status: 'completed', progress: 100 },
-        { id: 'stg_3', name: 'Athenus is Understanding the Concepts', status: 'completed', progress: 100 },
-        { id: 'stg_4', name: 'The Owl of Athenus is Delivering the Answer', status: 'processing', progress: progress || 85 },
-      ];
+      return baseStages.map((s, idx) => {
+        const isCompleted = idx < stageCount - 1;
+        const isProcessing = idx === stageCount - 1;
+        return {
+          ...s,
+          id: `${stageIdPrefix}${idx + 1}`,
+          status: isCompleted ? 'completed' : isProcessing ? 'processing' : 'pending',
+          progress: isCompleted ? 100 : isProcessing ? progress || 85 : 0,
+        };
+      });
     }
 
-    return INITIAL_STAGES;
+    return baseStages;
   })();
 
   const isUploading = currentJob ? currentJob.status === 'processing' || currentJob.status === 'pending' || currentJob.status === 'queued' : false;
@@ -166,6 +218,15 @@ export function useIngestion() {
   const handleFileUpload = async (file: File) => {
     setSelectedFile(file);
     setLocalError(null);
+
+    // Detect modality from file type — PDF/office documents switch the
+    // workspace source context to 'pdf', everything else stays 'video'.
+    const isDocumentFile =
+      /\.(pdf|docx?|pptx?|xlsx?|epub|md|txt)$/i.test(file.name) ||
+      file.type === 'application/pdf';
+    if (isDocumentFile) {
+      setActiveSourceType('pdf');
+    }
 
     try {
       const data = await uploadMedia(file, activeWorkspaceId || 'default');

@@ -6,6 +6,11 @@ export interface BackendCitationDTO {
   start_time: number;
   end_time: number;
   text: string;
+  // Generalized document/PDF ingestion fields (optional for backward compat)
+  source_type?: 'video' | 'pdf';
+  page_number?: number | null;
+  section_title?: string | null;
+  location?: Record<string, any> | null;
 }
 
 export interface ContextProvenanceDTO {
@@ -61,6 +66,11 @@ export function mapBackendCitations(
     endTime: formatSecondsToTimestamp(c.end_time),
     score: 0.9,
     textSnippet: c.text || '',
+    // Generalized document/PDF ingestion fields (optional, backward-compat)
+    sourceType: c.source_type,
+    pageNumber: typeof c.page_number === 'number' ? c.page_number : undefined,
+    sectionTitle: c.section_title || undefined,
+    location: c.location || undefined,
   }));
 }
 
@@ -79,7 +89,10 @@ export async function sendChatQuery(
   sessionId?: string | null,
   mediaId?: string,
   currentTimestamp?: number,
-  selectedText?: string
+  selectedText?: string,
+  documentId?: string,
+  sourceType?: 'video' | 'pdf',
+  currentPage?: number
 ): Promise<BackendChatResponse> {
   return apiClient<BackendChatResponse>('/api/v1/chat/query', {
     method: 'POST',
@@ -90,6 +103,9 @@ export async function sendChatQuery(
       media_id: mediaId,
       current_timestamp: currentTimestamp,
       selected_text: selectedText,
+      document_id: documentId,
+      source_type: sourceType,
+      current_page: currentPage,
     }),
   });
 }

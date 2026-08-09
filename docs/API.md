@@ -39,8 +39,8 @@ Complete specification for all REST API endpoints exposed by the FastAPI backend
 
 ## 3. RAG Retrieval & Multi-Session Workspace Chat
 * **POST** `/api/v1/chat/query`
-  - Executes 8-stage RAG retrieval pipeline and returns assistant answer with timestamp citations. Automatically lazy-creates `ChatSession` if `session_id` is omitted and persists query turn and citations to SQLite `chat_messages` table.
-  - **Body**: `{ "query": "string", "workspace_id": "default", "session_id": "optional", "media_id": "optional", "current_timestamp": optional, "selected_text": optional }`
+  - Executes 8-stage RAG retrieval pipeline and returns assistant answer with timestamp or document page citations. Automatically lazy-creates `ChatSession` if `session_id` is omitted and persists query turn and citations to SQLite `chat_messages` table.
+  - **Body**: `{ "query": "string", "workspace_id": "default", "session_id": "optional", "media_id": "optional", "document_id": "optional", "source_type": "optional (video|pdf)", "current_timestamp": optional, "current_page": optional, "selected_text": optional }`
 * **GET** `/api/v1/chat/history?workspace_id={workspace_id}&session_id={session_id}`
   - Fetches conversation history for a specific session or active workspace session from SQLite `chat_messages` table.
 * **DELETE** `/api/v1/chat/history?workspace_id={workspace_id}&session_id={session_id}`

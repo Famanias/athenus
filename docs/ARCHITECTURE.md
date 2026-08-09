@@ -56,6 +56,7 @@ graph TD
 
 ### 3.1 Presentation Layer (`frontend/` & `backend/app/presentation/api/v1/`)
 - **Desktop Shell**: Tauri + Next.js 16 + Vanilla CSS + Zustand.
+- **Dual-Modality Workspace**: A single persistent `VideoWorkspace` component renders either the HTML5 video player or `DocumentViewer` based on the store's `activeSourceType` (`'video' | 'pdf'`), preserving ADR 0005's zero-DOM-reparenting model. Document citations render as `📄 Page X` badges that deep-link into the reader at the cited page; chat queries transmit `document_id`/`source_type`/`current_page` only in document mode (zero regression on the legacy `media_id` + `current_timestamp` payload). See [FRONTEND_DOCUMENT_INGESTION_ARCHITECTURE.md](file:///e:/repos/athenus/docs/FRONTEND_DOCUMENT_INGESTION_ARCHITECTURE.md).
 - **REST Endpoints**:
   - `media.py`: Asset upload, SSE stage progress streaming, file serving, processing history, and workspace-isolated asset queries (`GET /media/workspace/{id}`).
   - `chat.py`: RAG question-answering (`POST /chat/query`), conversation history restoration (`GET /chat/history`), and thread clearing (`DELETE /chat/history`).
@@ -105,6 +106,9 @@ graph TD
 | **[ADR 0017](file:///e:/repos/athenus/docs/adr/0017-state-driven-frontend-job-lifecycle-and-rehydration-engine.md)** | State-Driven Frontend Job Lifecycle & Rehydration Engine | Added `'queued'` filter to active stream subscriptions and connected `useJob` state transitions to automatic transcript re-fetching. |
 | **[ADR 0018](file:///e:/repos/athenus/docs/adr/0018-version-seeded-variation-engine-and-physical-card-ux.md)** | Version-Seeded Variation Engine & Physical Card Studio UX | Resolved version content duplication via version-seeded pseudo-random generation, auto-selection of generated versions, completion toasts, and physical card UX. |
 | **[ADR 0019](file:///e:/repos/athenus/docs/adr/0019-provider-agnostic-llm-architecture-and-two-tier-adapters.md)** | Provider-Agnostic LLM Architecture & Two-Tier Adapters | Implemented provider-agnostic abstraction, two-tier classification (OpenAI-compatible & custom), ProviderConfigResolver, 30s health caching, and native HTTP daemon model discovery. |
+| **[ADR 0020](file:///e:/repos/athenus/docs/adr/0020-local-first-llm-generation-timeout-policy-and-error-integrity.md)** | Local-First LLM Timeout Policy & Error Integrity | Enforced 120s timeouts for local generation and clean user-facing error reporting. |
+| **[ADR 0021](file:///e:/repos/athenus/docs/adr/0021-generalized-document-pdf-ingestion-architecture.md)** | Generalized Document & PDF Ingestion Architecture | Implemented DocumentParsingPort (AnyDoc) + OCRPort (RapidOCR ONNX), single location_json schema, Semaphore=1 heavy task isolation, and 100MB / 200 page safety caps. |
+| **[ADR 0022](file:///e:/repos/athenus/docs/adr/0022-frontend-document-pdf-ingestion-integration.md)** | Frontend Document & PDF Ingestion Integration | Implemented the dual-modality workspace (video player / DocumentViewer), `activeSourceType` discriminator, page-aware chat query forwarding, `📄 Page X` citation badges, transient `targetPage` navigation, and document ingestion stages — with zero video regression. |
 
 ---
 
@@ -113,3 +117,7 @@ graph TD
 1. **ASR Execution Speed**: Faster-Whisper CPU execution for 2+ hour lecture videos can take several minutes on lower-spec hardware; CUDA acceleration is recommended.
 2. **Single-User Desktop Concurrency**: SQLite single-writer locking limits write concurrency to a single desktop user (intentional for offline Knowledge OS simplicity).
 3. **Anki Cloze Formatting**: `.apkg` export formats cloze cards into standardized HTML fields; native Anki cloze syntax parsing is scheduled for future updates.
+4. **OCR Multilingual Coverage**: RapidOCR default bundled models focus on English and standard Latin script (`en_PP-OCRv4`). Additional non-Latin script language packs are explicitly deferred.
+5. **Bounding Box Canvas Rendering**: `bbox` coordinates are extracted and populated on `OCRLineDTO`, but UI canvas highlight rendering is explicitly deferred.
+6. **Frontend Document Modality Stopgaps**: `LibraryGrid` detects document assets via a heuristic (duration/id/emoji) because the backend asset DTO lacks a `source_type` field, and it currently forces `'video'` on selection so document assets are not yet routable from the library into `DocumentViewer`. `DocumentViewer` is presentational (no backend page-content fetch yet), and `activeDocumentId` is not persisted across restarts. See §8 of [FRONTEND_DOCUMENT_INGESTION_ARCHITECTURE.md](file:///e:/repos/athenus/docs/FRONTEND_DOCUMENT_INGESTION_ARCHITECTURE.md).
+

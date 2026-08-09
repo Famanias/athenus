@@ -14,7 +14,7 @@ export interface BackgroundJob {
   workspace_id: string;
   title?: string;
   job_type: 'ingestion' | 'graph_extraction' | 'flashcard_gen' | 'quiz_gen';
-  stage: 'queued' | 'uploaded' | 'audio_extraction' | 'transcription' | 'chunking' | 'vector_indexing' | 'graph_extraction' | 'ready' | 'completed' | 'failed';
+  stage: 'queued' | 'uploaded' | 'audio_extraction' | 'transcription' | 'chunking' | 'vector_indexing' | 'graph_extraction' | 'ready' | 'completed' | 'failed' | 'document_parsing' | 'ocr_processing';
   progress: number;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'queued';
   message: string;
@@ -37,6 +37,12 @@ interface UISlice {
   isCmdPaletteOpen: boolean;
   isWorkspaceModalOpen: boolean;
   searchQuery: string;
+
+  // Active source context (generalized document/PDF ingestion)
+  activeDocumentId: string | null;
+  activeSourceType: 'video' | 'pdf';
+  currentPage: number | null;
+  targetPage: number | null;
 
   // Background Task Engine Jobs Registry
   jobs: Record<string, BackgroundJob>;
@@ -62,6 +68,12 @@ interface UISlice {
   setWorkspaceModalOpen: (isOpen: boolean) => void;
   setSearchQuery: (query: string) => void;
   setProviderSettings: (llm: string, stt: string, gpu: boolean, activeModel?: string) => void;
+
+  // Active source context actions (generalized document/PDF ingestion)
+  setActiveDocumentId: (id: string | null) => void;
+  setActiveSourceType: (type: 'video' | 'pdf') => void;
+  setCurrentPage: (page: number | null) => void;
+  setTargetPage: (page: number | null) => void;
 
   // Background Job Reducers (Pure State Mutations)
   upsertJob: (job: BackgroundJob) => void;
@@ -134,6 +146,12 @@ export const useAppStore = create<AppState>()((...args) => {
     isCmdPaletteOpen: false,
     isWorkspaceModalOpen: false,
     searchQuery: '',
+
+    // Active source context state (generalized document/PDF ingestion)
+    activeDocumentId: null,
+    activeSourceType: 'video',
+    currentPage: null,
+    targetPage: null,
 
     // Background Job Registry State
     jobs: {},
@@ -222,6 +240,27 @@ export const useAppStore = create<AppState>()((...args) => {
         gpuAcceleration: gpu,
       });
     },
+
+    // Active source context actions (generalized document/PDF ingestion)
+    setActiveDocumentId: (id) =>
+      set((state) => ({
+        activeDocumentId: id,
+        context: { ...state.context, documentId: id },
+      })),
+
+    setActiveSourceType: (type) =>
+      set((state) => ({
+        activeSourceType: type,
+        context: { ...state.context, sourceType: type },
+      })),
+
+    setCurrentPage: (page) =>
+      set((state) => ({
+        currentPage: page,
+        context: { ...state.context, currentPage: page },
+      })),
+
+    setTargetPage: (page) => set({ targetPage: page }),
 
     // --- 9-Step Workspace Switching Lifecycle ---
     switchWorkspace: (targetWorkspaceId: string) => {
