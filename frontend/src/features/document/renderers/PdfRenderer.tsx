@@ -1,27 +1,3 @@
-// PdfRenderer — renders original PDF binary via browser-native iframe embedding.
-//
-// This is the most reliable cross-platform approach: Chrome, Edge, Firefox,
-// and Safari all natively render PDFs in an <iframe>, with zero extra
-// dependencies. The native viewer guarantees visual fidelity — including
-// scanned PDFs (rendered as exact page images), tables, diagrams, and
-// unusual page dimensions.
-//
-// Page Navigation
-//   - Browser-native PDF viewers (Chrome/Edge, Firefox) honor the `#page=N`
-//     URL fragment, so we embed `url#page=N` in the iframe src.
-//   - Updating the fragment re-navigates the embedded viewer to that page.
-//
-// Citation Jumping (📄 Page X)
-//   - The orchestrator passes `targetPage` via props when a citation badge
-//     is clicked.
-//   - We bump `pdfKey` (forcing a clean iframe re-mount with the new
-//     `#page=N` fragment) and show a temporary accent highlight ring so the
-//     user sees the jump landed.
-//
-// Zoom
-//   - The embedded viewer has its own zoom; we additionally support CSS
-//     transform-based zoom on the iframe wrapper (fit / zoom in / zoom out).
-
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -38,21 +14,55 @@ export const PdfRenderer: React.FC<RendererProps> = ({
   targetPage,
   onPageChange,
 }) => {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const [pdfKey, setPdfKey] = useState<number>(0);
   const [showHighlight, setShowHighlight] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(1);
   const highlightTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // Cleanup highlight timer on unmount.
+  // Fetch PDF binary and convert to a local Blob URL for reliable Tauri/browser rendering
   useEffect(() => {
+    let isMounted = true;
+    let activeBlobUrl: string | null = null;
+
+    async function loadPdfBlob() {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(url.split('#')[0]);
+        if (!response.ok) {
+          throw new Error(`Failed to load PDF file (HTTP ${response.status})`);
+        }
+        const blob = await response.blob();
+        if (isMounted) {
+          activeBlobUrl = URL.createObjectURL(blob);
+          setBlobUrl(activeBlobUrl);
+        }
+      } catch (err: unknown) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : 'Error loading PDF binary.');
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    if (url) {
+      loadPdfBlob();
+    }
+
     return () => {
+      isMounted = false;
+      if (activeBlobUrl) {
+        URL.revokeObjectURL(activeBlobUrl);
+      }
       if (highlightTimeout.current) clearTimeout(highlightTimeout.current);
     };
-  }, []);
+  }, [url]);
 
-  // Citation jumps (📄 Page X): re-mount the iframe with the #page=N fragment
-  // so the embedded viewer lands on the target page, then flash a highlight
-  // ring so the user sees the jump landed.
+  // Citation jumps (📄 Page X): flash highlight ring
   useEffect(() => {
     if (targetPage !== null && targetPage >= 1 && targetPage <= safeTotalPages) {
       setPdfKey((k) => k + 1);
@@ -64,14 +74,11 @@ export const PdfRenderer: React.FC<RendererProps> = ({
     }
   }, [targetPage, safeTotalPages]);
 
-  // Manual navigation (Prev/Next/jump input in the orchestrator): the
-  // activePage prop changes; update the #page=N fragment on the same iframe.
-  // Browser PDF viewers navigate to the page on fragment change.
   const pdfSrc = useMemo(() => {
-    const base = url.split('#')[0];
+    if (!blobUrl) return '';
     const page = Math.min(Math.max(1, activePage), Math.max(1, safeTotalPages));
-    return `${base}#page=${page}`;
-  }, [url, activePage, safeTotalPages]);
+    return `${blobUrl}#page=${page}`;
+  }, [blobUrl, activePage, safeTotalPages]);
 
   const fileSize = useMemo(() => {
     const bytes = metadata.file_size_bytes;
@@ -85,60 +92,50 @@ export const PdfRenderer: React.FC<RendererProps> = ({
   const handleZoomFit = () => setZoom(1);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-surface-container-lowest">
-      {/* PDF Viewer — browser-native iframe */}
-      <div className="flex-1 relative overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden bg-surface-container-lowest h-full w-full">
+      {/* PDF Viewer Container */}
+      <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-[#1a1a2e]">
         {/* Accent highlight ring — shown on citation jump landing */}
         {showHighlight && (
-          <div className="absolute inset-0 z-10 pointer-events-none border-4 border-secondary/60 ring-4 ring-secondary/30 bg-secondary/5 animate-pulse rounded" />
+          <div className="absolute inset-0 z-20 pointer-events-none border-4 border-secondary/60 ring-4 ring-secondary/30 bg-secondary/5 animate-pulse rounded" />
         )}
 
-        {/* Native PDF viewer. `key={pdfKey}` forces a clean re-mount for
-            citation jumps so the #page=N fragment is re-evaluated. Zoom is
-            applied via CSS transform on the wrapper. */}
-        <div
-          className="w-full h-full transition-transform duration-150 origin-center"
-          style={{ transform: `scale(${zoom})` }}
-        >
-          <iframe
-            key={pdfKey}
-            title={`PDF Viewer — ${metadata.title}`}
-            src={pdfSrc}
-            className="w-full h-full border-none"
-            style={{ background: '#1a1a2e' }}
-          />
-        </div>
-      </div>
+        {loading && (
+          <div className="flex flex-col items-center justify-center p-6 text-on-surface-variant gap-2">
+            <span className="animate-spin text-2xl">⚙</span>
+            <span className="text-xs font-mono">Loading PDF document binary...</span>
+          </div>
+        )}
 
-      {/* PDF toolbar */}
-      <div className="px-3 py-2 bg-surface-container-low border-t border-outline-variant text-[10px] font-mono text-on-surface-variant/60 flex flex-wrap justify-between items-center gap-3 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-secondary shrink-0">📄 PDF</span>
-          <span className="hidden md:inline truncate max-w-xs">{metadata.title}</span>
-        </div>
+        {error && !loading && (
+          <div className="flex flex-col items-center justify-center p-6 text-center text-error gap-2 max-w-md">
+            <span className="text-3xl">⚠️</span>
+            <h4 className="font-bold text-sm">PDF Display Error</h4>
+            <p className="text-xs font-mono text-on-surface-variant">{error}</p>
+          </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          <span className="text-secondary font-semibold">
-            Page {activePage} of {safeTotalPages}
-          </span>
-          <span className="text-on-surface-variant/50">•</span>
-          <span>{fileSize}</span>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={handleZoomFit} title="Fit to screen">
-            Fit
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleZoomOut} title="Zoom out">
-            −
-          </Button>
-          <span className="text-on-surface-variant px-1 w-10 text-center">
-            {Math.round(zoom * 100)}%
-          </span>
-          <Button variant="ghost" size="sm" onClick={handleZoomIn} title="Zoom in">
-            +
-          </Button>
-        </div>
+        {!loading && !error && blobUrl && (
+          <div
+            className="w-full h-full transition-transform duration-150 origin-center flex items-center justify-center"
+            style={{ transform: `scale(${zoom})` }}
+          >
+            <object
+              key={pdfKey}
+              data={pdfSrc}
+              type="application/pdf"
+              className="w-full h-full border-none"
+            >
+              <embed src={pdfSrc} type="application/pdf" className="w-full h-full border-none" />
+              <div className="p-6 text-center text-on-surface-variant text-xs">
+                Your browser or window does not support embedded PDF viewing.{' '}
+                <a href={blobUrl} target="_blank" rel="noopener noreferrer" className="text-secondary underline">
+                  Open PDF file directly
+                </a>
+              </div>
+            </object>
+          </div>
+        )}
       </div>
     </div>
   );

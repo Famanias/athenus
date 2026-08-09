@@ -62,3 +62,20 @@ export function getMediaUrl(mediaId: string, workspaceId?: string): string {
   const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : '';
   return `${API_BASE_URL}/api/v1/media/${encodeURIComponent(mediaId)}/file${query}`;
 }
+
+export interface BackendDocumentPageDTO {
+  page_number: number;
+  text: string;
+  page_type: string;
+  section_title?: string;
+}
+
+export interface BackendDocumentPagesDTO {
+  media_id: string;
+  total_pages: number;
+  pages: BackendDocumentPageDTO[];
+}
+
+export async function getDocumentPages(mediaId: string): Promise<BackendDocumentPagesDTO> {
+  return apiClient<BackendDocumentPagesDTO>(`/api/v1/media/${encodeURIComponent(mediaId)}/pages`);
+}
