@@ -54,6 +54,7 @@ export const UnifiedLearningPipeline: React.FC = () => {
     currentJob,
     inspectedJobId,
     setInspectedJobId,
+    activeSourceType,
   } = useIngestion();
   const { workspace } = useAnalytics();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -182,7 +183,7 @@ export const UnifiedLearningPipeline: React.FC = () => {
         {!isUploading && (
           <div className="pt-2 flex justify-end gap-3">
             <Button variant="secondary" onClick={() => setActiveView('view-video')}>
-              Open Video Workspace →
+              {activeSourceType === 'pdf' ? 'Open Document Reader →' : 'Open Video Workspace →'}
             </Button>
           </div>
         )}

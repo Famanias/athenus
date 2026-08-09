@@ -5,7 +5,7 @@ import { useIngestion } from './useIngestion';
 import { Button } from '@/components/ui/Button';
 
 export const UploadDropzone: React.FC = () => {
-  const { stages, isUploading, selectedFile, errorMessage, handleFileUpload, setActiveView } =
+  const { stages, isUploading, selectedFile, errorMessage, handleFileUpload, setActiveView, activeSourceType } =
     useIngestion();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -96,7 +96,7 @@ export const UploadDropzone: React.FC = () => {
         {!isUploading && (
           <div className="pt-2 flex justify-end gap-3">
             <Button variant="secondary" onClick={() => setActiveView('view-video')}>
-              Open Video Workspace →
+              {activeSourceType === 'pdf' ? 'Open Document Reader →' : 'Open Video Workspace →'}
             </Button>
           </div>
         )}

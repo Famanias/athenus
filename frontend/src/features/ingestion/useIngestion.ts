@@ -59,6 +59,8 @@ export function useIngestion() {
     activeWorkspaceId,
     activeMediaId,
     setActiveMediaId,
+    setActiveDocumentId,
+    activeSourceType,
     setActiveSourceType,
     setActiveView,
     jobs,
@@ -232,7 +234,13 @@ export function useIngestion() {
       const data = await uploadMedia(file, activeWorkspaceId || 'default');
       const jobId = `ingestion_${data.media_id}`;
 
-      setActiveMediaId(data.media_id);
+      if (isDocumentFile) {
+        setActiveDocumentId(data.media_id);
+        setActiveSourceType('pdf');
+      } else {
+        setActiveMediaId(data.media_id);
+        setActiveSourceType('video');
+      }
       setActiveJobId(jobId);
       setInspectedJobId(jobId);
 
@@ -265,5 +273,6 @@ export function useIngestion() {
     currentJob,
     inspectedJobId,
     setInspectedJobId,
+    activeSourceType,
   };
 }
