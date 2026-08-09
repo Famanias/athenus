@@ -69,6 +69,9 @@ class EmbeddingWorker:
             chunk_texts = [u.text for u in units]
             embeddings = await embedding_capability.embed_texts(chunk_texts)
 
+            # Persist document chunk units to SQLite for downstream Knowledge Graph & RAG generation
+            self._persist_document_units(units)
+
             point_ids = [str(uuid.uuid5(uuid.NAMESPACE_URL, u.id)) for u in units]
             payloads = [
                 {
@@ -230,3 +233,39 @@ class EmbeddingWorker:
                 session.commit()
         except Exception:
             pass
+
+    def _persist_document_units(self, units) -> None:
+        """Persist document chunk units (text + location metadata) to SQLite TranscriptChunkTable."""
+        try:
+            from app.infrastructure.db.models import TranscriptChunkTable
+            from app.infrastructure.db.session import engine
+        except ImportError:
+            return
+        if not engine or not units:
+            return
+        try:
+            from sqlmodel import Session, select
+            with Session(engine) as session:
+                doc_id = units[0].source_id
+                existing_stmt = select(TranscriptChunkTable).where(
+                    TranscriptChunkTable.media_id == doc_id
+                )
+                existing = session.scalars(existing_stmt).all() if hasattr(session, "scalars") else session.exec(existing_stmt).all()
+                for rec in existing:
+                    session.delete(rec)
+                for u in units:
+                    page_num = float(u.location.get("page", 1)) if isinstance(u.location, dict) else 1.0
+                    session.add(TranscriptChunkTable(
+                        id=u.id,
+                        media_id=u.source_id,
+                        workspace_id=u.workspace_id,
+                        text=u.text,
+                        start_time=page_num,
+                        end_time=page_num,
+                        chunk_index=u.chunk_index,
+                        word_count=len(u.text.split()),
+                    ))
+                session.commit()
+        except Exception:
+            pass
+
