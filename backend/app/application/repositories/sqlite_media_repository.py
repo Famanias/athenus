@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 from app.application.repositories.media_repository import MediaRepository
 from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
-from app.infrastructure.db.models import MediaItemTable, TranscriptSegmentTable, TranscriptChunkTable
+from app.infrastructure.db.models import MediaItemTable, TranscriptSegmentTable, TranscriptChunkTable, DocumentPageTable
 from app.infrastructure.db.session import engine
 
 try:
@@ -164,3 +164,44 @@ class SqliteMediaRepository(MediaRepository):
                     )
                 )
             return result
+
+    def save_pages(self, media_id: str, workspace_id: str, pages: List[Dict[str, Any]]) -> None:
+        if not engine or not Session or not select:
+            return
+        with Session(engine) as session:
+            existing_statement = select(DocumentPageTable).where(DocumentPageTable.media_id == media_id)
+            existing_records = session.scalars(existing_statement).all() if hasattr(session, "scalars") else session.exec(existing_statement).all()
+            for record in existing_records:
+                session.delete(record)
+
+            for page in pages:
+                page_record = DocumentPageTable(
+                    media_id=media_id,
+                    workspace_id=workspace_id,
+                    page_number=int(page.get("page_number", 1)),
+                    text=str(page.get("text", "")),
+                    page_type=str(page.get("page_type", "text")),
+                    section_title=page.get("section_title"),
+                )
+                session.add(page_record)
+            session.commit()
+
+    def get_pages(self, media_id: str) -> List[Dict[str, Any]]:
+        if not engine or not Session or not select:
+            return []
+        with Session(engine) as session:
+            statement = (
+                select(DocumentPageTable)
+                .where(DocumentPageTable.media_id == media_id)
+                .order_by(DocumentPageTable.page_number)
+            )
+            records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()
+            return [
+                {
+                    "page_number": r.page_number,
+                    "text": r.text,
+                    "page_type": r.page_type,
+                    "section_title": r.section_title,
+                }
+                for r in records
+            ]

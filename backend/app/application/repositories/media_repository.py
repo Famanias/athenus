@@ -34,6 +34,16 @@ class MediaRepository(ABC):
     def list_by_workspace(self, workspace_id: str) -> List[MediaItem]:
         pass
 
+    @abstractmethod
+    def save_pages(self, media_id: str, workspace_id: str, pages: List[Dict[str, Any]]) -> None:
+        """Persist parsed document page sections for a media/document item."""
+        pass
+
+    @abstractmethod
+    def get_pages(self, media_id: str) -> List[Dict[str, Any]]:
+        """Retrieve parsed document page sections ordered by page number."""
+        pass
+
 
 class InMemoryMediaRepository(MediaRepository):
     """Thread-safe concrete in-memory repository implementation."""
@@ -41,6 +51,7 @@ class InMemoryMediaRepository(MediaRepository):
     def __init__(self) -> None:
         self._media_db: Dict[str, MediaItem] = {}
         self._transcripts_db: Dict[str, List[Dict[str, Any]]] = {}
+        self._pages_db: Dict[str, List[Dict[str, Any]]] = {}
 
     def upsert(self, item: MediaItem) -> None:
         self._media_db[item.id] = item
@@ -71,3 +82,9 @@ class InMemoryMediaRepository(MediaRepository):
             item for item in self._media_db.values()
             if item.workspace_id == workspace_id
         ]
+
+    def save_pages(self, media_id: str, workspace_id: str, pages: List[Dict[str, Any]]) -> None:
+        self._pages_db[media_id] = pages
+
+    def get_pages(self, media_id: str) -> List[Dict[str, Any]]:
+        return self._pages_db.get(media_id, [])

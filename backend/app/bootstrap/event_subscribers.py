@@ -1,5 +1,6 @@
 from app.application.events.media_event_handlers import (
     on_chunks_indexed,
+    on_document_parsed,
     on_media_uploaded,
     on_processing_failed,
     on_processing_started,
@@ -36,6 +37,10 @@ def register_media_subscribers(
     event_bus.subscribe(
         "ChunksIndexedEvent",
         lambda e: on_chunks_indexed(e, repo, progress_store)
+    )
+    event_bus.subscribe(
+        "DocumentParsedEvent",
+        lambda e: on_document_parsed(e, repo, progress_store)
     )
     event_bus.subscribe(
         "ProcessingFailedEvent",

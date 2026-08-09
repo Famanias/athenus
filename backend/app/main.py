@@ -127,6 +127,7 @@ from app.presentation.api.v1.media import media_repository
 
 from app.services.workers.learning_evolution_worker import LearningEvolutionWorker
 from app.domain.ingestion.persistent_ingestion_queue import PersistentIngestionWorker
+from app.services.workers.document_worker import DocumentWorker
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -160,6 +161,7 @@ async def lifespan(app: FastAPI):
     embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
     graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=KnowledgeGraphService())
     learning_evolution_worker = LearningEvolutionWorker(event_bus)
+    document_worker = DocumentWorker(event_bus)
 
     persistent_ingestion_worker = PersistentIngestionWorker(event_bus)
     persistent_ingestion_worker.boot_recovery()

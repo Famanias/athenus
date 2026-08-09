@@ -22,6 +22,34 @@ workspace_service = WorkspaceService()
 # Global repository instance
 media_repository: MediaRepository = SqliteMediaRepository()
 
+# ---------------------------------------------------------------------------
+# Upload safety limits & modality detection
+# ---------------------------------------------------------------------------
+MAX_DOCUMENT_SIZE_MB = 100.0
+MAX_DOCUMENT_SIZE_BYTES = int(MAX_DOCUMENT_SIZE_MB * 1024 * 1024)
+MAX_MEDIA_SIZE_BYTES = 2 * 1024 * 1024 * 1024  # 2GB for video/audio
+
+DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".epub", ".md", ".txt", ".odt", ".ods", ".odp"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".wma"}
+
+
+def _detect_media_type(filename: Optional[str], content_type: Optional[str] = None) -> MediaType:
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext in DOCUMENT_EXTENSIONS:
+        return MediaType.DOCUMENT
+    if ext in AUDIO_EXTENSIONS:
+        return MediaType.AUDIO
+    if content_type:
+        if content_type.startswith("application/pdf") or "pdf" in content_type:
+            return MediaType.DOCUMENT
+        if content_type.startswith("audio/"):
+            return MediaType.AUDIO
+    return MediaType.VIDEO
+
+
+def _file_format(filename: Optional[str]) -> str:
+    return os.path.splitext(filename or "")[1].lower().lstrip(".") or "unknown"
+
 class MediaUploadResponse(BaseModel):
     media_id: str
     workspace_id: str
@@ -40,6 +68,16 @@ class TranscriptResponse(BaseModel):
     full_text: str
     segments: List[Dict[str, Any]]
 
+class MediaListResponse(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    media_type: str
+    file_size_bytes: int
+    duration_seconds: float
+    status: str
+    created_at: Optional[str] = None
+
 @router.post("/media/upload", response_model=MediaUploadResponse)
 async def upload_media(
     background_tasks: BackgroundTasks,
@@ -48,22 +86,48 @@ async def upload_media(
     title: Optional[str] = Form(None)
 ):
     media_id = f"med_{uuid.uuid4().hex[:8]}"
-    item_title = title or file.filename or "Untitled Video"
-    
+    item_title = title or file.filename or "Untitled Media"
+    media_type = _detect_media_type(file.filename, file.content_type)
+
+    max_bytes = MAX_DOCUMENT_SIZE_BYTES if media_type == MediaType.DOCUMENT else MAX_MEDIA_SIZE_BYTES
+    size_label = "100MB" if media_type == MediaType.DOCUMENT else "2GB"
+
     os.makedirs(settings.UPLOADS_DIR, exist_ok=True)
     file_location = os.path.join(settings.UPLOADS_DIR, f"{media_id}_{file.filename}")
-    
-    with open(file_location, "wb") as f:
-        content = await file.read()
-        f.write(content)
+
+    total_bytes = 0
+    try:
+        with open(file_location, "wb") as f:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            f"{item_title} exceeds the upload safety limit ({size_label}). "
+                            f"File is {total_bytes / (1024 * 1024):.1f} MB. "
+                            "Split the file into smaller parts and upload again."
+                        )
+                    )
+                f.write(chunk)
+    except HTTPException:
+        if os.path.exists(file_location):
+            try:
+                os.remove(file_location)
+            except OSError:
+                pass
+        raise
 
     media_item = MediaItem(
         id=media_id,
         workspace_id=workspace_id,
         title=item_title,
         file_path=file_location,
-        media_type=MediaType.VIDEO,
-        file_size_bytes=len(content),
+        media_type=media_type,
+        file_size_bytes=total_bytes,
         status=ProcessingStatus.UPLOADED
     )
     media_repository.upsert(media_item)
@@ -72,16 +136,22 @@ async def upload_media(
     # Enqueue job in persistent SQLite ingestion worker
     from app.main import persistent_ingestion_worker
     if persistent_ingestion_worker:
-        persistent_ingestion_worker.enqueue_media(media_id, workspace_id, file_location)
+        persistent_ingestion_worker.enqueue_media(
+            media_id, workspace_id, file_location,
+            media_type=media_type.value,
+            file_format=_file_format(file.filename)
+        )
     else:
         async def trigger_event():
             await event_bus.publish(DomainEvent(
-                event_type="MediaUploadedEvent",
+                event_type="DocumentUploadedEvent" if media_type == MediaType.DOCUMENT else "MediaUploadedEvent",
                 aggregate_id=media_id,
                 payload={
                     "media_id": media_id,
                     "workspace_id": workspace_id,
-                    "file_path": file_location
+                    "file_path": file_location,
+                    "file_format": _file_format(file.filename),
+                    "media_type": media_type.value
                 }
             ))
         background_tasks.add_task(trigger_event)
@@ -181,6 +251,45 @@ def get_transcript(media_id: str):
         full_text=full_text,
         segments=segments
     )
+
+class DocumentPageDTO(BaseModel):
+    page_number: int
+    text: str
+    page_type: str
+    section_title: Optional[str] = None
+
+class DocumentPagesResponse(BaseModel):
+    media_id: str
+    total_pages: int
+    pages: List[DocumentPageDTO]
+
+@router.get("/media/{media_id}/pages", response_model=DocumentPagesResponse)
+def get_document_pages(media_id: str):
+    """Fetch parsed document page sections for a document media item."""
+    pages = media_repository.get_pages(media_id)
+    return DocumentPagesResponse(
+        media_id=media_id,
+        total_pages=len(pages),
+        pages=pages
+    )
+
+@router.get("/media/workspace/{workspace_id}", response_model=List[MediaListResponse])
+def list_workspace_media(workspace_id: str):
+    """List all media items (video/audio/document) in a workspace."""
+    items = media_repository.list_by_workspace(workspace_id)
+    return [
+        MediaListResponse(
+            id=item.id,
+            workspace_id=item.workspace_id,
+            title=item.title,
+            media_type=item.media_type.value,
+            file_size_bytes=item.file_size_bytes,
+            duration_seconds=item.duration_seconds,
+            status=item.status.value,
+            created_at=item.created_at.isoformat() if item.created_at else None,
+        )
+        for item in items
+    ]
 
 @router.get("/media/{media_id}/file")
 def get_media_file(media_id: str):

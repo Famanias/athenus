@@ -122,6 +122,27 @@ async def on_chunks_indexed(event: DomainEvent, repo: MediaRepository, progress:
         status="processing"
     )
 
+async def on_document_parsed(event: DomainEvent, repo: MediaRepository, progress: ProgressStore) -> None:
+    document_id = event.aggregate_id
+    workspace_id = event.payload.get("workspace_id", "default")
+    pages = event.payload.get("pages", [])
+    repo.save_pages(document_id, workspace_id, pages)
+    progress.record_stage_progress(
+        media_id=document_id,
+        stage="document_parsing",
+        progress=100,
+        message="Document parsed successfully.",
+        status="processing"
+    )
+    telemetry.record_progress(
+        media_id=document_id,
+        workspace_id=workspace_id,
+        stage="document_parsing",
+        progress=100,
+        message="Document parsed successfully.",
+        status="processing"
+    )
+
 async def on_processing_failed(event: DomainEvent, repo: MediaRepository, progress: ProgressStore) -> None:
     media_id = event.aggregate_id
     workspace_id = event.payload.get("workspace_id", "default")

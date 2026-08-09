@@ -63,6 +63,17 @@ try:
         end_time: float
         text: str
 
+    class DocumentPageTable(SQLModel, table=True):
+        __tablename__ = "document_pages"
+        id: Optional[int] = Field(default=None, primary_key=True)
+        media_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        page_number: int
+        text: str
+        page_type: str = "text"
+        section_title: Optional[str] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
     class ChatSessionTable(SQLModel, table=True):
         __tablename__ = "chat_sessions"
         id: str = Field(primary_key=True)
@@ -339,6 +350,17 @@ except ImportError:
         start_time = Column(Float, nullable=False)
         end_time = Column(Float, nullable=False)
         text = Column(Text, nullable=False)
+
+    class DocumentPageTable(Base):
+        __tablename__ = "document_pages"
+        id = Column(Integer, primary_key=True, autoincrement=True)
+        media_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        page_number = Column(Integer, nullable=False)
+        text = Column(Text, nullable=False)
+        page_type = Column(String, default="text")
+        section_title = Column(String, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
 
     class ChatSessionTable(Base):
         __tablename__ = "chat_sessions"

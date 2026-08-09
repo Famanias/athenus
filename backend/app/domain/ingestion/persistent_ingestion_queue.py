@@ -30,7 +30,8 @@ class PersistentIngestionWorker:
         self.event_bus.subscribe("ConceptGraphUpdatedEvent", self._handle_job_completed)
         self.event_bus.subscribe("ProcessingFailedEvent", self._handle_job_failed)
 
-    def enqueue_media(self, media_id: str, workspace_id: str, file_path: str) -> dict:
+    def enqueue_media(self, media_id: str, workspace_id: str, file_path: str,
+                      media_type: str = "video", file_format: str = "mp4") -> dict:
         """Create or update a persistent ingestion job row in SQLite."""
         if not engine or not Session:
             return {"job_id": f"ingestion_{media_id}", "status": "queued"}
@@ -90,7 +91,7 @@ class PersistentIngestionWorker:
             )
 
             # Fetch media item file path from DB
-            file_path = self._get_media_file_path(media_id)
+            file_path, media_type, file_format = self._get_media_file_details(media_id)
             if not file_path:
                 self._update_job_status(
                     job_id=job_id,
@@ -99,6 +100,29 @@ class PersistentIngestionWorker:
                     progress=0,
                     message="Media file not found on disk.",
                     error_message="Missing file path.",
+                )
+                return
+
+            # Route documents to the AnyDoc parsing pipeline, others to ASR/transcription
+            if media_type == "document":
+                self._update_job_status(
+                    job_id=job_id,
+                    status="processing",
+                    stage="document_parsing",
+                    progress=5,
+                    message="Queued for document parsing (AnyDoc)...",
+                )
+                await self.event_bus.publish(
+                    DomainEvent(
+                        event_type="DocumentUploadedEvent",
+                        aggregate_id=media_id,
+                        payload={
+                            "media_id": media_id,
+                            "workspace_id": workspace_id,
+                            "file_path": file_path,
+                            "file_format": file_format or "pdf",
+                        },
+                    )
                 )
                 return
 
@@ -111,6 +135,7 @@ class PersistentIngestionWorker:
                         "media_id": media_id,
                         "workspace_id": workspace_id,
                         "file_path": file_path,
+                        "media_type": media_type or "video",
                     },
                 )
             )
@@ -196,18 +221,19 @@ class PersistentIngestionWorker:
         except Exception:
             pass
 
-    def _get_media_file_path(self, media_id: str) -> Optional[str]:
+    def _get_media_file_details(self, media_id: str):
+        """Return (file_path, media_type, file_format) for a media item."""
         if not engine or not Session:
-            return None
+            return None, None, None
         try:
             from app.infrastructure.db.models import MediaItemTable
             with Session(engine) as session:
                 item = session.get(MediaItemTable, media_id)
                 if item:
-                    return item.file_path
+                    return item.file_path, item.media_type, None
         except Exception:
             pass
-        return None
+        return None, None, None
 
     def boot_recovery(self) -> None:
         """Recover stale or stranded queued jobs on server boot."""
