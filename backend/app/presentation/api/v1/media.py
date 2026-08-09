@@ -96,9 +96,9 @@ async def upload_media(
     workspace_service.add_media_to_workspace(workspace_id, media_id)
 
     # Enqueue job in persistent SQLite ingestion worker
-    from app.main import persistent_ingestion_worker
-    if persistent_ingestion_worker:
-        persistent_ingestion_worker.enqueue_media(media_id, workspace_id, file_location)
+    import app.main
+    if app.main.persistent_ingestion_worker:
+        app.main.persistent_ingestion_worker.enqueue_media(media_id, workspace_id, file_location)
     else:
         event_name = "DocumentUploadedEvent" if is_doc else "MediaUploadedEvent"
         async def trigger_event():
