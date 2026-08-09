@@ -277,10 +277,17 @@ export const useAppStore = create<AppState>()((...args) => {
       set({
         activeWorkspaceId: targetWorkspaceId,
         activeMediaId: null,
+        activeDocumentId: null,
+        activeSourceType: 'video',
+        currentPage: null,
+        targetPage: null,
         context: {
           workspaceId: targetWorkspaceId,
           sessionId: null,
           mediaId: null,
+          documentId: null,
+          sourceType: 'video',
+          currentPage: null,
         },
       });
       // 5. Mark as lazy draft session until history loads

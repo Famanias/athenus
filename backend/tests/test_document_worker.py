@@ -161,3 +161,54 @@ def test_document_worker_failure_handling():
                 os.remove(temp_path)
 
     asyncio.run(_run())
+
+
+def test_document_worker_rejects_over_cap_document_during_validation():
+    async def _run():
+        bus = EventBus()
+        parser = MockDocumentParser(has_scanned=False)
+        ocr = MockOCRAdapter()
+        worker = DocumentWorker(event_bus=bus, doc_parser=parser, ocr_capability=ocr)
+
+        validation_failed_events = []
+        processing_failed_events = []
+
+        async def _capture_validation_failed(event: DomainEvent):
+            validation_failed_events.append(event)
+
+        async def _capture_processing_failed(event: DomainEvent):
+            processing_failed_events.append(event)
+
+        bus.subscribe("DocumentValidationFailedEvent", _capture_validation_failed)
+        bus.subscribe("ProcessingFailedEvent", _capture_processing_failed)
+
+        # Craft a fake over-page-count PDF (500 > 200 page cap).
+        pdf = (
+            "%PDF-1.4\n"
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            "2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 500 >>\nendobj\n"
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n"
+            "trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+        )
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".pdf") as f:
+            f.write(pdf)
+            temp_path = f.name
+
+        try:
+            upload_event = DomainEvent(
+                event_type="DocumentUploadedEvent",
+                aggregate_id="doc_overcap",
+                payload={"file_path": temp_path, "workspace_id": "ws_default", "file_format": "pdf"},
+            )
+            await bus.publish(upload_event)
+
+            assert len(validation_failed_events) == 1
+            assert validation_failed_events[0].payload["stage"] == "validation"
+            assert "page count" in validation_failed_events[0].payload["error"].lower()
+            assert len(processing_failed_events) == 1
+            assert processing_failed_events[0].payload["stage"] == "validation"
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    asyncio.run(_run())

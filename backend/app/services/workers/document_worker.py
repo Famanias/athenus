@@ -7,6 +7,9 @@ from app.domain.ai.capabilities import (
     IOCRCapability,
     OCRRequest,
 )
+from app.domain.media.document_validation import (
+    validate_document_file,
+)
 from app.infrastructure.adapters.anydoc_adapter import AnyDocDocumentParsingAdapter
 from app.infrastructure.adapters.ocr_adapter import RapidOCROCRAdapter
 from app.infrastructure.events.event_bus import DomainEvent, EventBus
@@ -40,6 +43,21 @@ class DocumentWorker:
 
         current_stage = "document_parsing"
         try:
+            # 0. Enforce ingestion guardrails (ADR 0021 §4) during the validation stage.
+            #    Over-cap documents (100MB / 200 pages / zip-bomb) are hard-rejected and
+            #    never reach the parser, preventing corrupt partial chunk states.
+            validation_result = validate_document_file(
+                file_path=file_path,
+                file_format=file_format,
+            )
+            if not validation_result.valid:
+                await self._emit_validation_failure(
+                    document_id=document_id,
+                    workspace_id=workspace_id,
+                    message=validation_result.message,
+                )
+                return
+
             # 1. Emit ProcessingStartedEvent
             await self.event_bus.publish(
                 DomainEvent(
@@ -158,3 +176,41 @@ class DocumentWorker:
                     },
                 )
             )
+
+    async def _emit_validation_failure(
+        self,
+        document_id: str,
+        workspace_id: str,
+        message: str,
+    ) -> None:
+        """Emit validation-failure events for over-cap documents.
+
+        Per ADR 0021 §4, the job must land with ``status="failed"`` and
+        ``stage="validation"`` so the UI can present an actionable prompt to split
+        the file before re-uploading.
+        """
+        err_msg = message.strip() or "Document failed validation."
+        await self.event_bus.publish(
+            DomainEvent(
+                event_type="DocumentValidationFailedEvent",
+                aggregate_id=document_id,
+                payload={
+                    "document_id": document_id,
+                    "workspace_id": workspace_id,
+                    "stage": "validation",
+                    "error": err_msg,
+                },
+            )
+        )
+        await self.event_bus.publish(
+            DomainEvent(
+                event_type="ProcessingFailedEvent",
+                aggregate_id=document_id,
+                payload={
+                    "media_id": document_id,
+                    "workspace_id": workspace_id,
+                    "stage": "validation",
+                    "error": err_msg,
+                },
+            )
+        )

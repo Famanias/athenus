@@ -20,10 +20,12 @@ new backend capabilities, phase by phase.
 
 | Phase | Objective | Status | Verification |
 | :--- | :--- | :--- | :--- |
-| **1** | Domain Types, API Client Contracts & State Foundations | Γ£à Complete | `npx tsc --noEmit` clean |
-| **2** | Ingestion UI & Multi-Format File Upload Support | Γ£à Complete | `npx tsc --noEmit` clean |
-| **3** | Generalized Citation Component & Page-Aware Chat Queries | Γ£à Complete | `npx tsc --noEmit` clean |
-| **4** | Document Viewer Integration & End-to-End Verification | Γ£à Complete | `npm run build` passes |
+| **1** | Domain Types, API Client Contracts & State Foundations | ✅ Complete | `npx tsc --noEmit` clean |
+| **2** | Ingestion UI & Multi-Format File Upload Support | ✅ Complete | `npx tsc --noEmit` clean |
+| **3** | Generalized Citation Component & Page-Aware Chat Queries | ✅ Complete | `npx tsc --noEmit` clean |
+| **4** | Document Viewer Integration & End-to-End Verification | ✅ Complete | `npm run build` passes |
+| **Phase 2 (Backend)** | Ingestion Validation Guardrails (100MB / 200-page / zip-bomb) | ✅ Complete | `pytest` 12 passed (new tests); full suite 151 passed / 2 pre-existing |
+| **Phase 5 (Frontend)** | DocumentViewer ↔ Pages API Wiring | ✅ Complete | `npx tsc --noEmit` clean |
 
 ---
 
@@ -634,6 +636,158 @@ frontend UI (frontend stepper/reader behavior is out of scope for this phase).
 
 **QA Verdict**
 - [ ] **PASS** (All 10 tests passed cleanly)
+- [ ] **PASS WITH ISSUES** (Minor non-blocking issues noted)
+- [ ] **FAILED** (Critical functionality broken)
+
+**QA Inspector Notes & Observations:**
+```text
+[Record any manual test observations, latency timings, or edge-case findings here]
+```
+
+---
+
+# Phase 2 (Backend) — Ingestion Validation Guardrails
+
+## Implementation Summary
+
+### Goal
+Enforce the **comprehensive ingestion guardrails** mandated by
+[ADR 0021 §4](file:///e:/repos/athenus/docs/adr/0021-generalized-document-pdf-ingestion-architecture.md):
+documents exceeding the safety caps are **hard-rejected during the `validation` stage** with
+`status: "failed"`, `stage: "validation"`, and an actionable error message — never partially
+ingested. The frontend already anticipates a `validation` stage and renders it in the stepper.
+
+### Files Changed
+
+| File | Change |
+| :--- | :--- |
+| `backend/app/domain/media/document_validation.py` | **[NEW]** Pure-domain validation logic: file-size cap (100MB), PDF page-count cap (200) via `/Count` regex, zip-decompression-bomb ratio check (`>100:1` and `>50MB` uncompressed) for `.docx/.pptx/.xlsx/.epub/.odt/.ods/.odp`. |
+| `backend/app/services/workers/document_worker.py` | **[MODIFY]** Runs `validate_document_file()` before parsing; on rejection emits `DocumentValidationFailedEvent` + `ProcessingFailedEvent` with `stage="validation"` and returns (parser never runs). |
+| `backend/app/domain/ingestion/persistent_ingestion_queue.py` | **[MODIFY]** Document jobs enter `stage="validation"` when enqueued; `_handle_job_failed` now surfaces the event's `stage` (`failed_stage`) instead of hardcoding `"failed"`. |
+| `backend/tests/test_document_validation.py` | **[NEW]** Unit tests for all guardrail branches. |
+| `backend/tests/test_document_worker.py` | **[MODIFY]** Added `test_document_worker_rejects_over_cap_document_during_validation`. |
+
+### Document Validation Data Flow
+
+1. Document upload → queue routes with `stage="validation"` (`PersistentIngestionWorker.process_next_job`).
+2. `DocumentUploadedEvent` → `DocumentWorker.handle_document_uploaded`.
+3. `validate_document_file(file_path, file_format)` checks (in order): file existence → size cap →
+   zip-bomb (zip containers) → page count (PDF).
+4. **Rejected**: emits `DocumentValidationFailedEvent` + `ProcessingFailedEvent(stage="validation")`
+   → job lands `status="failed"`, `stage="validation"`, with the explicit safety-limit message.
+5. **Accepted**: proceeds to `document_parsing` (AnyDoc) as in Phase 1.
+
+### Verification Performed
+- `python -m pytest tests/test_document_validation.py tests/test_document_worker.py -q` →
+  **12 passed**.
+- `python -m pytest tests/ -q` → **151 passed, 2 failed** (both failures pre-existing; require
+  local Ollama models, unrelated to this phase).
+- `npx tsc --noEmit` in `frontend/` passes.
+
+## Manual QA Test Script (Backend Phase 2)
+
+### Prerequisites
+- Backend + Ollama containers running: `docker compose up -d --build backend ollama`
+- A >200-page PDF (or a crafted over-cap PDF), a >100MB file, and a valid 2–5 page text PDF.
+- Backend logs tailed: `docker compose logs -f backend`
+- SQLite inspection: `sqlite3 ./data/athenus.db` on the host after backend startup.
+
+### Scope Note
+These cases verify only the **Phase 2 validation guardrail** behaviors: over-page-count rejection,
+job `stage="validation"`, and the surfaced `failed_stage`. Valid-document flows are unchanged from
+Phase 1 (already covered above).
+
+### Test Cases
+
+| # | Test | Steps | Expected Behaviour | Pass/Fail |
+| :-: | :--- | :--- | :--- | :-: |
+| **1** | **Over-Page-Count PDF Rejection** | 1. Upload a PDF with >200 pages (e.g. a 250-page report).<br>2. Watch logs for `DocumentUploadedEvent` → `DocumentValidationFailedEvent`.<br>3. Query the job row. | Job has `status='failed'` and `stage='validation'`; `error_message` contains `page count`; **no** `DocumentParsedEvent`, **no** rows in `document_pages`. | ☐ |
+| **2** | **Job Stage During Validation** | 1. Upload a large-but-valid PDF.<br>2. Immediately query the job row / `GET /api/v1/media/workspace/{id}/jobs`. | While validation is pending the job reports `stage='validation'`; on success it advances to `document_parsing`. | ☐ |
+| **3** | **Zip-Bomb Container Rejection** | 1. Upload a `.docx` crafted with a compression ratio >100:1 and >50MB uncompressed payload.<br>2. Watch logs / query job row. | Job fails at `stage='validation'` with a message containing `bomb` or `decompression`; file is never parsed. | ☐ |
+| **4** | **Corrupt Container Rejection** | 1. Upload a `.docx` that is not a valid zip (corrupt header).<br>2. Watch logs. | `DocumentValidationFailedEvent` emitted; message contains `corrupt`; job `status='failed'`, `stage='validation'`. | ☐ |
+| **5** | **Valid Document Regression** | 1. Upload a normal 2–5 page text PDF.<br>2. Watch logs. | Passes validation; proceeds to `document_parsing` → `DocumentParsedEvent` → pages persisted (identical to Phase 1 Test 2). | ☐ |
+| **6** | **Non-PDF/Non-Zip Pass-Through** | 1. Upload a small `.md` or `.txt` file.<br>2. Watch logs. | Validation passes (only size checked); document parses and completes normally. | ☐ |
+| **7** | **Failed-Stage Surfacing** | 1. Trigger any validation rejection (Tests 1, 3, or 4).<br>2. Query `GET /api/v1/media/workspace/{id}/jobs` for that media. | Response `stage` is `"validation"` (not `"failed"`) and `status` is `"failed"`, with the safety-limit `error_message`. | ☐ |
+
+### Final QA Checklist
+
+- **Total Tests Executed**: `7`
+- **Passed**: `____`
+- **Failed**: `____`
+- **Blocked**: `____`
+
+**QA Verdict**
+- [ ] **PASS** (All 7 tests passed cleanly)
+- [ ] **PASS WITH ISSUES** (Minor non-blocking issues noted)
+- [ ] **FAILED** (Critical functionality broken)
+
+**QA Inspector Notes & Observations:**
+```text
+[Record any manual test observations, latency timings, or edge-case findings here]
+```
+
+---
+
+# Phase 5 (Frontend) — DocumentViewer ↔ Pages API Wiring
+
+## Implementation Summary
+
+### Goal
+Close the end-to-end gap left by ADR 0022: the backend `GET /api/v1/media/{id}/pages` endpoint
+existed but the frontend never consumed it. `DocumentViewer` was rendered with no props and
+`activeDocumentId` was only set on citation clicks — never on upload — so the reader always showed
+placeholder text with `totalPages=1`. This phase wires the viewer to real page content.
+
+### Files Changed
+
+| File | Change |
+| :--- | :--- |
+| `frontend/src/services/mediaService.ts` | **[MODIFY]** Added `BackendDocumentPageDTO`, `BackendDocumentPagesDTO`, and `getDocumentPages(mediaId)` → `GET /api/v1/media/{id}/pages`. |
+| `frontend/src/features/ingestion/useIngestion.ts` | **[MODIFY]** On document upload, also calls `setActiveDocumentId(data.media_id)` (alongside `setActiveMediaId` / `setActiveSourceType('pdf')`). |
+| `frontend/src/components/DocumentViewer.tsx` | **[MODIFY]** `useEffect` on `activeDocumentId` fetches pages; maps backend DTO → local `PageSection`; feeds `totalPages`/`pageSections`; graceful placeholder on failure/empty; citation-jump + highlight logic untouched. |
+
+### DocumentViewer Fetch Flow
+
+1. `activeDocumentId` set (document upload **or** `📄 Page X` citation click).
+2. `getDocumentPages(activeDocumentId)` → `{ media_id, total_pages, pages[] }`.
+3. Pages mapped to `{ id: 'p_N', pageNumber, title: section_title ?? 'Page N', body: text }`.
+4. `totalPages` / `pageSections` updated → reader renders real page count + body text.
+5. On failure or empty response the reader keeps its placeholder state (with a fetch-failed hint).
+
+### Verification Performed
+- `npx tsc --noEmit` in `frontend/` passes.
+- All existing backend tests still pass (see Phase 2 verification).
+
+## Manual QA Test Script (Frontend Phase 5)
+
+### Prerequisites
+- Full stack running: `docker compose up -d --build backend ollama` + `npx tauri dev`
+  (or `npm run dev` for the web UI at `http://localhost:3000`).
+- A 2–5 page text PDF available locally.
+
+### Scope Note
+These cases verify the **end-to-end document reading flow**: upload → parse → real page content in
+the Document Reader, plus citation deep-linking. Video-mode regression is covered by Test 5.
+
+### Test Cases
+
+| # | Test | Steps | Expected Behaviour | Pass/Fail |
+| :-: | :--- | :--- | :--- | :-: |
+| **1** | **Upload → Real Page Content** | 1. Switch to a workspace, upload a 2–5 page text PDF.<br>2. Wait for ingestion to complete (stepper reaches indexing).<br>3. Observe the Document Reader. | The reader shows the actual page count (`Page N of M`, M > 1) and renders the real extracted body text for each page when navigating with Prev/Next. | ☐ |
+| **2** | **Page Navigation** | 1. After a successful PDF upload, click `Next` / `Prev`.<br>2. Use the jump input (e.g. jump to page 3). | Navigation moves between real pages; the current page's text updates; footer shows correct remaining-page count. | ☐ |
+| **3** | **Citation Deep-Link Jump** | 1. After ingestion + vector indexing, ask chat a question about the PDF.<br>2. Click a `📄 Page X` citation badge. | Workspace switches to the reader, navigates to the cited page, and shows a 2.5s accent highlight ring on that page's content. | ☐ |
+| **4** | **Fetch-Failure Graceful Fallback** | 1. Stop the backend (or upload then immediately open a document whose parse is incomplete).<br>2. Observe the reader. | Reader does not crash; shows the placeholder with the fetch-failed message; navigation still functions. | ☐ |
+| **5** | **Video Mode Regression** | 1. Upload a small `.mp4` and play it.<br>2. Click a `⏱ MM:SS` citation badge. | Video player, seeking, and timestamp-citation behavior are unchanged (no document-mode artifacts). | ☐ |
+
+### Final QA Checklist
+
+- **Total Tests Executed**: `5`
+- **Passed**: `____`
+- **Failed**: `____`
+- **Blocked**: `____`
+
+**QA Verdict**
+- [ ] **PASS** (All 5 tests passed cleanly)
 - [ ] **PASS WITH ISSUES** (Minor non-blocking issues noted)
 - [ ] **FAILED** (Critical functionality broken)
 

@@ -59,6 +59,7 @@ export function useIngestion() {
     activeWorkspaceId,
     activeMediaId,
     setActiveMediaId,
+    setActiveDocumentId,
     setActiveSourceType,
     setActiveView,
     jobs,
@@ -233,6 +234,9 @@ export function useIngestion() {
       const jobId = `ingestion_${data.media_id}`;
 
       setActiveMediaId(data.media_id);
+      if (isDocumentFile) {
+        setActiveDocumentId(data.media_id);
+      }
       setActiveJobId(jobId);
       setInspectedJobId(jobId);
 

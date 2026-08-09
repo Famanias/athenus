@@ -108,9 +108,9 @@ class PersistentIngestionWorker:
                 self._update_job_status(
                     job_id=job_id,
                     status="processing",
-                    stage="document_parsing",
+                    stage="validation",
                     progress=5,
-                    message="Queued for document parsing (AnyDoc)...",
+                    message="Validating document against safety limits (100MB / 200 pages)...",
                 )
                 await self.event_bus.publish(
                     DomainEvent(
@@ -158,14 +158,15 @@ class PersistentIngestionWorker:
     async def _handle_job_failed(self, event: DomainEvent) -> None:
         media_id = event.payload.get("media_id") or event.aggregate_id
         error = event.payload.get("error", "Ingestion processing failed.")
+        failed_stage = event.payload.get("stage", "failed")
         if media_id:
             job_id = f"ingestion_{media_id}"
             self._update_job_status(
                 job_id=job_id,
                 status="failed",
-                stage="failed",
+                stage=failed_stage,
                 progress=0,
-                message="Ingestion processing failed.",
+                message=f"Ingestion failed at '{failed_stage}' stage.",
                 error_message=error,
             )
         # Process next video in queue

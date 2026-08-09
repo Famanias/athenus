@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { Button } from '@/components/ui/Button';
+import { getDocumentPages } from '@/services/mediaService';
 
 // DocumentViewer — clean, responsive reader for PDF/Markdown document content.
 //
@@ -12,6 +13,8 @@ import { Button } from '@/components/ui/Button';
 //   (triggered by clicking a `📄 Page X` citation badge in chat)
 // - Highlights the target section briefly after navigation
 // - Reads document metadata from `useAppStore` (activeDocumentId, currentPage, targetPage)
+// - Fetches real page content from `GET /api/v1/media/{id}/pages` whenever
+//   `activeDocumentId` changes, falling back to placeholders on error/empty.
 
 interface PageSection {
   id: string;
@@ -48,9 +51,57 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   const [highlightPage, setHighlightPage] = useState<number | null>(null);
   const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const safeTotalPages = useMemo(
-    () => (totalPages && totalPages > 0 ? totalPages : DEFAULT_TOTAL_PAGES),
-    [totalPages]
+  // Fetched page content (overrides placeholder state when the backend returns data).
+  const [fetchedTotalPages, setFetchedTotalPages] = useState<number | null>(null);
+  const [fetchedSections, setFetchedSections] = useState<PageSection[] | null>(null);
+  const [fetchFailed, setFetchFailed] = useState(false);
+
+  // Load document page content whenever the active document changes.
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!activeDocumentId) {
+      setFetchedTotalPages(null);
+      setFetchedSections(null);
+      setFetchFailed(false);
+      return;
+    }
+
+    setFetchFailed(false);
+    setFetchedSections(null);
+    setFetchedTotalPages(null);
+
+    getDocumentPages(activeDocumentId)
+      .then((data) => {
+        if (cancelled) return;
+        const sections: PageSection[] = (data.pages ?? []).map((p) => ({
+          id: `p_${p.page_number}`,
+          pageNumber: p.page_number,
+          title: p.section_title || `Page ${p.page_number}`,
+          body: p.text,
+        }));
+        setFetchedSections(sections);
+        setFetchedTotalPages(data.total_pages > 0 ? data.total_pages : sections.length);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFetchFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDocumentId]);
+
+  const safeTotalPages = useMemo(() => {
+    const effective =
+      fetchedTotalPages ?? (totalPages && totalPages > 0 ? totalPages : DEFAULT_TOTAL_PAGES);
+    return effective > 0 ? effective : DEFAULT_TOTAL_PAGES;
+  }, [totalPages, fetchedTotalPages]);
+
+  const effectiveSections = useMemo(
+    () => (fetchedSections && fetchedSections.length > 0 ? fetchedSections : pageSections),
+    [fetchedSections, pageSections]
   );
 
   const activePage = useMemo<number>(() => {
@@ -113,7 +164,7 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   };
 
   const currentSection =
-    pageSections?.find((p) => p.pageNumber === activePage) ?? null;
+    effectiveSections?.find((p) => p.pageNumber === activePage) ?? null;
 
   return (
     <div className="flex-1 flex flex-col bg-surface-container-lowest overflow-hidden h-full">
@@ -210,9 +261,15 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
               Viewing Page {activePage} of {safeTotalPages}
             </h4>
             <p className="text-xs text-on-surface-variant max-w-sm mx-auto">
-              Document content for this page is not yet loaded. Navigate to other
-              pages, or click a <code className="font-mono">📄 Page X</code>{' '}
-              citation badge in chat to jump directly to a cited page.
+              {fetchFailed
+                ? 'Page content could not be loaded from the backend. The document may still be processing — check the ingestion pipeline.'
+                : 'Document content for this page is not yet available. Navigate to other pages, or click a '}
+              {!fetchFailed && (
+                <>
+                  <code className="font-mono">📄 Page X</code> citation badge in
+                  chat to jump directly to a cited page.
+                </>
+              )}
             </p>
           </div>
         )}
