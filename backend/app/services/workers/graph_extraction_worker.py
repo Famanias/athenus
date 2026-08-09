@@ -142,6 +142,16 @@ class GraphExtractionWorker:
                     media_id, workspace_id, "ready", 100, stage="ready",
                     message="No transcript chunks available for graph extraction.",
                 )
+                await self.event_bus.publish(DomainEvent(
+                    event_type="ConceptGraphUpdatedEvent",
+                    aggregate_id=workspace_id,
+                    payload={
+                        "workspace_id": workspace_id,
+                        "media_id": media_id,
+                        "concept_count": 0,
+                        "relation_count": 0,
+                    },
+                ))
                 return
 
             self._update_job(media_id, workspace_id, "generating", 35, stage="llm_generation", message="Running LLM concept extraction...")
