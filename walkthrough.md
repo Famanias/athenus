@@ -65,3 +65,29 @@ Chronological record of implementation and manual QA verification executed again
 | :--- | :--- | :--- |
 | **Clean Minimal Document UI Test** | 1. Open Athenus application.<br>2. Open an ingested PDF document in the workspace viewer. | The duplicate Athenus custom toolbars (`← Prev`, `Next →`, `Jump…`, bottom `Fit`/`+`/`-` buttons, footer `Document Reader` bar) are completely removed.<br>The document viewer window is clean and minimal. |
 | **Native Controls Verification** | 1. Interact with the rendered PDF document inside the viewer window. | The native document viewer controls (page navigation, text search, zoom, print, download, table of contents) function normally inside the embedded viewer. |
+
+---
+
+# Milestone 2 — RAG Reliability
+
+## Phase 2.1 — Source Attribution Integrity & Model Knowledge Answer Strategy
+
+### Implementation Summary
+- **Objective**: Ensure source attribution integrity. When no relevant uploaded source is retrieved for a query, the AI must still answer using its general/pretrained model knowledge, state briefly that no relevant uploaded information was found, and provide **zero fabricated citations or fake sources**.
+- **Root Cause Addressed**:
+  - In `MultiStageRetriever._assemble_prompt()`, when `reranked_chunks` was empty, `compressed_text` was empty. The prompt instructed the LLM: `"Answer the user's question using ONLY the provided multi-source context..."`. Local LLMs (Ollama) received an empty context block under strict RAG rules and collapsed into outputting repeating periods `....` or hallucinated fake citations.
+- **Key Code Changes**:
+  - Updated [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): When `has_context` is false, `_assemble_prompt` instructs the LLM: *"The user is asking a question, but no relevant matching passages were found in their uploaded files. State briefly at the beginning that no relevant information was found in their uploaded files, and then answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps."*
+  - Verified [`backend/app/application/services/workspace_intelligence.py`](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py): When `retrieved_chunks` is empty, `citations` array is `[]`, guaranteeing zero citation fabrication.
+- **Verification Results**:
+  - Backend pytest test suite (`python -m pytest`): Passed 20 / 20 tests in 3.18s.
+
+### Manual QA
+| Query | Relevant Uploaded Source? | Expected Behavior |
+| :--- | :--- | :--- |
+| **"What is quantum computing?"** | No | **Answers using model knowledge**, briefly states that no relevant uploaded information was found, and provides **no fabricated citations (`citations: []`)**. |
+| **"What is this lecture about?"** | Yes (video active) | Answers from the lecture and provides valid timestamp citations (`⏱ MM:SS`). |
+| **"What does my resume say about Python?"** | Yes (resume uploaded) | Answers from the resume and provides valid document citations (`📄 Page X`). |
+| **"Summarize all my uploaded files."** | Yes (multiple) | Searches across the user's uploaded knowledge and accurately cites applicable sources. |
+| **"What does page 123 say?"** | Page 123 doesn't exist | Explains that the requested source/page could not be found; does NOT fabricate Page 123. |
+| **General Conversation ("hi")** | No RAG needed | Answers normally with *"Hi."* without forcing unnecessary RAG citations. |

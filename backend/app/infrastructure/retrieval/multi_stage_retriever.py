@@ -239,6 +239,12 @@ Surrounding Spoken Transcript ({time_range_str}):
         if triples:
             kg_context = "\nKnowledge Graph Concepts & Relationships:\n" + "\n".join(f"- {t}" for t in triples) + "\n"
 
+        has_context = bool(context_text.strip() or active_context.strip() or kg_context.strip())
+        if not has_context:
+            return f"""You are Athenus AI, an intelligent learning assistant. Answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps.
+User Question: {query}
+Answer:"""
+
         return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context.
 {active_context}
 
@@ -247,4 +253,3 @@ Context:
 {kg_context}
 User Question: {query}
 Answer:"""
-
