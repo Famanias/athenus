@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import AsyncGenerator, Dict, List, Optional, Protocol
+from typing import Any, AsyncGenerator, Dict, List, Optional, Protocol
 
 @dataclass
 class TextGenerationRequest:
@@ -50,3 +50,32 @@ class IVisionCapability(Protocol):
 
 class IReasoningCapability(Protocol):
     async def evaluate_reasoning(self, premise: str, hypothesis: str) -> Dict[str, float]: ...
+
+@dataclass
+class DocumentPageDTO:
+    page_number: int
+    text: str
+    page_type: str = "text"  # text | scanned | image | mixed
+    section_title: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+@dataclass
+class DocumentParsingRequest:
+    file_path: str
+    file_format: Optional[str] = None
+    max_pages: int = 200
+    max_file_size_mb: float = 100.0
+
+@dataclass
+class DocumentParsingResponse:
+    markdown: str
+    pages: List[DocumentPageDTO]
+    file_format: str
+    total_pages: int
+    has_scanned_pages: bool = False
+    has_tables: bool = False
+    language_detected: str = "en"
+
+class IDocumentParsingCapability(Protocol):
+    async def parse_document(self, request: DocumentParsingRequest) -> DocumentParsingResponse: ...
+
