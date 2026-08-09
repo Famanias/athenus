@@ -157,7 +157,7 @@ class PersistentIngestionWorker:
                 status="completed",
                 stage="ready",
                 progress=100,
-                message="Video ingestion & Knowledge Graph extraction complete.",
+                message="Ingestion complete. Knowledge graph and vector index ready.",
             )
         # Process next video in queue
         asyncio.create_task(self.process_next_job())
