@@ -79,3 +79,25 @@ class DocumentParsingResponse:
 class IDocumentParsingCapability(Protocol):
     async def parse_document(self, request: DocumentParsingRequest) -> DocumentParsingResponse: ...
 
+@dataclass
+class OCRLineDTO:
+    text: str
+    confidence: float = 1.0
+    bbox: List[float] = field(default_factory=list)
+
+@dataclass
+class OCRRequest:
+    image_path: str
+    language: str = "en"
+    page_number: int = 1
+
+@dataclass
+class OCRResponse:
+    text: str
+    confidence: float = 1.0
+    lines: List[OCRLineDTO] = field(default_factory=list)
+
+class IOCRCapability(Protocol):
+    async def perform_ocr(self, request: OCRRequest) -> OCRResponse: ...
+
+
