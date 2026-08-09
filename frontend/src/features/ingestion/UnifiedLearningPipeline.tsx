@@ -93,20 +93,20 @@ export const UnifiedLearningPipeline: React.FC = () => {
           type="file"
           ref={fileInputRef}
           onChange={onFileChange}
-          accept="video/*,audio/*"
+          accept="video/*,audio/*,.pdf,.docx,.pptx,.xlsx,.epub,.md,.txt,application/pdf"
           className="hidden"
         />
         <span className="text-5xl block">📤</span>
         <div>
           <h4 className="font-bold text-sm text-on-surface">
-            Drag & Drop Video or Audio Files Here
+            Drag & Drop Video, Audio, or Document Files Here
           </h4>
           <p className="text-xs text-on-surface-variant mt-1">
-            Supports MP4, MKV, AVI, WAV, MP3 (Up to 2GB)
+            Supports MP4, MKV, MP3, PDF, DOCX, PPTX, XLSX, EPUB, TXT (Up to 100MB for docs, 2GB for video)
           </p>
         </div>
         <Button variant="primary" size="md">
-          {selectedFile ? `Selected: ${selectedFile.name}` : 'Select Local Media File'}
+          {selectedFile ? `Selected: ${selectedFile.name}` : 'Select Local File'}
         </Button>
       </div>
 
