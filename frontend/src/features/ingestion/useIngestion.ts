@@ -188,7 +188,7 @@ export function useIngestion() {
           progress: isCompleted ? 100 : isProcessing ? progress || 60 : 0,
         };
       });
-    } else if (stage === 'chunking' || stage === 'vector_indexing') {
+    } else if (stage === 'chunking') {
       return baseStages.map((s, idx) => {
         const isCompleted = idx < 2;
         const isProcessing = idx === 2;
@@ -197,6 +197,18 @@ export function useIngestion() {
           id: `${stageIdPrefix}${idx + 1}`,
           status: isCompleted ? 'completed' : isProcessing ? 'processing' : 'pending',
           progress: isCompleted ? 100 : isProcessing ? progress || 75 : 0,
+        };
+      });
+    } else if (stage === 'vector_indexing') {
+      const targetIdx = Math.min(3, stageCount - 1);
+      return baseStages.map((s, idx) => {
+        const isCompleted = idx < targetIdx;
+        const isProcessing = idx === targetIdx;
+        return {
+          ...s,
+          id: `${stageIdPrefix}${idx + 1}`,
+          status: isCompleted ? 'completed' : isProcessing ? 'processing' : 'pending',
+          progress: isCompleted ? 100 : isProcessing ? progress || 90 : 0,
         };
       });
     } else if (stage === 'graph_extraction' || stage === 'collect_context' || stage === 'llm_generation' || stage === 'validation') {
