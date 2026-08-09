@@ -20,7 +20,10 @@ class RetrievalContext:
     query: str
     workspace_id: str
     media_id: Optional[str] = None
+    document_id: Optional[str] = None
+    source_type: Optional[str] = None
     current_timestamp: Optional[float] = None
+    current_page: Optional[int] = None
     selected_text: Optional[str] = None
     rewritten_query: str = ""
     retrieved_chunks: List[Dict[str, Any]] = field(default_factory=list)
@@ -30,7 +33,7 @@ class RetrievalContext:
 
 
 class MultiStageRetriever:
-    """8-Stage Layered Retrieval Pipeline with Active Playback Context Extraction."""
+    """8-Stage Layered Retrieval Pipeline with Multi-Source Active Context Extraction."""
     
     def __init__(
         self,
@@ -49,22 +52,42 @@ class MultiStageRetriever:
         query: str,
         workspace_id: str,
         media_id: Optional[str] = None,
+        document_id: Optional[str] = None,
+        source_type: Optional[str] = None,
         current_timestamp: Optional[float] = None,
+        current_page: Optional[int] = None,
         selected_text: Optional[str] = None
     ) -> RetrievalContext:
         ctx = RetrievalContext(
             query=query,
             workspace_id=workspace_id,
             media_id=media_id,
+            document_id=document_id,
+            source_type=source_type,
             current_timestamp=current_timestamp,
+            current_page=current_page,
             selected_text=selected_text
         )
         
         # Stage 1: Query Rewrite & Expansion
-        ctx.rewritten_query = f"{query} (Context: educational video breakdown)"
+        ctx.rewritten_query = f"{query} (Context: educational materials breakdown)"
 
-        # Stage 2-3: Extract Active Video Playback Context from SQLite
-        playback_context_text, provenance = self._extract_timestamp_context(media_id, current_timestamp, selected_text)
+        # Stage 2-3: Extract Active Context (Video Timestamp OR PDF Document Page Window)
+        active_context_text = ""
+        provenance = None
+        if source_type == "pdf" or document_id:
+            active_context_text, provenance = self._extract_document_page_context(
+                document_id=document_id or media_id,
+                current_page=current_page,
+                selected_text=selected_text
+            )
+        elif media_id and current_timestamp is not None:
+            active_context_text, provenance = self._extract_timestamp_context(
+                media_id=media_id,
+                current_timestamp=current_timestamp,
+                selected_text=selected_text
+            )
+
         ctx.context_provenance = provenance
 
         # Stage 4: Knowledge Graph Traversal
@@ -78,7 +101,9 @@ class MultiStageRetriever:
             query_vector=query_vector,
             limit=10,
             filter_media_id=media_id,
-            filter_workspace_id=workspace_id
+            filter_workspace_id=workspace_id,
+            filter_source_type=source_type,
+            filter_document_id=document_id
         )
 
         dense_docs = [hit["payload"] for hit in dense_hits if "payload" in hit]
@@ -91,9 +116,33 @@ class MultiStageRetriever:
         # Stage 7: Context Compression
         compressed_text = self._compress_context(reranked_chunks)
 
-        # Stage 8: Grounded Prompt Assembly (incorporating active playback context)
-        ctx.assembled_prompt = self._assemble_prompt(query, compressed_text, ctx.graph_triples, playback_context_text)
+        # Stage 8: Grounded Prompt Assembly
+        ctx.assembled_prompt = self._assemble_prompt(query, compressed_text, ctx.graph_triples, active_context_text)
         return ctx
+
+    def _extract_document_page_context(
+        self,
+        document_id: Optional[str],
+        current_page: Optional[int],
+        selected_text: Optional[str]
+    ) -> tuple[str, Optional[Dict[str, Any]]]:
+        if not document_id or current_page is None:
+            return "", None
+
+        page_str = f"Page {current_page}"
+        selected_info = f"\nUser Selected Text:\n\"{selected_text}\"\n" if selected_text else ""
+        formatted_context = f"""
+[Active Document Context]
+Document ID: {document_id}
+Active Page: {page_str}
+{selected_info}"""
+
+        provenance = {
+            "document_id": document_id,
+            "current_page": current_page,
+            "selected_text": selected_text
+        }
+        return formatted_context, provenance
 
     def _extract_timestamp_context(
         self,
@@ -170,24 +219,32 @@ Surrounding Spoken Transcript ({time_range_str}):
     def _compress_context(self, chunks: List[Dict[str, Any]]) -> str:
         parts = []
         for c in chunks:
-            start_min = int(c.get("start_time", 0.0) // 60)
-            start_sec = int(c.get("start_time", 0.0) % 60)
-            end_min = int(c.get("end_time", 0.0) // 60)
-            end_sec = int(c.get("end_time", 0.0) % 60)
-            time_badge = f"[{start_min:02d}:{start_sec:02d} - {end_min:02d}:{end_sec:02d}]"
-            parts.append(f"{time_badge} {c.get('text', '')}")
+            source_type = c.get("source_type")
+            is_doc = source_type == "pdf" or "page_number" in c or (c.get("location") and c["location"].get("type") == "document")
+            if is_doc:
+                page_num = c.get("page_number") or (c.get("location") and c["location"].get("page")) or 1
+                sec = c.get("section_title") or (c.get("location") and c["location"].get("section")) or f"Page {page_num}"
+                badge = f"[Document Page {page_num} ({sec})]"
+            else:
+                start_min = int(c.get("start_time", 0.0) // 60)
+                start_sec = int(c.get("start_time", 0.0) % 60)
+                end_min = int(c.get("end_time", 0.0) // 60)
+                end_sec = int(c.get("end_time", 0.0) % 60)
+                badge = f"[{start_min:02d}:{start_sec:02d} - {end_min:02d}:{end_sec:02d}]"
+            parts.append(f"{badge} {c.get('text', '')}")
         return "\n\n".join(parts)
 
-    def _assemble_prompt(self, query: str, context_text: str, triples: List[str], playback_context: str = "") -> str:
+    def _assemble_prompt(self, query: str, context_text: str, triples: List[str], active_context: str = "") -> str:
         kg_context = ""
         if triples:
             kg_context = "\nKnowledge Graph Concepts & Relationships:\n" + "\n".join(f"- {t}" for t in triples) + "\n"
 
-        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided timestamped video context and knowledge graph relationships below. Always include clickable timestamp citations (e.g. [MM:SS - MM:SS]) matching the context.
-{playback_context}
+        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context.
+{active_context}
 
 Context:
 {context_text}
 {kg_context}
 User Question: {query}
 Answer:"""
+

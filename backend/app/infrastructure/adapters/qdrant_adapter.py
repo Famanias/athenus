@@ -19,7 +19,8 @@ class EmbeddedQdrantVectorStoreAdapter:
             # pyrefly: ignore [missing-import]
             from qdrant_client.models import Distance, VectorParams
 
-            os.makedirs(self.path, exist_ok=True)
+            if self.path != ":memory:":
+                os.makedirs(self.path, exist_ok=True)
 
             existing = self._shared_clients.get(self.path)
             if existing is not None:
@@ -27,7 +28,10 @@ class EmbeddedQdrantVectorStoreAdapter:
                 return
 
             try:
-                client = QdrantClient(path=self.path)
+                if self.path == ":memory:":
+                    client = QdrantClient(location=":memory:")
+                else:
+                    client = QdrantClient(path=self.path)
             except Exception:
                 # Disk storage lock conflict or path error — fallback to in-memory Qdrant client
                 client = QdrantClient(location=":memory:")
@@ -63,7 +67,9 @@ class EmbeddedQdrantVectorStoreAdapter:
         query_vector: List[float],
         limit: int = 5,
         filter_media_id: Optional[str] = None,
-        filter_workspace_id: Optional[str] = None
+        filter_workspace_id: Optional[str] = None,
+        filter_source_type: Optional[str] = None,
+        filter_document_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         if not self._client:
             results = []
@@ -72,6 +78,10 @@ class EmbeddedQdrantVectorStoreAdapter:
                 if filter_workspace_id and pay.get("workspace_id") != filter_workspace_id:
                     continue
                 if filter_media_id and pay.get("media_id") != filter_media_id:
+                    continue
+                if filter_source_type and pay.get("source_type") != filter_source_type:
+                    continue
+                if filter_document_id and (pay.get("document_id") != filter_document_id and pay.get("media_id") != filter_document_id):
                     continue
                 results.append({"id": item["id"], "score": 0.85, "payload": pay})
             return results[:limit]
@@ -88,6 +98,14 @@ class EmbeddedQdrantVectorStoreAdapter:
             must_conditions.append(
                 FieldCondition(key="media_id", match=MatchValue(value=filter_media_id))
             )
+        if filter_source_type:
+            must_conditions.append(
+                FieldCondition(key="source_type", match=MatchValue(value=filter_source_type))
+            )
+        if filter_document_id:
+            must_conditions.append(
+                FieldCondition(key="document_id", match=MatchValue(value=filter_document_id))
+            )
 
         query_filter = Filter(must=must_conditions) if must_conditions else None
 
@@ -101,3 +119,4 @@ class EmbeddedQdrantVectorStoreAdapter:
             {"id": str(hit.id), "score": hit.score, "payload": hit.payload}
             for hit in results.points
         ]
+

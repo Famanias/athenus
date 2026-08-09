@@ -1,10 +1,11 @@
-# Walkthrough — Milestone 2 & Milestone 3: Local Parsing, Document Worker & Chunker Pipeline
+# Walkthrough — Milestone 2, Milestone 3 & Milestone 4: Document Ingestion, Retrieval & Citation Pipeline
 
 This walkthrough documents the completed implementation of:
 - **Milestone 2, Phase 2.1**: `DocumentParsingPort` & `AnyDocDocumentParsingAdapter`
 - **Milestone 2, Phase 2.2**: `OCRPort` & `RapidOCROCRAdapter`
 - **Milestone 3, Phase 3.1**: `DocumentWorker` & Additive Document Event Infrastructure
 - **Milestone 3, Phase 3.2**: Chunker Generalization (`SourceContentUnit`) & `EmbeddingWorker` Document Ingestion
+- **Milestone 4, Phase 4.1**: Multi-Source Retriever (`MultiStageRetriever`) & Qdrant Filtering
 
 ---
 
@@ -108,13 +109,34 @@ This walkthrough documents the completed implementation of:
 
 ---
 
+## Phase 4.1 Implementation Overview (Retriever + Qdrant Filtering)
+
+### 1. Qdrant Vector Filtering ([qdrant_adapter.py](file:///e:/repos/athenus/backend/app/infrastructure/adapters/qdrant_adapter.py#L61-L100))
+- Extended `EmbeddedQdrantVectorStoreAdapter.search` to accept `filter_source_type` (`"pdf"` / `"video"`) and `filter_document_id`.
+- Added `FieldCondition` filtering rules for Qdrant vector queries and fallback memory searches.
+
+### 2. MultiStageRetriever Document Context & Badges ([multi_stage_retriever.py](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py#L47-L188))
+- Extended `RetrievalContext` to hold `document_id`, `source_type`, and `current_page`.
+- Added `_extract_document_page_context(document_id, current_page, selected_text)` to provide active document view context.
+- Extended `_compress_context` to format document page badges `[Document Page X (Section Title)]` alongside timestamp badges `[MM:SS - MM:SS]`.
+- Updated prompt assembly instructions to instruct LLMs to produce grounded citations for both video timestamps and document page numbers.
+
+### Phase 4.1 Manual Validation / QA Matrix
+
+| Test | How to Conduct the Test | Expected Behaviour |
+| :--- | :--- | :--- |
+| **1. Qdrant Document Filter Test** | Run `python -c "import asyncio; from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter; adapter = EmbeddedQdrantVectorStoreAdapter(path=':memory:'); asyncio.run(adapter.upsert(ids=['00000000-0000-0000-0000-000000000001'], vectors=[[0.1]*384], payloads=[{'chunk_id': 'doc_c1', 'document_id': 'doc_99', 'source_type': 'pdf', 'text': 'Proof text'}])); print(asyncio.run(adapter.search([0.1]*384, filter_document_id='doc_99', filter_source_type='pdf')))"` from `backend/`. | The search query returns only the payload matching `filter_document_id='doc_99'` and `filter_source_type='pdf'`. |
+| **2. MultiStageRetriever Document Retrieval Test** | Run `python -c "import asyncio; from app.domain.ai.service_bus import AIServiceBus; from app.domain.ai.model_registry import ModelRegistry; from app.domain.ai.provider_router import ProviderRouter; from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever; from tests.test_document_retrieval import MockEmbeddingCapability; reg = ModelRegistry(); router = ProviderRouter(reg); ai_bus = AIServiceBus(reg, router); ai_bus.register_embedding_adapter('sentence_transformers', MockEmbeddingCapability()); retriever = MultiStageRetriever(ai_bus); ctx = asyncio.run(retriever.execute_retrieval(query='What is on page 5?', workspace_id='ws_test', document_id='doc_101', source_type='pdf', current_page=5)); print('ASSEMBLED PROMPT CONTAINS PAGE CONTEXT:', '[Active Document Context]' in ctx.assembled_prompt)"` from `backend/`. | Returns `ASSEMBLED PROMPT CONTAINS PAGE CONTEXT: True` and includes `[Active Document Context]` with active page details. |
+
+---
+
 ## Automated Verification & Testing
 
 ### Test Suite Execution
-Executed unit test suite across all parser adapters and worker services:
+Executed unit test suite across all parser adapters, worker services, and retrieval components:
 
 ```bash
-python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py tests/test_chunker_generalization.py -v
+python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py tests/test_chunker_generalization.py tests/test_document_retrieval.py -v
 ```
 
 ### Test Results
@@ -122,27 +144,29 @@ python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/te
 ============================= test session starts =============================
 platform win32 -- Python 3.11.5, pytest-8.3.5, pluggy-1.5.0
 rootdir: E:\repos\athenus\backend
-collected 13 items
+collected 15 items
 
-tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  7%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 15%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 23%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 30%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 38%]
-tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 46%]
-tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 53%]
-tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 61%]
-tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 69%]
-tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 76%]
-tests/test_document_worker.py::test_document_worker_failure_handling PASSED [ 84%]
-tests/test_chunker_generalization.py::test_chunk_document_pages PASSED   [ 92%]
-tests/test_chunker_generalization.py::test_embedding_worker_handle_document_parsed PASSED [100%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  6%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 13%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 20%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 26%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 33%]
+tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 40%]
+tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 46%]
+tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 53%]
+tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 60%]
+tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 66%]
+tests/test_document_worker.py::test_document_worker_failure_handling PASSED [ 73%]
+tests/test_chunker_generalization.py::test_chunk_document_pages PASSED   [ 80%]
+tests/test_chunker_generalization.py::test_embedding_worker_handle_document_parsed PASSED [ 86%]
+tests/test_document_retrieval.py::test_qdrant_document_filtering PASSED  [ 93%]
+tests/test_document_retrieval.py::test_multi_stage_retriever_document_flow PASSED [100%]
 
-============================= 13 passed in 0.39s ==============================
+============================= 15 passed in 0.75s ==============================
 ```
 
 ---
 
 ## Discovered Issues & Known Limitations
 
-1. **RAG Context Assembly & Prompt Formatting**: Document chunks and vector payloads are now stored in Qdrant with `source_type: "pdf"` and `location_json`. Generalizing `MultiStageRetriever` context assembly to render document citations (`[Doc.pdf, p. 12]`) alongside timestamp citations (`[Video.mp4 @ 14:20]`) is scheduled for **Milestone 4 (Retrieval, Citation & UI Integration)**.
+1. **Frontend Citation Regex Parsing**: Backend prompts and context compressed badges now emit `[Document Page X (Section)]` citations. Updating frontend chat citation renderers to parse document page citations and trigger page jumps in the PDF viewer is scheduled for **Phase 4.2 (Citation Rendering + Tauri PDF Viewer Jump)**.
