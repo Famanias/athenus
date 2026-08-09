@@ -77,7 +77,7 @@ Chronological record of implementation and manual QA verification executed again
 - **Root Cause Addressed**:
   - In `MultiStageRetriever._assemble_prompt()`, when `reranked_chunks` was empty, `compressed_text` was empty. The prompt instructed the LLM: `"Answer the user's question using ONLY the provided multi-source context..."`. Local LLMs (Ollama) received an empty context block under strict RAG rules and collapsed into outputting repeating periods `....` or hallucinated fake citations.
 - **Key Code Changes**:
-  - Updated [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): When `has_context` is false, `_assemble_prompt` instructs the LLM: *"The user is asking a question, but no relevant matching passages were found in their uploaded files. State briefly at the beginning that no relevant information was found in their uploaded files, and then answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps."*
+  - Updated [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): When `has_context` is false, `_assemble_prompt` instructs the LLM: *"Answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps."*
   - Verified [`backend/app/application/services/workspace_intelligence.py`](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py): When `retrieved_chunks` is empty, `citations` array is `[]`, guaranteeing zero citation fabrication.
 - **Verification Results**:
   - Backend pytest test suite (`python -m pytest`): Passed 20 / 20 tests in 3.18s.
@@ -91,3 +91,47 @@ Chronological record of implementation and manual QA verification executed again
 | **"Summarize all my uploaded files."** | Yes (multiple) | Searches across the user's uploaded knowledge and accurately cites applicable sources. |
 | **"What does page 123 say?"** | Page 123 doesn't exist | Explains that the requested source/page could not be found; does NOT fabricate Page 123. |
 | **General Conversation ("hi")** | No RAG needed | Answers normally with *"Hi."* without forcing unnecessary RAG citations. |
+
+---
+
+## Phase 2.2 — Workspace-Wide RAG Retrieval & Active Context Boosting
+
+### Implementation Summary
+- **Objective**: Ensure the AI never "forgets" uploaded files. Queries search across all files uploaded in the active workspace while boosting current playback/page location as prioritized context.
+- **Root Cause Addressed**: `MultiStageRetriever.execute_retrieval()` passed `filter_media_id=media_id` (or `filter_document_id`) to Qdrant vector search. This applied a hard Qdrant `must` filter, excluding all other workspace files from retrieval whenever a specific video or document was open in the active viewer.
+- **Key Code Changes**:
+  - Updated [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Removed hard single-source filtering from `vector_store.search()`, allowing vector search to query across all files in `filter_workspace_id=workspace_id`. Preserved `active_context_text` boosting for current playback timestamp or document page.
+- **Verification Results**:
+  - Backend pytest test suite (`python -m pytest`): Passed 20 / 20 tests in 3.84s.
+  - Frontend TypeScript (`npx tsc --noEmit`): Passed cleanly with 0 errors.
+
+### Manual QA
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Cross-Source Retrieval Test** | 1. Open a video in the workspace viewer.<br>2. Ask chat: *"What does my resume say about Python?"* (assuming a resume PDF was previously uploaded). | The AI retrieves and answers from the uploaded `resume.pdf` even though `lecture.mp4` is currently active in the viewer window. The citation badge displays `📄 Page X`. |
+| **Active Source Boosting Test** | 1. While viewing a specific video at timestamp 02:15, ask chat: *"What is currently being discussed in this lecture?"*. | The AI prioritizes the active video context (`[Active Video Context]`) and answers using the current segment, displaying `⏱ 02:15`. |
+| **Workspace-Wide Summary Test** | 1. Upload both a video and a PDF document to the same workspace.<br>2. Ask chat: *"Summarize all my uploaded materials in this workspace."*. | The AI searches across both the video and PDF document chunks and provides a comprehensive summary with traceable citations for both media types. |
+
+---
+
+## Phase 2.3 — Single Authoritative Video Player & Zero-Delay Highlight Synchronization Fix
+
+### Implementation Summary
+- **Objective**: Ensure single authoritative video player execution, eliminate duplicate background video playback, and eliminate the 1-tick delay/flicker when clicking transcript timestamps.
+- **Root Cause Addressed**:
+  - `PersistentMediaPlayer.tsx` rendered `playerContent` into an off-screen `opacity-0` container when `isVideoWorkspaceView` was true but `targetSlot` was `null` (during initial render before `setTimeout` resolved `#video-player-slot`). Transitioning to `createPortal` 1 tick later left a duplicate background `<video>` element playing audio off-screen.
+  - HTML5 `<video>` elements emit a transient pre-seek `timeupdate` event (carrying the pre-seek timestamp like `00:44`) right when `.currentTime = seconds` is assigned. Because `targetSeekSeconds` was cleared on the same tick, `handleTimeUpdate` processed that transient event, causing `currentTime` in store to briefly revert to `00:44` before updating to `00:46`.
+- **Key Code Changes**:
+  - Updated [`frontend/src/features/video/PersistentMediaPlayer.tsx`](file:///e:/repos/athenus/frontend/src/features/video/PersistentMediaPlayer.tsx): Returns `null` when `isVideoWorkspaceView` is true and `targetSlot` is not yet available, ensuring an off-screen fallback `<video>` element is **never rendered** in Video Workspace view. Guarded `handleTimeUpdate` with `videoEl.seeking` check (`if (!videoEl || videoEl.seeking || targetSeekSeconds !== null) return;`) to ignore transient pre-seek events emitted while seeking.
+  - Updated [`frontend/src/features/video/useVideo.ts`](file:///e:/repos/athenus/frontend/src/features/video/useVideo.ts): Refactored `seekToSeconds` to synchronously calculate and set `activeSegmentIndex` **immediately on click (0ms delay)**, ensuring the clicked segment (`00:46`) is highlighted instantly without intermediate states.
+- **Verification Results**:
+  - Frontend TypeScript (`npx tsc --noEmit`): Passed cleanly with 0 errors.
+
+### Manual QA
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Instantaneous Timestamp Highlight** | Click any transcript timestamp badge (e.g. `⏱ 00:46`). | The `00:46` transcript segment is **highlighted IMMEDIATELY on click with 0ms delay**. The previous segment (`00:44`) is **NEVER highlighted as an intermediate state**. |
+| **Single Player Verification** | Open Video workspace view and inspect DOM / audio output while video plays. | **Exactly one video player instance** exists and plays audio. Zero duplicate or background video elements exist. |
+| **Current-Time Highlighting** | Play the main video in the workspace player and observe the transcript panel. | The transcript segment corresponding to the current video timestamp (`currentTime`) is **continuously highlighted in real time**. |
+| **Repeated Timestamp Clicks** | Click several transcript timestamps in rapid succession. | Only the single main video player changes position. Zero additional background players appear. Highlight moves instantly to each clicked segment. |
+| **Background / Navigation** | Navigate away to Library/Chat and return to Video Workspace view. | Video playback remains smooth and continuous. **No duplicate video players are created** upon returning. |

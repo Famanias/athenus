@@ -165,6 +165,34 @@ export function useVideo() {
     }
   };
 
+  // Synchronize activeSegmentIndex continuously whenever currentTime in store changes
+  useEffect(() => {
+    if (!currentTime || segments.length === 0) {
+      if (activeSegmentIndex !== -1) setActiveSegmentIndex(-1);
+      return;
+    }
+    const parts = currentTime.split(':');
+    let currentSecs = 0;
+    if (parts.length === 2) {
+      currentSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    } else if (parts.length === 3) {
+      currentSecs = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
+    } else {
+      currentSecs = parseFloat(currentTime) || 0;
+    }
+
+    const foundIdx = segments.findIndex(
+      (seg) => currentSecs >= seg.start_seconds && currentSecs < seg.end_seconds
+    );
+    if (foundIdx !== -1) {
+      console.log('[DEBUG useVideo recompute]', { currentTime, currentSecs, foundIdx });
+      setActiveSegmentIndex(foundIdx);
+    } else if (segments.length > 0 && currentSecs >= segments[segments.length - 1].end_seconds) {
+      console.log('[DEBUG useVideo recompute-tail]', { currentTime, currentSecs, idx: segments.length - 1 });
+      setActiveSegmentIndex(segments.length - 1);
+    }
+  }, [currentTime, segments]);
+
   // Video time update event listener
   const handleTimeUpdate = () => {
     const videoEl = videoRef.current;
@@ -175,27 +203,29 @@ export function useVideo() {
     if (activeMediaId && currentSecs > 0) {
       localStorage.setItem(`athenus_playback_pos_${activeMediaId}`, currentSecs.toString());
     }
-
-    if (segments.length > 0) {
-      const foundIdx = segments.findIndex(
-        (seg) => currentSecs >= seg.start_seconds && currentSecs < seg.end_seconds
-      );
-      if (foundIdx !== -1) {
-        setActiveSegmentIndex(foundIdx);
-      } else if (currentSecs >= segments[segments.length - 1].end_seconds) {
-        setActiveSegmentIndex(segments.length - 1);
-      }
-    }
   };
 
   const seekToSeconds = useCallback((seconds: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = seconds;
-      setCurrentTime(formatSecondsToTimestamp(seconds));
-      videoRef.current.play().catch(() => {});
-      setIsPlaying(true);
+    console.log('[DEBUG seekToSeconds]', { seconds, videoCurrent: videoRef.current?.currentTime });
+    setTargetSeekSeconds(seconds);
+    const tsStr = formatSecondsToTimestamp(seconds);
+    setCurrentTime(tsStr);
+
+    if (segments.length > 0) {
+      const foundIdx = segments.findIndex(
+        (seg) => seconds >= seg.start_seconds && seconds < seg.end_seconds
+      );
+      if (foundIdx !== -1) {
+        console.log('[DEBUG seekToSeconds] optimistic setActiveSegmentIndex', foundIdx);
+        setActiveSegmentIndex(foundIdx);
+      } else if (seconds >= segments[segments.length - 1].end_seconds) {
+        console.log('[DEBUG seekToSeconds] optimistic setActiveSegmentIndex tail', segments.length - 1);
+        setActiveSegmentIndex(segments.length - 1);
+      }
     }
-  }, [setCurrentTime]);
+
+    setIsPlaying(true);
+  }, [segments, setCurrentTime, setTargetSeekSeconds]);
 
   const seekToTimestamp = useCallback((timestampStr: string) => {
     const parts = timestampStr.split(':');
@@ -208,7 +238,7 @@ export function useVideo() {
   const togglePlayPause = useCallback(() => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
-        videoRef.current.play().catch(() => {});
+        videoRef.current.play().catch(() => { });
         setIsPlaying(true);
       } else {
         videoRef.current.pause();

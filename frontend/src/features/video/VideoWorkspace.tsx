@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PersistentMediaPlayer } from './PersistentMediaPlayer';
 import { DocumentViewer } from '@/components/DocumentViewer';
-import { useVideo } from './useVideo';
+import { useVideo } from './useVideo - Copy';
 import { EmbeddedChatWidget } from './EmbeddedChatWidget';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
