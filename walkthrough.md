@@ -1,8 +1,9 @@
-# Walkthrough — Milestone 2: Local Parsing Adapters
+# Walkthrough — Milestone 2 & Milestone 3: Local Parsing & Document Worker Pipeline
 
-This walkthrough documents the completed implementation of **Milestone 2**:
-- **Phase 2.1**: `DocumentParsingPort` & `AnyDocDocumentParsingAdapter`
-- **Phase 2.2**: `OCRPort` & `RapidOCROCRAdapter`
+This walkthrough documents the completed implementation of:
+- **Milestone 2, Phase 2.1**: `DocumentParsingPort` & `AnyDocDocumentParsingAdapter`
+- **Milestone 2, Phase 2.2**: `OCRPort` & `RapidOCROCRAdapter`
+- **Milestone 3, Phase 3.1**: `DocumentWorker` & Additive Document Event Infrastructure
 
 ---
 
@@ -64,13 +65,33 @@ This walkthrough documents the completed implementation of **Milestone 2**:
 
 ---
 
+## Phase 3.1 Implementation Overview (`DocumentWorker` & Additive Event Pipeline)
+
+### 1. Document Worker Subsystem ([document_worker.py](file:///e:/repos/athenus/backend/app/services/workers/document_worker.py))
+- Implemented `DocumentWorker`:
+  - Subscribes to `DocumentUploadedEvent` on the central `EventBus`.
+  - Emits `ProcessingStartedEvent` with stage `"document_parsing"` to trigger UI telemetry progress updates.
+  - Runs fast text parsing via `AnyDocDocumentParsingAdapter`.
+  - When scanned pages are detected, acquires `WorkloadScheduler` hardware semaphore slot (`Semaphore=1` per ADR 0021) and executes `RapidOCROCRAdapter`.
+  - Emits additive `DocumentParsedEvent` carrying structured document pages (`page_number`, `text`, `page_type`, `section_title`) and raw GFM Markdown.
+  - Emits additive `DocumentProcessingFailedEvent` and standard `ProcessingFailedEvent` on failure.
+
+### Phase 3.1 Manual Validation / QA Matrix
+
+| Test | How to Conduct the Test | Expected Behaviour |
+| :--- | :--- | :--- |
+| **1. Document Upload Event Flow Test** | Run `python -c "import asyncio; from app.infrastructure.events.event_bus import event_bus, DomainEvent; from app.services.workers.document_worker import DocumentWorker; worker = DocumentWorker(event_bus); bus = event_bus; bus.subscribe('DocumentParsedEvent', lambda e: print('SUCCESS EVENT:', e.payload['total_pages'], 'pages')); asyncio.run(bus.publish(DomainEvent(event_type='DocumentUploadedEvent', aggregate_id='doc_test', payload={'file_path': 'README.md'})))"` from `backend/`. | The command triggers `DocumentWorker`, parses `README.md`, and prints `SUCCESS EVENT: 2 pages` when `DocumentParsedEvent` is published. |
+| **2. Document Failure Event Flow Test** | Run `python -c "import asyncio; from app.infrastructure.events.event_bus import event_bus, DomainEvent; from app.services.workers.document_worker import DocumentWorker; worker = DocumentWorker(event_bus); bus = event_bus; bus.subscribe('DocumentProcessingFailedEvent', lambda e: print('FAILED EVENT:', e.payload['error'])); asyncio.run(bus.publish(DomainEvent(event_type='DocumentUploadedEvent', aggregate_id='doc_fail', payload={'file_path': 'missing_file.pdf'})))"` from `backend/`. | The call fails gracefully and prints `FAILED EVENT: Document file not found: missing_file.pdf`. |
+
+---
+
 ## Automated Verification & Testing
 
 ### Test Suite Execution
-Executed full Milestone 2 unit test suite in `backend/tests/test_anydoc_adapter.py` and `backend/tests/test_ocr_adapter.py`:
+Executed unit test suite across all parser adapters and worker services:
 
 ```bash
-python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py -v
+python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py -v
 ```
 
 ### Test Results
@@ -78,23 +99,25 @@ python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py -v
 ============================= test session starts =============================
 platform win32 -- Python 3.11.5, pytest-8.3.5, pluggy-1.5.0
 rootdir: E:\repos\athenus\backend
-collected 8 items
+collected 11 items
 
-tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [ 12%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 25%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 37%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 50%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 62%]
-tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 75%]
-tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 87%]
-tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [100%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  9%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 18%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 27%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 36%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 45%]
+tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 54%]
+tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 63%]
+tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 72%]
+tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 81%]
+tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 90%]
+tests/test_document_worker.py::test_document_worker_failure_handling PASSED [100%]
 
-============================== 8 passed in 0.16s ==============================
+============================= 11 passed in 0.25s ==============================
 ```
 
 ---
 
 ## Discovered Issues & Known Limitations
 
-1. **OCR Multilingual Coverage**: RapidOCR default bundled models focus on English and standard Latin script (`en_PP-OCRv4`). Additional non-Latin script language packs are explicitly deferred to future releases per ADR 0021.
-2. **Bounding Box Highlight Canvas Rendering**: `bbox` coordinates are extracted and populated on `OCRLineDTO`, but UI canvas highlight rendering is explicitly deferred per ADR 0021.
+1. **Downstream Chunker Input Data Structure**: `DocumentWorker` produces structured page DTOs (`DocumentParsedEvent`). Updating `SemanticChunker` to ingest these generalized page units is scheduled for **Phase 3.2 (Chunker Generalization to `SourceContentUnit`)**.

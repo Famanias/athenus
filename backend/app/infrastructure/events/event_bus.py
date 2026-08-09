@@ -21,9 +21,12 @@ class EventBus:
         self._subscribers[event_type].append(handler)
 
     async def publish(self, event: DomainEvent) -> None:
+        import asyncio
         handlers = self._subscribers.get(event.event_type, [])
         for handler in handlers:
-            await handler(event)
+            res = handler(event)
+            if asyncio.iscoroutine(res):
+                await res
 
 # Global Event Bus instance
 event_bus = EventBus()
