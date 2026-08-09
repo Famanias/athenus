@@ -40,7 +40,10 @@ class ChatQueryRequest(BaseModel):
     workspace_id: str = "default"
     session_id: Optional[str] = None
     media_id: Optional[str] = None
+    document_id: Optional[str] = None
+    source_type: Optional[str] = None
     current_timestamp: Optional[float] = None
+    current_page: Optional[int] = None
     selected_text: Optional[str] = None
 
 class CreateSessionRequest(BaseModel):
@@ -55,9 +58,13 @@ class UpdateSessionRequest(BaseModel):
 
 class CitationDTO(BaseModel):
     chunk_id: Optional[str] = None
-    start_time: float
-    end_time: float
+    source_type: str = "video"
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    page_number: Optional[int] = None
+    section_title: Optional[str] = None
     text: str
+    location: Optional[Dict[str, Any]] = None
 
 class ChatQueryResponse(BaseModel):
     query: str
@@ -142,16 +149,23 @@ async def query_chat(
             query=request.query,
             workspace_id=request.workspace_id,
             media_id=request.media_id,
+            document_id=request.document_id,
+            source_type=request.source_type,
             current_timestamp=request.current_timestamp,
+            current_page=request.current_page,
             selected_text=request.selected_text
         )
 
         citations_list = [
             CitationDTO(
                 chunk_id=c.get("chunk_id"),
-                start_time=c.get("start_time", 0.0),
-                end_time=c.get("end_time", 0.0),
-                text=c.get("text", "")
+                source_type=c.get("source_type", "video"),
+                start_time=c.get("start_time"),
+                end_time=c.get("end_time"),
+                page_number=c.get("page_number"),
+                section_title=c.get("section_title"),
+                text=c.get("text", ""),
+                location=c.get("location")
             )
             for c in result.get("citations", [])
         ]

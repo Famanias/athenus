@@ -36,15 +36,21 @@ class WorkspaceIntelligenceManager:
         query: str,
         workspace_id: str,
         media_id: Optional[str] = None,
+        document_id: Optional[str] = None,
+        source_type: Optional[str] = None,
         current_timestamp: Optional[float] = None,
+        current_page: Optional[int] = None,
         selected_text: Optional[str] = None
     ) -> Dict[str, Any]:
-        # 1. Multi-Stage Retrieval with timestamp & selected text context
+        # 1. Multi-Stage Retrieval with timestamp/page & selected text context
         retrieval_ctx = await self.retriever.execute_retrieval(
             query=query,
             workspace_id=workspace_id,
             media_id=media_id,
+            document_id=document_id,
+            source_type=source_type,
             current_timestamp=current_timestamp,
+            current_page=current_page,
             selected_text=selected_text
         )
         
@@ -60,17 +66,40 @@ class WorkspaceIntelligenceManager:
         self.memory_manager.add_turn("user", query)
         self.memory_manager.add_turn("assistant", response.text)
 
+        # 4. Generalized Citations formatting
+        formatted_citations = []
+        for c in retrieval_ctx.retrieved_chunks:
+            c_source = c.get("source_type", "video")
+            is_doc = c_source == "pdf" or "page_number" in c or (c.get("location") and c["location"].get("type") == "document")
+            if is_doc:
+                page_num = c.get("page_number") or (c.get("location") and c["location"].get("page")) or 1
+                sec = c.get("section_title") or (c.get("location") and c["location"].get("section")) or f"Page {page_num}"
+                formatted_citations.append({
+                    "chunk_id": c.get("id") or c.get("chunk_id"),
+                    "source_type": "pdf",
+                    "start_time": None,
+                    "end_time": None,
+                    "page_number": page_num,
+                    "section_title": sec,
+                    "location": c.get("location") or {"type": "document", "page": page_num, "section": sec},
+                    "text": c.get("text", "")
+                })
+            else:
+                formatted_citations.append({
+                    "chunk_id": c.get("id") or c.get("chunk_id"),
+                    "source_type": "video",
+                    "start_time": c.get("start_time", 0.0),
+                    "end_time": c.get("end_time", 0.0),
+                    "page_number": None,
+                    "section_title": None,
+                    "location": c.get("location") or {"type": "video", "start_time": c.get("start_time", 0.0), "end_time": c.get("end_time", 0.0)},
+                    "text": c.get("text", "")
+                })
+
         return {
             "query": query,
             "answer": response.text,
-            "citations": [
-                {
-                    "chunk_id": c.get("id"),
-                    "start_time": c.get("start_time"),
-                    "end_time": c.get("end_time"),
-                    "text": c.get("text")
-                }
-                for c in retrieval_ctx.retrieved_chunks
-            ],
+            "citations": formatted_citations,
             "context_provenance": retrieval_ctx.context_provenance
         }
+

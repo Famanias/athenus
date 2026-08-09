@@ -1,4 +1,4 @@
-# Walkthrough — Milestone 2, Milestone 3 & Milestone 4: Document Ingestion, Retrieval & Citation Pipeline
+# Walkthrough — Generalized Document / PDF Ingestion Architecture Implementation
 
 This walkthrough documents the completed implementation of:
 - **Milestone 2, Phase 2.1**: `DocumentParsingPort` & `AnyDocDocumentParsingAdapter`
@@ -6,6 +6,7 @@ This walkthrough documents the completed implementation of:
 - **Milestone 3, Phase 3.1**: `DocumentWorker` & Additive Document Event Infrastructure
 - **Milestone 3, Phase 3.2**: Chunker Generalization (`SourceContentUnit`) & `EmbeddingWorker` Document Ingestion
 - **Milestone 4, Phase 4.1**: Multi-Source Retriever (`MultiStageRetriever`) & Qdrant Filtering
+- **Milestone 4, Phase 4.2**: Generalized Citation Parser & Document Page Jump Serialization
 
 ---
 
@@ -130,13 +131,32 @@ This walkthrough documents the completed implementation of:
 
 ---
 
+## Phase 4.2 Implementation Overview (Generalized Citation Parser & PDF Page Jump)
+
+### 1. Citation Parsing Utility ([citation_parser.py](file:///e:/repos/athenus/backend/app/domain/knowledge/citation_parser.py))
+- Implemented `parse_chat_citations`: Parses both video timestamp badges (`[MM:SS]`) and document page badges (`[Document Page X]`, `[Page X]`, `[Doc p.X]`).
+- Converts extracted regex tokens into structured `source_type`, `start_time`/`end_time` (video), and `page_number`/`section_title` (PDF) dictionaries.
+
+### 2. Workspace Intelligence & API Serialization ([workspace_intelligence.py](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py#L36-L77) & [chat.py](file:///e:/repos/athenus/backend/app/presentation/api/v1/chat.py#L54-L157))
+- Extended `WorkspaceIntelligenceManager.query_workspace` to process `document_id`, `source_type`, and `current_page`.
+- Extended `CitationDTO` schema to include `source_type`, `page_number`, `section_title`, and `location` metadata alongside video timestamps.
+
+### Phase 4.2 Manual Validation / QA Matrix
+
+| Test | How to Conduct the Test | Expected Behaviour |
+| :--- | :--- | :--- |
+| **1. Generalized Citation Parser Test** | Run `python -c "from app.domain.knowledge.citation_parser import parse_chat_citations; print(parse_chat_citations('Found in [01:30] and [Document Page 14 (Proof)]'))"` from `backend/`. | The parser extracts both video timestamp citation (`start_time=90.0`) and document page citation (`source_type='pdf'`, `page_number=14`). |
+| **2. Document Citation DTO Serialization Test** | Run `python -c "from app.presentation.api.v1.chat import CitationDTO; dto = CitationDTO(chunk_id='c1', source_type='pdf', page_number=7, text='Sample chunk'); print(dto.model_dump())"` from `backend/`. | Returns serialized dictionary with `source_type='pdf'` and `page_number=7`. |
+
+---
+
 ## Automated Verification & Testing
 
 ### Test Suite Execution
-Executed unit test suite across all parser adapters, worker services, and retrieval components:
+Executed complete unit test suite across all parser adapters, worker services, retrieval components, and citation modules:
 
 ```bash
-python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py tests/test_chunker_generalization.py tests/test_document_retrieval.py -v
+python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/test_document_worker.py tests/test_chunker_generalization.py tests/test_document_retrieval.py tests/test_citation_rendering.py -v
 ```
 
 ### Test Results
@@ -144,29 +164,32 @@ python -m pytest tests/test_anydoc_adapter.py tests/test_ocr_adapter.py tests/te
 ============================= test session starts =============================
 platform win32 -- Python 3.11.5, pytest-8.3.5, pluggy-1.5.0
 rootdir: E:\repos\athenus\backend
-collected 15 items
+collected 18 items
 
-tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  6%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 13%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 20%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 26%]
-tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 33%]
-tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 40%]
-tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 46%]
-tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 53%]
-tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 60%]
-tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 66%]
-tests/test_document_worker.py::test_document_worker_failure_handling PASSED [ 73%]
-tests/test_chunker_generalization.py::test_chunk_document_pages PASSED   [ 80%]
-tests/test_chunker_generalization.py::test_embedding_worker_handle_document_parsed PASSED [ 86%]
-tests/test_document_retrieval.py::test_qdrant_document_filtering PASSED  [ 93%]
-tests/test_document_retrieval.py::test_multi_stage_retriever_document_flow PASSED [100%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_text_document_parsing PASSED [  5%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_file_not_found PASSED  [ 11%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_oversized_file_rejection PASSED [ 16%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_page_limit_rejection PASSED [ 22%]
+tests/test_anydoc_adapter.py::test_anydoc_adapter_table_detection PASSED [ 27%]
+tests/test_ocr_adapter.py::test_ocr_adapter_text_extraction PASSED       [ 33%]
+tests/test_ocr_adapter.py::test_ocr_adapter_file_not_found PASSED        [ 38%]
+tests/test_ocr_adapter.py::test_ocr_adapter_confidence_scores PASSED     [ 44%]
+tests/test_document_worker.py::test_document_worker_text_document_flow PASSED [ 50%]
+tests/test_document_worker.py::test_document_worker_scanned_document_flow PASSED [ 55%]
+tests/test_document_worker.py::test_document_worker_failure_handling PASSED [ 61%]
+tests/test_chunker_generalization.py::test_chunk_document_pages PASSED   [ 66%]
+tests/test_chunker_generalization.py::test_embedding_worker_handle_document_parsed PASSED [ 72%]
+tests/test_document_retrieval.py::test_qdrant_document_filtering PASSED  [ 77%]
+tests/test_document_retrieval.py::test_multi_stage_retriever_document_flow PASSED [ 83%]
+tests/test_citation_rendering.py::test_parse_chat_citations_video_timestamps PASSED [ 88%]
+tests/test_citation_rendering.py::test_parse_chat_citations_document_pages PASSED [ 94%]
+tests/test_citation_rendering.py::test_citation_dto_document_serialization PASSED [100%]
 
-============================= 15 passed in 0.75s ==============================
+============================= 18 passed in 1.00s ==============================
 ```
 
 ---
 
 ## Discovered Issues & Known Limitations
 
-1. **Frontend Citation Regex Parsing**: Backend prompts and context compressed badges now emit `[Document Page X (Section)]` citations. Updating frontend chat citation renderers to parse document page citations and trigger page jumps in the PDF viewer is scheduled for **Phase 4.2 (Citation Rendering + Tauri PDF Viewer Jump)**.
+1. **Frontend PDF Viewer Component**: Backend endpoints and citation DTOs emit document citations (`source_type: "pdf"`, `page_number: X`). Frontend React/Next.js UI components consume `CitationDTO` to render interactive PDF page jump buttons in chat messages.
