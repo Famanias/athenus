@@ -69,7 +69,8 @@ class EmbeddedQdrantVectorStoreAdapter:
         filter_media_id: Optional[str] = None,
         filter_workspace_id: Optional[str] = None,
         filter_source_type: Optional[str] = None,
-        filter_document_id: Optional[str] = None
+        filter_document_id: Optional[str] = None,
+        score_threshold: Optional[float] = 0.2
     ) -> List[Dict[str, Any]]:
         if not self._client:
             results = []
@@ -83,7 +84,10 @@ class EmbeddedQdrantVectorStoreAdapter:
                     continue
                 if filter_document_id and (pay.get("document_id") != filter_document_id and pay.get("media_id") != filter_document_id):
                     continue
-                results.append({"id": item["id"], "score": 0.85, "payload": pay})
+                score = item.get("score", 0.85)
+                if score_threshold is not None and score < score_threshold:
+                    continue
+                results.append({"id": item["id"], "score": score, "payload": pay})
             return results[:limit]
 
         # pyrefly: ignore [missing-import]
@@ -113,7 +117,8 @@ class EmbeddedQdrantVectorStoreAdapter:
             collection_name=self.collection_name,
             query=query_vector,
             limit=limit,
-            query_filter=query_filter
+            query_filter=query_filter,
+            score_threshold=score_threshold
         )
         return [
             {"id": str(hit.id), "score": hit.score, "payload": hit.payload}

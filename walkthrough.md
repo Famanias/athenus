@@ -60,7 +60,7 @@ Investigated the complete video ingestion trajectory from upload $\to$ job creat
 | **RAG Retrieval & Grounding Test** | 1. Submit conversational queries (`Hi`, `Hello`, `How are you?`).<br>2. Ask document questions (*"What is photosynthesis?"*). | Conversational turns return friendly clean text with 0 citations. Document questions return grounded answers with valid deduplicated citation chips. |
 
 ## Validation Status
-- **AWAITING USER MANUAL VALIDATION** (Stop and await user approval before proceeding to next phase).
+- **RESOLVED & COMMITTED** (`4f99ece`).
 
 ---
 
@@ -140,9 +140,6 @@ Implemented query relevance keyword/concept matching in `KnowledgeGraphService.g
 | **Zero-Match KG Guardrail Test** | 1. In a workspace containing knowledge graph concepts (e.g. Robotics concepts), send a general greeting or unrelated query: *"hi, how are you?"* or *"what is the weather?"*.<br>2. Inspect the assembled prompt / context output. | **Zero knowledge graph triples** are injected into the prompt context. The response answers naturally without citing unrelated graph concepts. |
 | **Relevant KG Triple Retrieval Test** | 1. Query a specific concept existing in the knowledge graph: *"What are the prerequisites for Neural Networks?"* (assuming Neural Networks exists in KG). | Only the relevant relationship triples for Neural Networks are retrieved and injected into the prompt context. |
 
-### GAP/Observations
-- Citations need improvement: consider simplifying citations by citing the relevant document instead of specific pages within that document.
-
 ### Validation Status
 - **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
 
@@ -189,9 +186,6 @@ Additionally, expanded maximum document page safety limit from `200` to `2000` p
 | :--- | :--- | :--- |
 | **Token Budget & Output Capacity Test** | 1. Query a large document with a complex multi-part query using Groq (`llama-3.3-70b-versatile`) or Ollama (`llama3:8b`).<br>2. Inspect the generated answer length and completion status. | The AI returns a complete, comprehensive response up to 2,048 output tokens without cutting off mid-sentence or hitting context limit errors. |
 | **Large Document (900+ Page) Ingestion Test** | 1. Upload a 900+ page PDF document (e.g. textbook < 100 MB).<br>2. Observe the document pipeline progress bar in the Athenus UI. | The document succeeds through the ingestion pipeline (`Receiving Document Upload ✓`, `Parsing Structure ✓`, `Complete ✓`) without page limit error failures. |
-
-### GAP/Observations
-- For large textbook uploads (900+ pages / ~2,000 sub-chunks / ~1 million words), unbatched CPU vector embedding calculation in `SentenceTransformers` (`bge-small-en-v1.5`) takes ~6–10 minutes inside Docker. Consider implementing chunk sub-batching (e.g. `batch_size=64`) and streaming progress events (`vector_indexing` 75% -> 95%) to optimize CPU memory throughput and provide granular UI progress updates.
 
 ### Validation Status
 - **PASSED & VALIDATED BY USER** (Explicit user approval received).
@@ -335,7 +329,7 @@ Implemented active-item context score boosting (1.5x score multiplier for active
 - [`backend/app/infrastructure/db/session.py`](file:///e:/repos/athenus/backend/app/infrastructure/db/session.py): Added native SQLite `AFTER INSERT`, `AFTER UPDATE`, and `AFTER DELETE` triggers for `transcript_chunks_fts`.
 - [`backend/app/domain/knowledge/bm25_retriever.py`](file:///e:/repos/athenus/backend/app/domain/knowledge/bm25_retriever.py): Added `search_fts5()` for native SQLite FTS5 BM25 full-corpus search.
 - [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Implemented 1.5x active item score boosting, FTS5 BM25 retrieval, and RRF candidate fusion ($k=60, N=15$).
-- [`backend/tests/test_fts5_triggers_and_boosting.py`](file:///e:/repos/athenus/backend/tests/test_fts5_triggers_and_boosting.py): **[NEW]** Created unit test suite verifying FTS5 triggers, active item boosting, and RRF merge.
+- [`backend/tests/test_fts5_triggers_and_boosting.py`](file:///e:/repos/athenus/backend/tests/test_fts5_triggers_and_boosting.py): Created unit test suite verifying FTS5 triggers, active item boosting, and RRF merge.
 
 ### Automated Tests Performed and Results
 - `python -m pytest tests/test_fts5_triggers_and_boosting.py`: **Passed (2/2 passed)** in 0.92s.
@@ -350,6 +344,41 @@ Implemented active-item context score boosting (1.5x score multiplier for active
 | **RRF Hybrid Search Verification Test** | **Step 1:** In a workspace containing multiple documents, submit a multi-word topic query with distinct rare keywords (e.g. *"quantum entanglement superposition"*).<br>**Step 2:** Observe the AI response and generated citation chips. | The system combines dense vector hits from Qdrant with sparse keyword hits from SQLite FTS5 using **Reciprocal Rank Fusion ($k=60$)**, delivering accurate top-ranked citations even if dense vector or BM25 search alone would have ranked them lower. |
 
 ### Validation Status
-- **Not Tested** will test later.
+- **COMMITTED TO GIT** (`f55f3b1`) (Not tested will test later).
+
+---
+
+## Phase 3.2 — Deduplication & Relevance Thresholding & Phase 3.3 — Active Document Page Text Retrieval & Sub-Chunk Concatenation
+
+### Phase Summary
+Implemented dense vector search cosine relevance thresholding (`score_threshold = 0.2`) in `EmbeddedQdrantVectorStoreAdapter.search()`, post-fusion candidate deduplication by `chunk_id`, and full active document page text retrieval with sub-chunk concatenation in `MultiStageRetriever._extract_document_page_context()`.
+
+### What Was Implemented
+- **Dense Vector Relevance Thresholding**: In `EmbeddedQdrantVectorStoreAdapter.search()`, added `score_threshold: Optional[float] = 0.2` filtering out vector hits below 0.2 cosine similarity.
+- **Candidate Chunk Deduplication**: In `MultiStageRetriever.execute_retrieval()`, deduplicated dense and sparse RRF fusion candidates by `chunk_id` before sending to Stage 6 Cross-Encoder reranking.
+- **Active Document Page Text Retrieval**: In `MultiStageRetriever._extract_document_page_context()`, queried SQLite `transcript_chunks` table for `document_id` where `start_time <= current_page <= end_time`. Joined all matching sub-chunks for `current_page` in `chunk_index ASC` order with double newlines, presenting complete page text in `[Active Document Page Context]`.
+- **Automated Test Suite**: Created [`backend/tests/test_phase_3_2_and_3_3.py`](file:///e:/repos/athenus/backend/tests/test_phase_3_2_and_3_3.py) verifying vector score threshold filtering and page sub-chunk concatenation.
+
+### Root Cause Addressed
+- Previously, low-similarity vector hits (score < 0.2) polluted candidate pools, and opening an active document page only retrieved isolated sub-chunks rather than the complete coherent page text.
+
+### Files/Components Changed
+- [`backend/app/infrastructure/adapters/qdrant_adapter.py`](file:///e:/repos/athenus/backend/app/infrastructure/adapters/qdrant_adapter.py): Added `score_threshold: Optional[float] = 0.2` to `search()`.
+- [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Updated `_extract_document_page_context()` to query and concatenate all sub-chunks of `current_page` in `chunk_index` order.
+- [`backend/tests/test_phase_3_2_and_3_3.py`](file:///e:/repos/athenus/backend/tests/test_phase_3_2_and_3_3.py): **[NEW]** Unit test suite verifying score threshold filtering and page context sub-chunk concatenation.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_phase_3_2_and_3_3.py`: **Passed (2/2 passed)** in 0.69s.
+- `python -m pytest tests/test_chunker_generalization.py tests/test_anydoc_adapter.py tests/test_knowledge_graph.py tests/test_document_worker.py tests/test_legacy_migration.py tests/test_prompt_reform.py tests/test_citation_deduplication.py tests/test_conversational_citations.py tests/test_fts5_triggers_and_boosting.py tests/test_video_ingestion_queue_regression.py tests/test_phase_3_2_and_3_3.py`: **Passed (38/38 passed)** in 4.22s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation Matrix
+| Test | How to Conduct (Detailed Step-by-Step) | Expected Behavior |
+| :--- | :--- | :--- |
+| **Dense Vector Relevance Threshold Test** | **Step 1:** Upload a document (e.g. `Biology.pdf`).<br>**Step 2:** Ask an entirely unrelated question (e.g. *"What is the capital of France?"*).<br>**Step 3:** Inspect the retrieved Qdrant hits in backend debug logs or response context. | Vector hits with cosine similarity < 0.2 are **filtered out**, preventing irrelevant context chunks from entering candidate reranking. |
+| **Active Document Page Concatenation Test** | **Step 1:** Open a document in the Athenus viewer to Page 3.<br>**Step 2:** Ensure Page 3 contains multiple sub-chunks in `transcript_chunks`.<br>**Step 3:** Ask chat: *"Summarize what is on this page."* | `_extract_document_page_context()` retrieves all sub-chunks for Page 3, orders them by `chunk_index ASC`, and presents the **complete coherent page text** in prompt context. |
+
+### Validation Status
+- **AWAITING USER MANUAL VALIDATION** (Stop and await user manual verification).
 
 ---

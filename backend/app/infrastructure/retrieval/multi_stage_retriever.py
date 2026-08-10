@@ -217,23 +217,52 @@ class MultiStageRetriever:
         current_page: Optional[int],
         selected_text: Optional[str]
     ) -> tuple[str, Optional[Dict[str, Any]]]:
-        if not document_id or current_page is None:
+        if not document_id or current_page is None or not engine or not Session or not select:
             return "", None
 
-        page_str = f"Page {current_page}"
-        selected_info = f"\nUser Selected Text:\n\"{selected_text}\"\n" if selected_text else ""
-        formatted_context = f"""
-[Active Document Context]
-Document ID: {document_id}
-Active Page: {page_str}
-{selected_info}"""
+        try:
+            from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+            with Session(engine) as session:
+                # Query document title
+                doc_title = document_id
+                media_stmt = select(MediaItemTable).where(MediaItemTable.id == document_id)
+                media_item = session.scalars(media_stmt).first() if hasattr(session, "scalars") else session.exec(media_stmt).first()
+                if media_item and media_item.title:
+                    doc_title = media_item.title
 
-        provenance = {
-            "document_id": document_id,
-            "current_page": current_page,
-            "selected_text": selected_text
-        }
-        return formatted_context, provenance
+                # Query all sub-chunks covering current_page (start_time <= current_page <= end_time)
+                chunk_stmt = (
+                    select(TranscriptChunkTable)
+                    .where(TranscriptChunkTable.media_id == document_id)
+                    .where(TranscriptChunkTable.start_time <= current_page)
+                    .where(TranscriptChunkTable.end_time >= current_page)
+                    .order_by(TranscriptChunkTable.chunk_index)
+                )
+                records = session.scalars(chunk_stmt).all() if hasattr(session, "scalars") else session.exec(chunk_stmt).all()
+
+                page_text_blocks = [r.text.strip() for r in records if r.text and r.text.strip()]
+                full_page_text = "\n\n".join(page_text_blocks) if page_text_blocks else ""
+
+                page_str = f"Page {current_page}"
+                selected_info = f"\nUser Selected Text:\n\"{selected_text}\"\n" if selected_text else ""
+                page_body = f"\nFull Page Text ({page_str}):\n{full_page_text}\n" if full_page_text else ""
+
+                formatted_context = f"""
+[Active Document Page Context]
+Document Title: {doc_title}
+Active Page: {page_str}
+{page_body}{selected_info}"""
+
+                provenance = {
+                    "document_id": document_id,
+                    "document_title": doc_title,
+                    "current_page": current_page,
+                    "chunk_count": len(records),
+                    "selected_text": selected_text
+                }
+                return formatted_context, provenance
+        except Exception:
+            return "", None
 
     def _extract_timestamp_context(
         self,
