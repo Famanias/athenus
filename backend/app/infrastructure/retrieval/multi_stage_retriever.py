@@ -257,8 +257,19 @@ Surrounding Spoken Transcript ({time_range_str}):
             return "", None
 
     def _compress_context(self, chunks: List[Dict[str, Any]]) -> str:
+        # Presentation-Order Priority: Sort chunks using prompt_priority_score
+        # Formula: prompt_priority_score = bm25_score * 0.7 + cosine_score * 0.3
+        # Note: Distinct from Stage 6 reranker score (rerank_score = cosine*0.4 + bm25*0.3 + overlap*0.3).
+        # Stage 6 filters candidate hits; prompt presentation ordering prioritizes exact lexical matches
+        # at the top of the LLM context window to improve prompt grounding.
+        def _get_priority(c: Dict[str, Any]) -> float:
+            bm25 = c.get("bm25_score", 0.0)
+            cosine = c.get("score", 0.0)
+            return (bm25 * 0.7) + (cosine * 0.3)
+
+        sorted_chunks = sorted(chunks, key=_get_priority, reverse=True)
         parts = []
-        for c in chunks:
+        for c in sorted_chunks:
             source_type = c.get("source_type")
             is_doc = source_type == "pdf" or "page_number" in c or (c.get("location") and c["location"].get("type") == "document")
             if is_doc:
@@ -285,7 +296,7 @@ Surrounding Spoken Transcript ({time_range_str}):
 User Question: {query}
 Answer:"""
 
-        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context.
+        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context. If the context contains a direct answer, provide it CONCISELY without additional reasoning.
 {active_context}
 
 Context:

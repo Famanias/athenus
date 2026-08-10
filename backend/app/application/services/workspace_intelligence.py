@@ -62,10 +62,18 @@ class WorkspaceIntelligenceManager:
             max_tokens=2048
         )
         response = await text_capability.generate(gen_request)
+        final_answer = response.text
+        has_active_provenance = False
+        if retrieval_ctx.context_provenance and isinstance(retrieval_ctx.context_provenance, dict):
+            has_active_provenance = any(v for k, v in retrieval_ctx.context_provenance.items() if v is not None)
+
+        if not retrieval_ctx.retrieved_chunks and not retrieval_ctx.graph_triples and not has_active_provenance:
+            if not final_answer.startswith("No relevant context found"):
+                final_answer = f"No relevant context found in workspace materials. {final_answer}"
 
         # 3. Update Memory
         self.memory_manager.add_turn("user", query)
-        self.memory_manager.add_turn("assistant", response.text)
+        self.memory_manager.add_turn("assistant", final_answer)
 
         # 4. Generalized Citations formatting
         formatted_citations = []
@@ -99,7 +107,7 @@ class WorkspaceIntelligenceManager:
 
         return {
             "query": query,
-            "answer": response.text,
+            "answer": final_answer,
             "citations": formatted_citations,
             "context_provenance": retrieval_ctx.context_provenance
         }

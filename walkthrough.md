@@ -176,3 +176,43 @@ Implemented fast FTS5 search index backfill and queue-routed legacy document re-
 - **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
 
 ---
+
+# Milestone 2 — Prompt Reform & Multi-Source Synthesis
+
+## Phase 2.1 — Prompt Reform & Direct Answer Extraction
+
+### Phase Summary
+Implemented explicit prompt system instructions for direct, concise answer extraction when evidence exists, introduced presentation-order scoring (`prompt_priority_score = bm25 * 0.7 + cosine * 0.3`) for context chunk arrangement, and enforced explicit empty evidence fallback messaging.
+
+### What Was Implemented
+- Direct answer instruction added to prompt context template in `MultiStageRetriever._assemble_prompt()`: `"If the context contains a direct answer, provide it CONCISELY without additional reasoning."`
+- Presentation-order scoring in `MultiStageRetriever._compress_context()` using `prompt_priority_score = bm25_score * 0.7 + cosine_score * 0.3` to prioritize exact lexical matches at the top of LLM context windows.
+- Empty context fallback in `WorkspaceIntelligenceManager.query_workspace()`: if no chunks, triples, or active context are retrieved, response text is prepended with `"No relevant context found in workspace materials. "`.
+- Added unit test suite `test_prompt_reform.py` testing prompt instructions, presentation ordering, and empty evidence fallback.
+
+### Root Cause Addressed
+- Previously, system prompts lacked explicit instructions for direct concise answers or fallback instructions when context is empty/insufficient, causing hallucination or verbose tangents.
+
+### Files/Components Changed
+- [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Added direct answer system instruction to prompt template and updated `_compress_context()` with `prompt_priority_score` sorting.
+- [`backend/app/application/services/workspace_intelligence.py`](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py): Added empty evidence fallback check prepending `"No relevant context found in workspace materials. "`.
+- [`backend/tests/test_prompt_reform.py`](file:///e:/repos/athenus/backend/tests/test_prompt_reform.py): Added automated test suite for Phase 2.1.
+
+### Important Implementation Decisions
+- Separated Stage 6 reranker scoring (`rerank_score = cosine*0.4 + bm25*0.3 + overlap*0.3`) from Stage 8 presentation ordering (`prompt_priority_score = bm25*0.7 + cosine*0.3`). Stage 6 filters candidate hits, while Stage 8 presentation ordering places high-exact-match lexical chunks at the top of the LLM context window to optimize grounding.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_prompt_reform.py`: **Passed (2/2 passed)** in 1.20s.
+- `python -m pytest tests/test_chunker_generalization.py tests/test_anydoc_adapter.py tests/test_knowledge_graph.py tests/test_document_worker.py tests/test_legacy_migration.py tests/test_prompt_reform.py`: **Passed (30/30 passed)** in 3.16s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Direct Answer Extraction Test** | 1. Upload a document containing a specific fact (e.g. *"The target operating frequency is 2.4 GHz"*).<br>2. Ask chat: *"What is the operating frequency?"* | The AI returns a concise, direct answer (*"The operating frequency is 2.4 GHz [Document Page X]"*) without unnecessary preamble or tangents. |
+| **Empty Evidence Fallback Test** | 1. In a workspace with no materials or querying an entirely unrelated concept not in the workspace.<br>2. Ask chat: *"What is Quantum Superposition?"* | Response explicitly starts with `"No relevant context found in workspace materials. "` before providing general pretrained knowledge. |
+
+### Validation Status
+- **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
+
+---
