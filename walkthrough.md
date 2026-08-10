@@ -1,6 +1,66 @@
 # Athenus RAG Reliability Remediation — Walkthrough & Verification Record
 
-Canonical chronological record of implementation, automated testing, and manual QA validation for all remediation phases.
+Canonical chronological record of implementation, automated testing, and manual QA validation for all remediation phases and regression fixes.
+
+---
+
+# Critical Blocking Bug — Video Ingestion Queue Stall Regression Fix
+
+## Regression Symptoms
+When uploading a video file in the Athenus desktop UI, video ingestion became stuck at:
+> **Hermes is Receiving Your Lecture**
+> ⚙ **In Progress (5%)**
+
+The pipeline failed to progress beyond 5%, leaving video ingestion stranded indefinitely in the `queued` state.
+
+## Root Cause Analysis
+Investigated the complete video ingestion trajectory from upload $\to$ job creation $\to$ persistent queue $\to$ worker $\to$ telemetry:
+
+1. **Flawed SQL Filter in Legacy Re-Chunking**:
+   In Phase 1.4, `PersistentIngestionWorker._enqueue_legacy_rechunk_jobs()` executed:
+   ```sql
+   SELECT DISTINCT media_id FROM transcript_chunks WHERE word_count > 500 OR id NOT LIKE '%_sub_%'
+   ```
+   Because video transcript chunk IDs use the format `media_id_chunk_0` (which do NOT contain `_sub_`), video media items were mistakenly identified as "legacy documents requiring re-chunking".
+2. **Invalid Document Parsing Attempt on Video Files**:
+   When `_execute_rechunk_migration()` ran for video items, it attempted to parse `.mp4` video files as PDFs using `AnyDocDocumentParsingAdapter` (`pypdf`), triggering an unhandled parsing failure.
+3. **Queue Processing Deadlock**:
+   In `PersistentIngestionWorker.process_next_job()`:
+   ```python
+   if artifact_type == "rechunk_ingestion":
+       await self._execute_rechunk_migration(job_id, media_id, workspace_id)
+       return
+   ```
+   When `_execute_rechunk_migration()` completed or failed, `process_next_job()` returned without invoking `asyncio.create_task(self.process_next_job())`. This caused the sequential queue worker to halt permanently, leaving newly uploaded video ingestion jobs stuck at `queued` / 5% indefinitely.
+4. **Telemetry State Overwrite Race Condition**:
+   When `MediaUploadedEvent` was emitted, `media_event_handlers.on_media_uploaded` called `telemetry.record_progress(stage="queued", progress=5)`, which unconstrained could overwrite an active `processing` job status back to `queued` (5%).
+
+## Affected Components
+- [`backend/app/domain/ingestion/persistent_ingestion_queue.py`](file:///e:/repos/athenus/backend/app/domain/ingestion/persistent_ingestion_queue.py)
+- [`backend/app/domain/telemetry/telemetry_service.py`](file:///e:/repos/athenus/backend/app/domain/telemetry/telemetry_service.py)
+- [`backend/app/application/events/media_event_handlers.py`](file:///e:/repos/athenus/backend/app/application/events/media_event_handlers.py)
+
+## Fix Implemented
+1. **Restricted Legacy Re-Chunking to Documents**: Updated `_enqueue_legacy_rechunk_jobs()` SQL query to join `media_items` table and only queue items where `media_type = 'document'` or file extension is `.pdf`/`.docx`.
+2. **Non-Document Media Guard**: Added a media type guard in `_execute_rechunk_migration()` to skip non-document media items (videos/audio).
+3. **Queue Loop Continuation**: Ensured `asyncio.create_task(self.process_next_job())` is always called when re-chunking jobs, missing file path errors, or completion handlers execute, preventing worker loop deadlocks.
+4. **Boot Recovery Cleanup**: Added automatic cleanup in `boot_recovery()` to mark any invalid legacy `rechunk_` jobs for video/audio items completed.
+5. **Telemetry State Guard**: Added a status guard in `TelemetryService.record_progress()` (`if job.status in ["processing", "completed"] and status == "queued": return`) preventing stale `queued` events from regressing active processing jobs.
+
+## Automated Tests Performed & Results
+- `python -m pytest tests/test_video_ingestion_queue_regression.py`: **Passed (2/2 passed)** in 0.88s.
+- `python -m pytest tests/test_chunker_generalization.py tests/test_anydoc_adapter.py tests/test_knowledge_graph.py tests/test_document_worker.py tests/test_legacy_migration.py tests/test_prompt_reform.py tests/test_citation_deduplication.py tests/test_conversational_citations.py tests/test_fts5_triggers_and_boosting.py tests/test_video_ingestion_queue_regression.py`: **Passed (36/36 passed)** in 3.03s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+## Manual QA Validation Instructions
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Video Ingestion Progress Test** | 1. In Athenus desktop UI, upload a video file (`.mp4` / `.mov` / `.webm`).<br>2. Observe the ingestion pipeline status in the UI sidebar/view. | Video progresses out of 5% (`Hermes is Receiving Your Lecture`) $\to$ `Extracting audio` (25%) $\to$ `Transcribing speech` (60%) $\to$ `Indexing embeddings` (85%) $\to$ `Ready` (100%). |
+| **PDF Document Ingestion Test** | 1. Upload a PDF document (`.pdf`).<br>2. Observe the document ingestion progress bar. | Document processes cleanly through sub-chunking, FTS5 indexing, and reaches 100% `Ready` state. |
+| **RAG Retrieval & Grounding Test** | 1. Submit conversational queries (`Hi`, `Hello`, `How are you?`).<br>2. Ask document questions (*"What is photosynthesis?"*). | Conversational turns return friendly clean text with 0 citations. Document questions return grounded answers with valid deduplicated citation chips. |
+
+## Validation Status
+- **AWAITING USER MANUAL VALIDATION** (Stop and await user approval before proceeding to next phase).
 
 ---
 
@@ -251,5 +311,45 @@ Separated internal RAG retrieval state (`has_relevant_context`) from user-facing
 
 ### Validation Status
 - **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
+
+---
+
+# Milestone 3 — Retrieval Quality & Cross-Source Scope
+
+## Phase 3.1 — Active-Item Context Boosting & SQLite FTS5 BM25 with DB Triggers
+
+### Phase Summary
+Implemented active-item context score boosting (1.5x score multiplier for active media/document items), attached native SQLite database triggers (`AFTER INSERT`, `AFTER UPDATE`, `AFTER DELETE`) for automatic FTS5 index mirroring, added full-corpus SQLite FTS5 BM25 search, and introduced Reciprocal Rank Fusion (RRF, $k=60$) merging dense and sparse hits capped at $N=15$.
+
+### What Was Implemented
+- **Active-Item Context Boosting**: In `MultiStageRetriever.execute_retrieval()`, dense vector hits matching the active `document_id` or `media_id` receive a `1.5x` score boost (`boosted_score = score * 1.5`), ensuring active context chunks rank higher in RRF fusion.
+- **SQLite FTS5 DB Triggers**: In `session.py`, created native SQLite triggers (`transcript_chunks_ai`, `transcript_chunks_au`, `transcript_chunks_ad`) to mirror all `INSERT`, `UPDATE`, `DELETE` operations on `transcript_chunks` directly into `transcript_chunks_fts`.
+- **Full Corpus FTS5 BM25 Search**: Implemented `BM25Retriever.search_fts5()` executing native SQLite FTS5 BM25 queries ordered by `bm25(transcript_chunks_fts) ASC` across the entire workspace corpus.
+- **Reciprocal Rank Fusion (RRF)**: Merged Dense Qdrant vector hits (boosted) and Sparse FTS5 BM25 hits using RRF score formula $\text{RRF}(c) = \frac{1}{60 + \text{rank}_{\text{dense}}} + \frac{1}{60 + \text{rank}_{\text{sparse}}}$, deduplicating candidate chunks by `chunk_id` and capping at top $N=15$ before sending to Stage 6 Cross-Encoder reranking.
+- **Automated Test Suite**: Created [`backend/tests/test_fts5_triggers_and_boosting.py`](file:///e:/repos/athenus/backend/tests/test_fts5_triggers_and_boosting.py) verifying SQLite FTS5 triggers, active item score boosting, and RRF fusion.
+
+### Root Cause Addressed
+- Previously, active items received equal scoring to inactive workspace items, causing active context chunks to be out-ranked by unrelated documents. BM25 sparse search was unindexed across the workspace corpus.
+
+### Files/Components Changed
+- [`backend/app/infrastructure/db/session.py`](file:///e:/repos/athenus/backend/app/infrastructure/db/session.py): Added native SQLite `AFTER INSERT`, `AFTER UPDATE`, and `AFTER DELETE` triggers for `transcript_chunks_fts`.
+- [`backend/app/domain/knowledge/bm25_retriever.py`](file:///e:/repos/athenus/backend/app/domain/knowledge/bm25_retriever.py): Added `search_fts5()` for native SQLite FTS5 BM25 full-corpus search.
+- [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Implemented 1.5x active item score boosting, FTS5 BM25 retrieval, and RRF candidate fusion ($k=60, N=15$).
+- [`backend/tests/test_fts5_triggers_and_boosting.py`](file:///e:/repos/athenus/backend/tests/test_fts5_triggers_and_boosting.py): **[NEW]** Created unit test suite verifying FTS5 triggers, active item boosting, and RRF merge.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_fts5_triggers_and_boosting.py`: **Passed (2/2 passed)** in 0.92s.
+- `python -m pytest tests/test_chunker_generalization.py tests/test_anydoc_adapter.py tests/test_knowledge_graph.py tests/test_document_worker.py tests/test_legacy_migration.py tests/test_prompt_reform.py tests/test_citation_deduplication.py tests/test_conversational_citations.py tests/test_fts5_triggers_and_boosting.py`: **Passed (34/34 passed)** in 3.34s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation
+| Test | How to Conduct (Detailed Step-by-Step) | Expected Behavior |
+| :--- | :--- | :--- |
+| **Active Document Context Boosting Test** | **Step 1:** Upload two separate documents with overlapping topics to your workspace (e.g. `Doc A - Physics Fundamentals.pdf` and `Doc B - General Science.pdf`).<br>**Step 2:** Click to open `Doc A - Physics Fundamentals.pdf` in the Athenus viewer so `Doc A` is set as the active document (`document_id`).<br>**Step 3:** In the workspace chat, ask a question present in both documents (e.g. *"Explain Newton's Laws of Motion"*).<br>**Step 4:** Inspect the AI response and returned citation chips. | Chunks from `Doc A - Physics Fundamentals.pdf` (the active document) receive a **1.5x score boost** and rank higher than `Doc B`, appearing as the primary top citation. |
+| **SQLite FTS5 Database Trigger Mirroring Test** | **Step 1:** Open SQLite command line or GUI tool connected to `backend/app.db`.<br>**Step 2:** Count initial FTS5 rows: `SELECT COUNT(*) FROM transcript_chunks_fts;`.<br>**Step 3:** Upload a new PDF or video in the Athenus UI and wait for processing to finish (`Complete ✓`).<br>**Step 4:** Re-run `SELECT COUNT(*) FROM transcript_chunks_fts;` and verify row count increased.<br>**Step 5:** Execute FTS search: `SELECT chunk_id, workspace_id, text FROM transcript_chunks_fts WHERE transcript_chunks_fts MATCH 'photosynthesis';`. | Native SQLite triggers (`transcript_chunks_ai`, `transcript_chunks_au`, `transcript_chunks_ad`) **automatically mirror** all inserted, updated, or deleted chunks into `transcript_chunks_fts` without manual sync scripts, and matching search rows return immediately. |
+| **RRF Hybrid Search Verification Test** | **Step 1:** In a workspace containing multiple documents, submit a multi-word topic query with distinct rare keywords (e.g. *"quantum entanglement superposition"*).<br>**Step 2:** Observe the AI response and generated citation chips. | The system combines dense vector hits from Qdrant with sparse keyword hits from SQLite FTS5 using **Reciprocal Rank Fusion ($k=60$)**, delivering accurate top-ranked citations even if dense vector or BM25 search alone would have ranked them lower. |
+
+### Validation Status
+- **AWAITING USER MANUAL VALIDATION** (Do not proceed to Phase 3.2 until explicit user approval is received).
 
 ---

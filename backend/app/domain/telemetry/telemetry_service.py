@@ -84,9 +84,12 @@ class TelemetryService:
                     )
                     session.add(job)
                 else:
+                    # Telemetry State Guard: Never regress an active processing/completed job back to queued (5%)
+                    if job.status in ["processing", "completed"] and status == "queued":
+                        return
                     job.status = status
                     job.stage = stage
-                    job.progress = calculated_progress
+                    job.progress = max(job.progress or 0, calculated_progress) if status == "processing" else calculated_progress
                     job.message = calculated_message
                     if error:
                         job.error_message = error

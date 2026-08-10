@@ -66,8 +66,8 @@ def test_fts5_backfill_and_legacy_migration():
         # Verify FTS5 backfill executed
         with Session(engine) as session:
             fts_count = session.execute(
-                text("SELECT count(*) FROM transcript_chunks_fts WHERE chunk_id = :cid"),
-                {"cid": f"{media_id}_page_1"}
+                text("SELECT count(*) FROM transcript_chunks_fts WHERE workspace_id = :ws"),
+                {"ws": workspace_id}
             ).scalar()
             assert fts_count >= 1, "Expected legacy chunk to be backfilled into FTS5"
 

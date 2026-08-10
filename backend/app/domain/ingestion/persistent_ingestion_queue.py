@@ -83,6 +83,7 @@ class PersistentIngestionWorker:
 
             if artifact_type == "rechunk_ingestion":
                 await self._execute_rechunk_migration(job_id, media_id, workspace_id)
+                asyncio.create_task(self.process_next_job())
                 return
 
             # Mark job as RESERVED / PROCESSING
@@ -105,6 +106,7 @@ class PersistentIngestionWorker:
                     message="Media file not found on disk.",
                     error_message="Missing file path.",
                 )
+                asyncio.create_task(self.process_next_job())
                 return
 
             file_path = media_item.file_path
@@ -296,9 +298,11 @@ class PersistentIngestionWorker:
             from app.infrastructure.db.models import MediaItemTable, ArtifactJobTable
             with Session(engine) as session:
                 legacy_media_ids = session.execute(text("""
-                    SELECT DISTINCT media_id
-                    FROM transcript_chunks
-                    WHERE word_count > 500 OR id NOT LIKE '%_sub_%'
+                    SELECT DISTINCT tc.media_id
+                    FROM transcript_chunks tc
+                    JOIN media_items m ON tc.media_id = m.id
+                    WHERE (m.media_type = 'document' OR m.file_path LIKE '%.pdf' OR m.file_path LIKE '%.docx' OR tc.media_id LIKE 'doc_%')
+                      AND (tc.word_count > 500 OR tc.id NOT LIKE '%_sub_%')
                 """)).scalars().all()
 
                 for media_id in legacy_media_ids:
@@ -340,10 +344,22 @@ class PersistentIngestionWorker:
         )
         try:
             from sqlalchemy import text
-            from app.domain.knowledge.chunker import chunker
+            from app.domain.knowledge.chunker import SemanticChunker
+            chunker = SemanticChunker()
             from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
 
             with Session(engine) as session:
+                media_item = session.get(MediaItemTable, media_id)
+                if media_item and (getattr(media_item, "media_type", "") in ["video", "audio"] or (media_item.file_path and media_item.file_path.endswith((".mp4", ".mkv", ".mov", ".mp3", ".wav")))):
+                    self._update_job_status(
+                        job_id=job_id,
+                        status="completed",
+                        stage="ready",
+                        progress=100,
+                        message="Legacy migration skipped (video/audio media).",
+                    )
+                    return
+
                 chunks = session.execute(
                     select(TranscriptChunkTable).where(TranscriptChunkTable.media_id == media_id)
                 ).scalars().all()
@@ -427,10 +443,20 @@ class PersistentIngestionWorker:
         # 2. Legacy Document Re-Chunk Queue Routing
         self._enqueue_legacy_rechunk_jobs()
 
-        # 3. Recover queued/reserved/processing jobs
+        # 3. Recover queued/reserved/processing jobs & clean up stale non-document rechunk jobs
         try:
-            from app.infrastructure.db.models import ArtifactJobTable
+            from app.infrastructure.db.models import ArtifactJobTable, MediaItemTable
             with Session(engine) as session:
+                stale_rechunks = session.execute(
+                    select(ArtifactJobTable).where(ArtifactJobTable.artifact_type == "rechunk_ingestion")
+                ).scalars().all()
+                for job in stale_rechunks:
+                    media = session.get(MediaItemTable, job.target_key)
+                    if media and (getattr(media, "media_type", "") in ["video", "audio"] or (media.file_path and media.file_path.endswith((".mp4", ".mkv", ".mov", ".mp3", ".wav")))):
+                        job.status = "completed"
+                        job.stage = "ready"
+                        job.progress = 100
+
                 stmt = select(ArtifactJobTable).where(
                     ArtifactJobTable.artifact_type.in_(["ingestion", "rechunk_ingestion"]),
                     ArtifactJobTable.status.in_(["queued", "reserved", "processing"]),
