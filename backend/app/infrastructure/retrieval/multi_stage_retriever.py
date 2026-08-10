@@ -103,21 +103,57 @@ class MultiStageRetriever:
         # Stage 4: Knowledge Graph Traversal with Zero-Match Guardrail
         ctx.graph_triples = self.kg_service.get_workspace_triples(workspace_id, query=query)
 
-        # Stage 5: Hybrid Search (Dense Embedded Qdrant + Sparse BM25)
+        # Stage 5: Hybrid Search (Dense Vector + Sparse FTS5 BM25 + Active Item Boosting + RRF Fusion)
         embedding_cap = self.ai_service_bus.get_embedding_capability()
         query_vector = await embedding_cap.embed_query(ctx.rewritten_query)
 
+        # 5a. Dense Qdrant Vector Search
         dense_hits = await self.vector_store.search(
             query_vector=query_vector,
             limit=10,
             filter_workspace_id=workspace_id,
         )
 
-        dense_docs = [hit["payload"] for hit in dense_hits if "payload" in hit]
-        bm25_hits = self.bm25.rank(ctx.rewritten_query, dense_docs, top_k=5)
+        # Apply Active-Item Context Boosting (1.5x score multiplier for matching document_id or media_id)
+        active_target_id = document_id or media_id
+        dense_docs = []
+        for hit in dense_hits:
+            pay = dict(hit.get("payload", {}))
+            score = hit.get("score", 0.0)
+            pay_id = pay.get("media_id") or pay.get("document_id")
+            if active_target_id and pay_id == active_target_id:
+                score *= 1.5
+            pay["score"] = score
+            dense_docs.append(pay)
+
+        # 5b. Sparse SQLite FTS5 BM25 Search across full workspace corpus
+        sparse_docs = self.bm25.search_fts5(workspace_id=workspace_id, query=query, top_k=10)
+        if not sparse_docs and dense_docs:
+            sparse_docs = self.bm25.rank(query, dense_docs, top_k=5)
+
+        # 5c. Reciprocal Rank Fusion (RRF) Merge (k=60)
+        rrf_scores: Dict[str, float] = {}
+        candidate_map: Dict[str, Dict[str, Any]] = {}
+
+        for rank_idx, doc in enumerate(dense_docs, 1):
+            doc_id = doc.get("id") or doc.get("chunk_id") or f"dense_{rank_idx}"
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + (1.0 / (60.0 + rank_idx))
+            candidate_map[doc_id] = doc
+
+        for rank_idx, doc in enumerate(sparse_docs, 1):
+            doc_id = doc.get("id") or doc.get("chunk_id") or f"sparse_{rank_idx}"
+            rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + (1.0 / (60.0 + rank_idx))
+            if doc_id not in candidate_map:
+                candidate_map[doc_id] = doc
+            else:
+                candidate_map[doc_id]["bm25_score"] = doc.get("bm25_score", 0.5)
+
+        # Sort merged candidates by RRF score and cap at top N=15
+        sorted_candidates = sorted(candidate_map.values(), key=lambda x: rrf_scores.get(x.get("id") or x.get("chunk_id"), 0.0), reverse=True)
+        fusion_candidates = sorted_candidates[:15]
 
         # Stage 6: Cross-Encoder Re-Ranking
-        reranked_chunks = self.reranker.rerank(ctx.rewritten_query, bm25_hits, top_k=3)
+        reranked_chunks = self.reranker.rerank(query, fusion_candidates, top_k=3)
 
         # Stage 7 & 8: Token Budget Enforcement & Grounded Prompt Assembly
         model_context_limit = 128000

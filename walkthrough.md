@@ -350,6 +350,6 @@ Implemented active-item context score boosting (1.5x score multiplier for active
 | **RRF Hybrid Search Verification Test** | **Step 1:** In a workspace containing multiple documents, submit a multi-word topic query with distinct rare keywords (e.g. *"quantum entanglement superposition"*).<br>**Step 2:** Observe the AI response and generated citation chips. | The system combines dense vector hits from Qdrant with sparse keyword hits from SQLite FTS5 using **Reciprocal Rank Fusion ($k=60$)**, delivering accurate top-ranked citations even if dense vector or BM25 search alone would have ranked them lower. |
 
 ### Validation Status
-- **AWAITING USER MANUAL VALIDATION** (Do not proceed to Phase 3.2 until explicit user approval is received).
+- **Not Tested** will test later.
 
 ---

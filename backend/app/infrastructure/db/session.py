@@ -94,6 +94,22 @@ try:
                             text
                         );
                     """))
+                    conn.execute(text("""
+                        CREATE TRIGGER IF NOT EXISTS transcript_chunks_ai AFTER INSERT ON transcript_chunks BEGIN
+                            INSERT INTO transcript_chunks_fts(chunk_id, workspace_id, text) VALUES (new.id, new.workspace_id, new.text);
+                        END;
+                    """))
+                    conn.execute(text("""
+                        CREATE TRIGGER IF NOT EXISTS transcript_chunks_ad AFTER DELETE ON transcript_chunks BEGIN
+                            DELETE FROM transcript_chunks_fts WHERE chunk_id = old.id;
+                        END;
+                    """))
+                    conn.execute(text("""
+                        CREATE TRIGGER IF NOT EXISTS transcript_chunks_au AFTER UPDATE ON transcript_chunks BEGIN
+                            DELETE FROM transcript_chunks_fts WHERE chunk_id = old.id;
+                            INSERT INTO transcript_chunks_fts(chunk_id, workspace_id, text) VALUES (new.id, new.workspace_id, new.text);
+                        END;
+                    """))
                     conn.commit()
             except Exception as e:
                 print("FTS5 INIT ERROR:", e)
