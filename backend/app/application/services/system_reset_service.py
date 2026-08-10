@@ -36,6 +36,7 @@ try:
 except ImportError:
     from sqlalchemy import select
     from sqlalchemy.orm import Session
+from sqlalchemy import inspect, text
 
 
 class SystemResetService:
@@ -99,6 +100,9 @@ class SystemResetService:
                             records = session.scalars(statement).all() if hasattr(session, "scalars") else session.exec(statement).all()
                             for r in records:
                                 session.delete(r)
+                        # Legacy `document_pages` table has no ORM model; purge via raw SQL if present.
+                        if inspect(engine).has_table("document_pages"):
+                            session.execute(text("DELETE FROM document_pages"))
                         session.commit()
                 except Exception as e:
                     raise HTTPException(status_code=500, detail=f"Failed to reset SQLite database: {str(e)}")

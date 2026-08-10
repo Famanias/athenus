@@ -73,6 +73,13 @@ def test_system_clear_data_factory_reset():
         session.merge(ConceptMasteryTable(concept_id="con_purge_1", workspace_id="default", mastery_level=0.8))
         session.add(StudySessionTable(id="stud_purge_1", workspace_id="default", activity_type="review"))
 
+        # Legacy document_pages table (no ORM model) — must also be purged
+        from sqlalchemy import text
+        session.execute(text(
+            "INSERT INTO document_pages (id, media_id, workspace_id, page_number, text, page_type, section_title, created_at) "
+            "VALUES (1, 'med_purge_1', 'default', 1, 'legacy page', 'page', 'Page 1', CURRENT_TIMESTAMP)"
+        ))
+
         session.commit()
 
     # Populate progress store
@@ -108,6 +115,10 @@ def test_system_clear_data_factory_reset():
         ws_records = session.scalars(select(WorkspaceTable)).all() if hasattr(session, "scalars") else session.exec(select(WorkspaceTable)).all()
         assert len(ws_records) == 1
         assert any(w.id == "default" for w in ws_records)
+
+        # Assert legacy document_pages table purged
+        from sqlalchemy import text
+        assert session.execute(text("SELECT COUNT(*) FROM document_pages")).scalar() == 0
 
     # 4. Assert API exposes exactly one workspace (no stale in-memory leftovers)
     ws_list = client.get("/api/v1/workspaces")
