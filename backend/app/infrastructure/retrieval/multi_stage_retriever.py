@@ -90,8 +90,8 @@ class MultiStageRetriever:
 
         ctx.context_provenance = provenance
 
-        # Stage 4: Knowledge Graph Traversal
-        ctx.graph_triples = self.kg_service.get_workspace_triples(workspace_id)
+        # Stage 4: Knowledge Graph Traversal with Zero-Match Guardrail
+        ctx.graph_triples = self.kg_service.get_workspace_triples(workspace_id, query=query)
 
         # Stage 5: Hybrid Search (Dense Embedded Qdrant + Sparse BM25)
         embedding_cap = self.ai_service_bus.get_embedding_capability()

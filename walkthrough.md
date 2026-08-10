@@ -46,3 +46,44 @@ Implemented document page sub-chunking with ~500-word target blocks and a strict
 - **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
 
 ---
+
+## Phase 1.2 — Knowledge Graph Triple Relevance Filtering & Zero-Match Guard
+
+### Phase Summary
+Implemented query relevance keyword/concept matching in `KnowledgeGraphService.get_workspace_triples()` and enforced the **Zero-Match KG Guardrail**. Unrelated queries or generic greetings will no longer inject arbitrary knowledge graph triples into the LLM context prompt.
+
+### What Was Implemented
+- Query keyword tokenization and concept relevance matching in `KnowledgeGraphService.get_workspace_triples(workspace_id, query)`.
+- **Zero-Match KG Guardrail**: If zero concepts match the user query (or query contains no domain-specific keywords), `get_workspace_triples()` returns an empty list `[]`.
+- Updated `MultiStageRetriever.execute_retrieval()` to pass `query` to `get_workspace_triples(workspace_id, query=query)`.
+- Added unit test `test_kg_zero_match_guardrail()` in `backend/tests/test_knowledge_graph.py`.
+
+### Root Cause Addressed
+- Previously, `get_workspace_triples(workspace_id)` unconditionally returned ALL knowledge graph relations in the workspace and injected them into every single chat turn prompt regardless of relevance, polluting LLM prompts with unrelated concepts.
+
+### Files/Components Changed
+- [`backend/app/domain/knowledge/knowledge_graph_service.py`](file:///e:/repos/athenus/backend/app/domain/knowledge/knowledge_graph_service.py): Updated `get_workspace_triples()` to support `query` parameter, keyword/concept relevance filtering, and zero-match guard.
+- [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Passed `query` to `self.kg_service.get_workspace_triples(workspace_id, query=query)`.
+- [`backend/tests/test_knowledge_graph.py`](file:///e:/repos/athenus/backend/tests/test_knowledge_graph.py): Added `test_kg_zero_match_guardrail()`.
+
+### Important Implementation Decisions
+- Enforced zero triples (`[]`) for generic queries or greetings ("hi", "hello", "summarize the pdf") when no specific concept names match, keeping prompt context clean.
+- When query keywords match specific graph concepts, only relationships containing those concepts are injected.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_knowledge_graph.py`: **Passed (16/16 passed)** in 2.82s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Zero-Match KG Guardrail Test** | 1. In a workspace containing knowledge graph concepts (e.g. Robotics concepts), send a general greeting or unrelated query: *"hi, how are you?"* or *"what is the weather?"*.<br>2. Inspect the assembled prompt / context output. | **Zero knowledge graph triples** are injected into the prompt context. The response answers naturally without citing unrelated graph concepts. |
+| **Relevant KG Triple Retrieval Test** | 1. Query a specific concept existing in the knowledge graph: *"What are the prerequisites for Neural Networks?"* (assuming Neural Networks exists in KG). | Only the relevant relationship triples for Neural Networks are retrieved and injected into the prompt context. |
+
+### GAP/Observations
+- Citations need improvement: consider simplifying citations by citing the relevant document instead of specific pages within that document.
+
+### Validation Status
+- **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
+
+---

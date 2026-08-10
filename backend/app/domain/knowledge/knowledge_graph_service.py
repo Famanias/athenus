@@ -351,32 +351,69 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
     # ------------------------------------------------------------------
     # RAG context expansion
     # ------------------------------------------------------------------
-    def get_workspace_triples(self, workspace_id: str = "default") -> List[str]:
-        """Retrieve structured text representation of knowledge triples for RAG prompt context expansion."""
-        if not engine or not Session or not select:
-            return [
-                f"{e.source_concept_id} --[{e.relation_type.value if hasattr(e.relation_type, 'value') else e.relation_type}]--> {e.target_concept_id}"
-                for e in self._edges
-            ]
+    def get_workspace_triples(
+        self,
+        workspace_id: str = "default",
+        query: Optional[str] = None
+    ) -> List[str]:
+        """Retrieve structured text representation of knowledge triples for RAG prompt context expansion.
+        Enforces Zero-Match Guardrail and query relevance filtering when query is provided."""
+        stop_words = {
+            "a", "an", "the", "and", "or", "but", "if", "because", "as", "what", "which",
+            "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was",
+            "were", "be", "been", "being", "have", "has", "had", "having", "do", "does",
+            "did", "doing", "can", "could", "should", "would", "may", "might", "must",
+            "shall", "tell", "give", "me", "summarize", "summary", "explain", "about",
+            "file", "attached", "document", "pdf", "video", "please", "hi", "hello", "hey"
+        }
 
-        try:
-            with Session(engine) as session:
-                statement = select(KnowledgeRelationTable).where(
-                    KnowledgeRelationTable.workspace_id == workspace_id
+        query_tokens: Set[str] = set()
+        if query:
+            clean_q = "".join([c.lower() if c.isalnum() or c.isspace() else " " for c in query])
+            query_tokens = {t for t in clean_q.split() if t not in stop_words and len(t) > 1}
+
+        relevant_concept_ids: Set[str] = set()
+        if query is not None:
+            if not query_tokens:
+                # Zero-match guardrail: Empty/generic query -> 0 triples
+                return []
+
+            concepts = self.get_concepts(workspace_id)
+            for c in concepts:
+                c_name_tokens = set("".join([ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in c.name]).split())
+                c_desc_tokens = set("".join([ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in (c.description or "")]).split())
+
+                if query_tokens & c_name_tokens or query_tokens & c_desc_tokens or any(qt in c.name.lower() for qt in query_tokens):
+                    relevant_concept_ids.add(c.id)
+                    relevant_concept_ids.add(c.name.lower())
+
+            if not relevant_concept_ids:
+                # Zero-match guardrail: No concepts matched query
+                return []
+
+        relations = self.get_relations(workspace_id)
+        filtered_triples: List[str] = []
+
+        for r in relations:
+            src = r.source_concept_id
+            tgt = r.target_concept_id
+            rel = r.relation_type.value if hasattr(r.relation_type, "value") else str(r.relation_type)
+
+            if query is not None:
+                is_rel = (
+                    src in relevant_concept_ids
+                    or tgt in relevant_concept_ids
+                    or src.lower() in relevant_concept_ids
+                    or tgt.lower() in relevant_concept_ids
+                    or any(qt in src.lower() for qt in query_tokens)
+                    or any(qt in tgt.lower() for qt in query_tokens)
                 )
-                records = self._scalars(session, statement)
-                if not records and self._edges:
-                    return [
-                        f"{e.source_concept_id} --[{e.relation_type.value if hasattr(e.relation_type, 'value') else e.relation_type}]--> {e.target_concept_id}"
-                        for e in self._edges
-                    ]
+                if not is_rel:
+                    continue
 
-                return [
-                    f"{r.source_concept} --[{r.relation_type}]--> {r.target_concept}"
-                    for r in records
-                ]
-        except Exception:
-            return []
+            filtered_triples.append(f"{src} --[{rel}]--> {tgt}")
+
+        return filtered_triples
 
     # ------------------------------------------------------------------
     # Artifact lifecycle observability

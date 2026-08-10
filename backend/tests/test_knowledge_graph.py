@@ -395,3 +395,24 @@ def test_graph_shortest_path_endpoint():
     assert data["exists"] is True
     assert data["path"][0] == ids[0]
     assert data["path"][-1] == ids[2]
+
+
+def test_kg_zero_match_guardrail():
+    service = KnowledgeGraphService()
+    ws = f"ws_zero_match_{uuid.uuid4().hex[:6]}"
+    n1 = ConceptNode(id="c_calc", workspace_id=ws, name="Calculus", description="Differential calculus")
+    n2 = ConceptNode(id="c_nn", workspace_id=ws, name="Neural Networks", description="Deep learning backpropagation")
+
+    service.add_node(n1, workspace_id=ws)
+    service.add_node(n2, workspace_id=ws)
+    service.add_edge(source_id="c_calc", target_id="c_nn", relation=RelationType.PREREQUISITE_FOR, workspace_id=ws)
+
+    # 1. Unrelated query / greeting should return 0 triples (Zero-Match Guardrail)
+    unrelated_triples = service.get_workspace_triples(workspace_id=ws, query="hi what is the weather today?")
+    assert len(unrelated_triples) == 0, f"Expected 0 triples for unrelated query, got {unrelated_triples}"
+
+    # 2. Query matching 'Calculus' should return the relevant triple
+    relevant_triples = service.get_workspace_triples(workspace_id=ws, query="Tell me about Calculus")
+    assert len(relevant_triples) == 1
+    assert "c_calc" in relevant_triples[0] or "Calculus" in relevant_triples[0]
+
