@@ -56,6 +56,7 @@ def test_empty_evidence_fallback():
         manager = WorkspaceIntelligenceManager(bus, retriever=retriever)
         res = await manager.query_workspace("Unrelated query without context", workspace_id="empty_ws")
         assert "answer" in res
-        assert res["answer"].startswith("No relevant context found in workspace materials.")
+        assert not res["answer"].startswith("No relevant context found")
+        assert res["citations"] == []
 
     asyncio.run(_test())

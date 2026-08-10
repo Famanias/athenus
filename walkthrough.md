@@ -216,3 +216,40 @@ Implemented explicit prompt system instructions for direct, concise answer extra
 - **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
 
 ---
+
+## Phase 2.2 — Citation Verification, Deduplication & Conversational Fallback Refinement
+
+### Phase Summary
+Separated internal RAG retrieval state (`has_relevant_context`) from user-facing response presentation. Removed the raw diagnostic string `"No relevant context found in workspace materials."` from user responses, ensuring friendly conversational turns (`Hi`, `Hello`, `How are you?`) and unsupported knowledge queries return clean natural text with zero spurious citations.
+
+### What Was Changed & Why
+- **Removed User-Facing Diagnostic String**: Eliminated raw string prepending in `WorkspaceIntelligenceManager.query_workspace()`. Users no longer see `"No relevant context found in workspace materials. Hello."`.
+- **Separated Internal Retrieval State**: Added `has_relevant_context: bool` to `RetrievalContext` dataclass in [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py). Tracks internal RAG context state for grounding logic and citation suppression without exposing diagnostic text to users.
+- **Preserved Conversational & Unsupported Grounding**: Conversational queries (`Hi`, `Hello`, `How are you?`) and unsupported knowledge queries return natural friendly text while suppressing citation payload objects (`res["citations"] = []`).
+
+### Root Cause Addressed
+- Previously, `WorkspaceIntelligenceManager.query_workspace()` forcibly prepended the string `"No relevant context found in workspace materials. "` directly onto user-facing LLM answers whenever RAG context was empty, exposing internal diagnostic state during social pleasantries.
+
+### Files/Components Modified
+- [`backend/app/application/services/workspace_intelligence.py`](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py): Removed raw diagnostic string prepending logic and checked `retrieval_ctx.has_relevant_context` for citation suppression.
+- [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Added `has_relevant_context: bool` to `RetrievalContext`.
+- [`backend/tests/test_prompt_reform.py`](file:///e:/repos/athenus/backend/tests/test_prompt_reform.py): Updated fallback assertion to verify clean natural response text without raw diagnostic strings.
+- [`backend/tests/test_conversational_citations.py`](file:///e:/repos/athenus/backend/tests/test_conversational_citations.py): Updated regression assertions verifying clean natural answers across all 6 mandatory user test cases.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_conversational_citations.py`: **Passed (1/1 passed)** in 0.53s.
+- `python -m pytest tests/test_citation_deduplication.py`: **Passed (1/1 passed)** in 1.36s.
+- `python -m pytest tests/test_chunker_generalization.py tests/test_anydoc_adapter.py tests/test_knowledge_graph.py tests/test_document_worker.py tests/test_legacy_migration.py tests/test_prompt_reform.py tests/test_citation_deduplication.py tests/test_conversational_citations.py`: **Passed (32/32 passed)** in 2.47s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Friendly Conversational Turn Test** | 1. In a workspace with uploaded materials, ask: `"Hi"`, `"Hello"`, `"How are you?"`. | The AI responds naturally (e.g. *"Hello! It's nice to meet you. Is there something I can help you with?"*) with **NO diagnostic prefix** and **ZERO citations**. |
+| **Unsupported Knowledge Query Test** | 1. Ask a question not covered by uploaded workspace materials (e.g. *"What is Quantum Superposition?"* in a biology workspace). | The AI responds using pretrained knowledge naturally without prepending `"No relevant context found..."` and with **ZERO workspace citations**. |
+| **Supported Knowledge Query Test** | 1. Ask a question supported by uploaded workspace materials (e.g. *"What is photosynthesis?"*). | The AI responds from workspace evidence with **valid deduplicated citation chips** (`📄 Biology Textbook.pdf Page 42`). |
+
+### Validation Status
+- **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
+
+---

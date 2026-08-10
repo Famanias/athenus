@@ -63,47 +63,67 @@ class WorkspaceIntelligenceManager:
         )
         response = await text_capability.generate(gen_request)
         final_answer = response.text
-        has_active_provenance = False
-        if retrieval_ctx.context_provenance and isinstance(retrieval_ctx.context_provenance, dict):
-            has_active_provenance = any(v for k, v in retrieval_ctx.context_provenance.items() if v is not None)
-
-        if not retrieval_ctx.retrieved_chunks and not retrieval_ctx.graph_triples and not has_active_provenance:
-            if not final_answer.startswith("No relevant context found"):
-                final_answer = f"No relevant context found in workspace materials. {final_answer}"
 
         # 3. Update Memory
         self.memory_manager.add_turn("user", query)
         self.memory_manager.add_turn("assistant", final_answer)
 
-        # 4. Generalized Citations formatting
+        # 4. Generalized & Deduplicated Citations formatting
         formatted_citations = []
-        for c in retrieval_ctx.retrieved_chunks:
-            c_source = c.get("source_type", "video")
-            is_doc = c_source == "pdf" or "page_number" in c or (c.get("location") and c["location"].get("type") == "document")
-            if is_doc:
-                page_num = c.get("page_number") or (c.get("location") and c["location"].get("page")) or 1
-                sec = c.get("section_title") or (c.get("location") and c["location"].get("section")) or f"Page {page_num}"
-                formatted_citations.append({
-                    "chunk_id": c.get("id") or c.get("chunk_id"),
-                    "source_type": "pdf",
-                    "start_time": None,
-                    "end_time": None,
-                    "page_number": page_num,
-                    "section_title": sec,
-                    "location": c.get("location") or {"type": "document", "page": page_num, "section": sec},
-                    "text": c.get("text", "")
-                })
-            else:
-                formatted_citations.append({
-                    "chunk_id": c.get("id") or c.get("chunk_id"),
-                    "source_type": "video",
-                    "start_time": c.get("start_time", 0.0),
-                    "end_time": c.get("end_time", 0.0),
-                    "page_number": None,
-                    "section_title": None,
-                    "location": c.get("location") or {"type": "video", "start_time": c.get("start_time", 0.0), "end_time": c.get("end_time", 0.0)},
-                    "text": c.get("text", "")
-                })
+        seen_citation_keys = set()
+
+        import re
+        has_rel_ctx = getattr(retrieval_ctx, "has_relevant_context", True)
+        is_conversational_response = (
+            not has_rel_ctx
+            or bool(re.match(r"^\s*(hello|hi|hey|good morning|good afternoon|good evening|greetings|thanks|you['\s]*re welcome)", final_answer.strip(), re.IGNORECASE))
+        )
+
+        if retrieval_ctx.retrieved_chunks and has_rel_ctx and not is_conversational_response:
+            for c in retrieval_ctx.retrieved_chunks:
+                c_source = c.get("source_type", "video")
+                media_id = c.get("media_id") or c.get("document_id")
+                media_title = c.get("title") or c.get("media_title") or c.get("document_title")
+                is_doc = c_source == "pdf" or "page_number" in c or (c.get("location") and c["location"].get("type") == "document")
+
+                if is_doc:
+                    page_num = c.get("page_number") or (c.get("location") and c["location"].get("page")) or 1
+                    sec = c.get("section_title") or (c.get("location") and c["location"].get("section")) or f"Page {page_num}"
+                    dedup_key = (media_id or "doc", "pdf", page_num, sec)
+
+                    if dedup_key not in seen_citation_keys:
+                        seen_citation_keys.add(dedup_key)
+                        formatted_citations.append({
+                            "chunk_id": c.get("id") or c.get("chunk_id"),
+                            "media_id": media_id,
+                            "title": media_title or f"Document Page {page_num}",
+                            "source_type": "pdf",
+                            "start_time": None,
+                            "end_time": None,
+                            "page_number": page_num,
+                            "section_title": sec,
+                            "location": c.get("location") or {"type": "document", "page": page_num, "section": sec},
+                            "text": c.get("text", "")
+                        })
+                else:
+                    start_t = c.get("start_time", 0.0)
+                    end_t = c.get("end_time", 0.0)
+                    dedup_key = (media_id or "video", "video", int(start_t), int(end_t))
+
+                    if dedup_key not in seen_citation_keys:
+                        seen_citation_keys.add(dedup_key)
+                        formatted_citations.append({
+                            "chunk_id": c.get("id") or c.get("chunk_id"),
+                            "media_id": media_id,
+                            "title": media_title or "Video Transcript",
+                            "source_type": "video",
+                            "start_time": start_t,
+                            "end_time": end_t,
+                            "page_number": None,
+                            "section_title": None,
+                            "location": c.get("location") or {"type": "video", "start_time": start_t, "end_time": end_t},
+                            "text": c.get("text", "")
+                        })
 
         return {
             "query": query,

@@ -30,6 +30,7 @@ class RetrievalContext:
     graph_triples: List[str] = field(default_factory=list)
     assembled_prompt: str = ""
     context_provenance: Optional[Dict[str, Any]] = None
+    has_relevant_context: bool = True
 
 
 class MultiStageRetriever:
@@ -69,6 +70,15 @@ class MultiStageRetriever:
             selected_text=selected_text
         )
         
+        # Stage 0: Conversational Query Guard
+        from app.domain.knowledge.query_classifier import is_conversational_query
+        if is_conversational_query(query):
+            ctx.retrieved_chunks = []
+            ctx.graph_triples = []
+            ctx.has_relevant_context = False
+            ctx.assembled_prompt = self._assemble_prompt(query, context_text="", triples=[])
+            return ctx
+
         # Stage 1: Query Rewrite & Expansion
         ctx.rewritten_query = f"{query} (Context: educational materials breakdown)"
 
@@ -131,6 +141,11 @@ class MultiStageRetriever:
 
         ctx.retrieved_chunks = final_chunks
         ctx.assembled_prompt = assembled_prompt
+
+        has_active_provenance = False
+        if provenance and isinstance(provenance, dict):
+            has_active_provenance = any(v for k, v in provenance.items() if v is not None)
+        ctx.has_relevant_context = bool(final_chunks or ctx.graph_triples or has_active_provenance)
         return ctx
 
     def enforce_token_budget(
