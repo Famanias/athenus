@@ -76,3 +76,32 @@ def test_embedding_worker_handle_document_parsed():
         assert indexed_events[0].payload["chunk_count"] == 1
 
     asyncio.run(_run())
+
+
+def test_chunk_document_pages_token_ceiling():
+    from app.domain.knowledge.chunker import count_tokens
+    chunker = SemanticChunker()
+
+    # Generate a large multi-paragraph 2000-word text block for page 176
+    paragraphs = []
+    for p_idx in range(10):
+        paragraphs.append(f"Paragraph {p_idx}: " + " ".join([f"word{i}" for i in range(200)]))
+    large_text = "\n\n".join(paragraphs)
+
+    pages = [
+        {"page_number": 176, "text": large_text, "page_type": "text", "section_title": "Chapter 5"}
+    ]
+
+    units = chunker.chunk_document_pages(pages, document_id="doc_large", workspace_id="ws_main")
+
+    # Should be split into multiple sub-chunks
+    assert len(units) > 1
+
+    for unit in units:
+        tokens = count_tokens(unit.text)
+        assert tokens <= 750, f"Unit {unit.id} exceeded 750 token ceiling: {tokens} tokens"
+        assert unit.location["type"] == "document"
+        assert unit.location["page"] == 176
+        assert unit.location["section"] == "Chapter 5"
+        assert "sub_chunk_index" in unit.location
+
