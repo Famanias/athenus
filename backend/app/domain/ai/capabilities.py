@@ -6,7 +6,7 @@ class TextGenerationRequest:
     prompt: str
     system_prompt: Optional[str] = None
     temperature: float = 0.7
-    max_tokens: int = 1024
+    max_tokens: int = 2048
     stop_sequences: List[str] = field(default_factory=list)
 
 @dataclass
@@ -63,7 +63,7 @@ class DocumentPageDTO:
 class DocumentParsingRequest:
     file_path: str
     file_format: Optional[str] = None
-    max_pages: int = 200
+    max_pages: int = 2000
     max_file_size_mb: float = 100.0
 
 @dataclass

@@ -58,7 +58,8 @@ class WorkspaceIntelligenceManager:
         text_capability = self.ai_service_bus.get_text_capability()
         gen_request = TextGenerationRequest(
             prompt=retrieval_ctx.assembled_prompt,
-            temperature=0.3
+            temperature=0.3,
+            max_tokens=2048
         )
         response = await text_capability.generate(gen_request)
 

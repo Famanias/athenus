@@ -87,3 +87,53 @@ Implemented query relevance keyword/concept matching in `KnowledgeGraphService.g
 - **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
 
 ---
+
+## Phase 1.3 — Token Budget Enforcement & Output Capacity Reservation (with Phase 1.3B Large Document Support)
+
+### Phase Summary
+Implemented model context limit lookup and token budget enforcement in `MultiStageRetriever.enforce_token_budget()`. Guaranteed output capacity reservation ($\text{reserved\_output\_tokens} = 2,048$) adhering strictly to the invariant:
+$$\text{input\_tokens} + \text{reserved\_output\_tokens} \le \text{model\_context\_limit}$$
+Additionally, expanded maximum document page safety limit from `200` to `2000` pages (Phase 1.3B) while maintaining the 100 MB file size limit to support large textbook/reference PDF ingestion.
+
+### What Was Implemented
+- Model context limit table configuration in `ModelRegistry` for Groq (`128,000`), Anthropic Claude (`200,000`), OpenAI (`128,000`), and Ollama (`8,192`).
+- `MultiStageRetriever.enforce_token_budget()` method that dynamically measures prompt tokens and trims lower-scoring retrieved chunks if `input_tokens + reserved_output_tokens > model_context_limit`.
+- Updated `WorkspaceIntelligenceManager.query_workspace()` and `capabilities.py` to set `max_tokens = 2048` in `TextGenerationRequest`, guaranteeing the LLM generation budget is never starved.
+- Expanded `max_pages` default in `DocumentParsingRequest` (`capabilities.py`) and `DocumentWorker` (`document_worker.py`) from `200` to `2000` pages.
+- Added unit test `test_enforce_token_budget()` in `backend/tests/test_retrieval_rag.py`.
+
+### Root Cause Addressed
+- Previously, context token limits were unconstrained or hardcoded to small values (e.g. 1024/512 tokens), leaving output generation starved or risking prompt overflow on long document queries.
+- Ingestion defaulted to a restrictive 200-page limit, failing large 900+ page textbook uploads.
+
+### Files/Components Changed
+- [`backend/app/domain/ai/capabilities.py`](file:///e:/repos/athenus/backend/app/domain/ai/capabilities.py): Updated default `max_tokens` to `2048` and `max_pages` default to `2000`.
+- [`backend/app/services/workers/document_worker.py`](file:///e:/repos/athenus/backend/app/services/workers/document_worker.py): Set `max_pages=2000` for document parsing requests.
+- [`backend/app/domain/ai/model_registry.py`](file:///e:/repos/athenus/backend/app/domain/ai/model_registry.py): Registered accurate context windows for Groq (128k), Claude (200k), OpenAI (128k), and Ollama (8.1k).
+- [`backend/app/infrastructure/retrieval/multi_stage_retriever.py`](file:///e:/repos/athenus/backend/app/infrastructure/retrieval/multi_stage_retriever.py): Implemented `enforce_token_budget()` and Stage 7 context limit trimming.
+- [`backend/app/application/services/workspace_intelligence.py`](file:///e:/repos/athenus/backend/app/application/services/workspace_intelligence.py): Passed `max_tokens=2048` to text capability.
+- [`backend/tests/test_retrieval_rag.py`](file:///e:/repos/athenus/backend/tests/test_retrieval_rag.py): Added `test_enforce_token_budget()`.
+
+### Important Implementation Decisions
+- Enforced hard `input_tokens + reserved_output_tokens <= model_context_limit` before calling provider adapters.
+- Trims lowest-scoring reranked chunks first if total prompt size exceeds the maximum allowed input token threshold.
+- Expanded page capacity ceiling to 2,000 pages while strictly enforcing the 100 MB binary file size safety limit.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_retrieval_rag.py -k test_enforce_token_budget`: **Passed (1/1 passed)** in 1.80s.
+- `python -m pytest tests/test_document_worker.py`: **Passed (3/3 passed)** in 0.14s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Token Budget & Output Capacity Test** | 1. Query a large document with a complex multi-part query using Groq (`llama-3.3-70b-versatile`) or Ollama (`llama3:8b`).<br>2. Inspect the generated answer length and completion status. | The AI returns a complete, comprehensive response up to 2,048 output tokens without cutting off mid-sentence or hitting context limit errors. |
+| **Large Document (900+ Page) Ingestion Test** | 1. Upload a 900+ page PDF document (e.g. textbook < 100 MB).<br>2. Observe the document pipeline progress bar in the Athenus UI. | The document succeeds through the ingestion pipeline (`Receiving Document Upload ✓`, `Parsing Structure ✓`, `Complete ✓`) without page limit error failures. |
+
+### GAP/Observations
+- For large textbook uploads (900+ pages / ~2,000 sub-chunks / ~1 million words), unbatched CPU vector embedding calculation in `SentenceTransformers` (`bge-small-en-v1.5`) takes ~6–10 minutes inside Docker. Consider implementing chunk sub-batching (e.g. `batch_size=64`) and streaming progress events (`vector_indexing` 75% -> 95%) to optimize CPU memory throughput and provide granular UI progress updates.
+
+### Validation Status
+- **PASSED & VALIDATED BY USER** (Explicit user approval received to proceed to Phase 1.4).
+
+---

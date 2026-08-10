@@ -95,8 +95,26 @@ class ModelRegistry:
             model_id="groq",
             provider=ModelProviderType.GROQ,
             capabilities=[ModelCapabilityType.TEXT_GENERATION],
-            context_window=8192,
+            context_window=128000,
             is_local=False,
             is_installed=True,
-            display_name="Groq Cloud LPU API"
+            display_name="Groq Llama 3.3 70B (128k Context)"
+        ))
+        self.register(ModelMetadata(
+            model_id="claude",
+            provider=ModelProviderType.CLAUDE,
+            capabilities=[ModelCapabilityType.TEXT_GENERATION],
+            context_window=200000,
+            is_local=False,
+            is_installed=True,
+            display_name="Anthropic Claude 3.5 Sonnet (200k Context)"
+        ))
+        self.register(ModelMetadata(
+            model_id="openai",
+            provider=ModelProviderType.OPENROUTER,
+            capabilities=[ModelCapabilityType.TEXT_GENERATION],
+            context_window=128000,
+            is_local=False,
+            is_installed=True,
+            display_name="OpenAI GPT-4o (128k Context)"
         ))

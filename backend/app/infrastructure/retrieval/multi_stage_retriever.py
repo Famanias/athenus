@@ -108,14 +108,57 @@ class MultiStageRetriever:
 
         # Stage 6: Cross-Encoder Re-Ranking
         reranked_chunks = self.reranker.rerank(ctx.rewritten_query, bm25_hits, top_k=3)
-        ctx.retrieved_chunks = reranked_chunks
 
-        # Stage 7: Context Compression
-        compressed_text = self._compress_context(reranked_chunks)
+        # Stage 7 & 8: Token Budget Enforcement & Grounded Prompt Assembly
+        model_context_limit = 128000
+        if hasattr(self, "ai_service_bus") and self.ai_service_bus and hasattr(self.ai_service_bus, "router"):
+            try:
+                from app.domain.ai.model_registry import ModelCapabilityType
+                model_meta = self.ai_service_bus.router.select_model(ModelCapabilityType.TEXT_GENERATION)
+                if model_meta and model_meta.context_window:
+                    model_context_limit = model_meta.context_window
+            except Exception:
+                pass
 
-        # Stage 8: Grounded Prompt Assembly
-        ctx.assembled_prompt = self._assemble_prompt(query, compressed_text, ctx.graph_triples, active_context_text)
+        assembled_prompt, final_chunks = self.enforce_token_budget(
+            query=query,
+            chunks=reranked_chunks,
+            triples=ctx.graph_triples,
+            active_context=active_context_text,
+            model_context_limit=model_context_limit,
+            reserved_output_tokens=2048
+        )
+
+        ctx.retrieved_chunks = final_chunks
+        ctx.assembled_prompt = assembled_prompt
         return ctx
+
+    def enforce_token_budget(
+        self,
+        query: str,
+        chunks: List[Dict[str, Any]],
+        triples: List[str],
+        active_context: str,
+        model_context_limit: int = 128000,
+        reserved_output_tokens: int = 2048
+    ) -> tuple[str, List[Dict[str, Any]]]:
+        """Enforces hard constraint: input_tokens + reserved_output_tokens <= model_context_limit."""
+        from app.domain.knowledge.chunker import count_tokens
+
+        max_input_tokens = max(500, model_context_limit - reserved_output_tokens)
+        current_chunks = list(chunks)
+
+        while True:
+            compressed_text = self._compress_context(current_chunks)
+            assembled = self._assemble_prompt(query, compressed_text, triples, active_context)
+            input_tokens = count_tokens(assembled)
+
+            if input_tokens <= max_input_tokens or not current_chunks:
+                break
+
+            current_chunks.pop()
+
+        return assembled, current_chunks
 
     def _extract_document_page_context(
         self,

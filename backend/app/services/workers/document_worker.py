@@ -59,7 +59,7 @@ class DocumentWorker:
             request = DocumentParsingRequest(
                 file_path=file_path,
                 file_format=file_format,
-                max_pages=200,
+                max_pages=2000,
                 max_file_size_mb=100.0,
             )
             parse_response = await self.doc_parser.parse_document(request)

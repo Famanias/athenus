@@ -1,150 +1,40 @@
-# Implementation Plan — Refined Document-Type-Agnostic Presentation Architecture
+# Implementation Plan — Remediation Roadmap & Milestone Architecture
 
-Build an extensible **Document-Type-Agnostic Presentation Architecture** for Athenus so that uploaded source documents (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.txt`, `.md`, etc.) are rendered visually using a modular **Renderer Registry**, completely decoupled from AI ingestion processing (`AnyDoc` + `RapidOCR`).
-
----
-
-## 1. Architectural Principles & Reuse of Existing Codebase
-
-### 1. Ingestion Support vs. Presentation Support
-A document can be **100% usable by the AI agent** for RAG search, flashcards, and quizzes even when native visual browser preview is not implemented. Ingestion capability is distinct from visual presentation.
-
-### 2. Reuse of Existing Codebase Infrastructure
-Before creating new abstractions, the implementation will reuse existing Athenus utilities, types, API clients, and UI components:
-- **`mediaService.ts`**: Reuses existing `getMediaUrl(mediaId)` endpoint helper.
-- **`useAppStore.ts`**: Reuses existing `activeDocumentId`, `currentPage`, `targetPage`, `setCurrentPage`, `setTargetPage` state primitives.
-- **`Button.tsx`**: Reuses existing UI design system buttons.
-- **Upload Validation Alignment**: Aligns image & document format detection with actual upload filters in `UploadDropzone.tsx` (`.pdf`, `.docx`, `.pptx`, `.xlsx`, `.epub`, `.txt`, `.md`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`).
-
-```text
-                               Original Source Document File
-                                             │
-               ┌─────────────────────────────┴─────────────────────────────┐
-               ▼                                                           ▼
-        Processing Path                                             Presentation Path
-      (AI RAG Knowledge)                                          (Human Visual Reader)
-               │                                                           │
-      AnyDoc + RapidOCR                                           Generic DocumentViewer
-               │                                                           │
-       Markdown & Pages                                            Renderer Registry
-               │                                                           │
-        Semantic Chunker                                   ┌───────────────┼───────────────┐
-               │                                           ▼               ▼               ▼
- 384-d Vector Embedding (bge-small-en-v1.5)            PdfRenderer    ImageRenderer     TextRenderer
-               │                                       (PDF Binary)   (PNG/JPG/SVG)    (TXT/MD Source)
-    Qdrant & Knowledge Graph                                               │
-               │                                                           ▼
-       RAG Chat & Citations                                        FallbackRenderer
-                                                                  (Office/Metadata +
-                                                                   "Open Original File")
-```
+Living remediation roadmap for resolving Problems A–E across document presentation, page navigation, fallback behavior, AI response integrity, and RAG retrieval scope.
 
 ---
 
-## 2. Component Responsibility & Renderer Registry Design
+## 1. Milestone & Phase Breakdown
 
-### Component Breakdown
-- **`DocumentViewer.tsx` (Viewer Orchestrator)**: Manages viewer state (`activeDocumentId`, `activePage`, `targetPage`), fetches file metadata/URL via `getMediaUrl()`, and renders top navigation controls (page counter, jump input).
-- **`DocumentRenderer.tsx` (Dispatcher)**: Queries the `RendererRegistry` for the appropriate renderer based on MIME type and file extension.
-- **`RendererRegistry.ts` (Central Registry)**: Maps format categories (`PDF`, `IMAGE`, `TEXT`, `FALLBACK`) to specific renderer components.
+### Milestone 1 — Document Presentation
+- **Phase 1.1 (Problem A)**: Fix PDF Rendering (Replace fragile `<iframe>` embed in `PdfRenderer.tsx` with Blob URL / Canvas rendering with load/error verification).
+- **Phase 1.2 (Problem B)**: Fix PDF Page Count & Navigation State (Fetch `total_pages` from `GET /api/v1/media/{id}/pages`, add strict navigation guards `1 <= page <= totalPages`, enable multi-page citation jumps).
+- **Phase 1.3 (Problem C)**: Fix Fallback & Source File Behavior (Re-label misleading "Open Source Location" button to "Download Source File", ensure clean fallback metadata card).
 
-```text
-Source Document Metadata
-           │
-           ▼
-    RendererRegistry
-           ├── PDF      → PdfRenderer (Verified renderer implementation; flexible engine choice)
-           ├── IMAGE    → ImageRenderer (PNG, JPG, JPEG, WEBP, SVG with zoom/fit)
-           ├── TEXT     → TextRenderer (Raw TXT & Markdown source viewer)
-           └── FALLBACK → FallbackRenderer (Office docs / metadata card + file download)
-```
+### Milestone 2 — RAG Reliability
+- **Phase 2.1 (Problem D)**: Fix Corrupted AI Responses & Empty Context (Detect empty retrieved context in `MultiStageRetriever.py`; return graceful fallback instruction to LLM).
+- **Phase 2.2 (Problem E)**: Fix Workspace-Wide RAG Retrieval & Active Context (Replace hard single-source `filter_media_id` Qdrant filter with workspace-wide vector retrieval + active-item context boosting).
+
+### Milestone 3 — End-to-End Integration & Regression
+- **Phase 3.1**: Full System Parity & Verification (Verify document presentation, video workspace parity, document RAG, video RAG, cross-source RAG, citation jumps, Docker/runtime integrity).
 
 ---
 
-## 3. Detailed Renderer Specifications
+## 2. Phase Execution Protocol
 
-### 1. `PdfRenderer`
-- Renders original PDF binary loaded from backend `getMediaUrl(mediaId)`.
-- Flexible implementation choice: uses the most reliable, cross-platform verified rendering approach in Tauri/browser environment (e.g. iframe, object Blob URL, or pdfjs).
-- Implements programmatic page navigation and scrolling to target page.
-- Handles citation jumps (`📄 Page X`) reliably by updating view offset and applying a temporary highlight ring overlay.
-- Handles single-page, multi-page, scanned PDFs, and unusual page dimensions.
-
-### 2. `ImageRenderer`
-- Renders image assets consistent with upload support (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`).
-- Provides fit-to-screen, zoom-in/out, and pan controls.
-
-### 3. `TextRenderer`
-- Renders plain text (`.txt`) and Markdown (`.md`) files.
-- Provides clean typography, syntax formatting, and section anchor jumping.
-
-### 4. `FallbackRenderer`
-- Used when a file format is accepted by Athenus ingestion (e.g. `.docx`, `.pptx`, `.xlsx`, `.epub`), but native visual browser preview is not currently implemented.
-- Displays a clean card with file metadata, size, ingestion status, and a **"Download Original File" / "Open Source Location"** button.
-- Explicitly informs the user:
-  > *"This document format is fully indexed and usable by the Athenus AI agent, but visual browser preview is not currently supported for this file type."*
+For **every Phase**, the agent must execute:
+1. **Investigate**: Verify exact root cause in codebase before editing.
+2. **Implement**: Make minimal, targeted code changes.
+3. **Automated Verification**: Run `npx tsc --noEmit` and `pytest`.
+4. **Manual QA Table**: Present concrete, step-by-step manual test instructions.
+5. **STOP**: Pause and wait for explicit user manual validation before proceeding.
 
 ---
 
-## 4. Proposed File Changes
+## 3. Current Phase Focus — Phase 1.1 (Problem A: PDF Rendering)
 
-### Frontend Architecture
-
-#### [NEW] `frontend/src/features/document/types.ts`
-- `FormatCategory`: `'pdf' | 'image' | 'text' | 'fallback'`
-- `DocumentMetadataDTO`: `id`, `title`, `file_path`, `media_type`, `file_size_bytes`, `mime_type`, `url`
-- `RendererProps`: `url`, `metadata`, `activePage`, `safeTotalPages`, `targetPage`, `onPageChange`
-
-#### [NEW] `frontend/src/features/document/registry/RendererRegistry.ts`
-- Format detection & registry resolver: `resolveRenderer(filenameOrUrl?: string, mimeType?: string): RendererComponent`
-
-#### [NEW] `frontend/src/features/document/renderers/PdfRenderer.tsx`
-- PDF renderer with verified programmatic page jumping & citation highlight ring.
-
-#### [NEW] `frontend/src/features/document/renderers/ImageRenderer.tsx`
-- Image renderer for `.png`, `.jpg`, `.jpeg`, `.webp`, `.svg` with zoom & fit controls.
-
-#### [NEW] `frontend/src/features/document/renderers/TextRenderer.tsx`
-- Source code / Markdown / plain text renderer.
-
-#### [NEW] `frontend/src/features/document/renderers/FallbackRenderer.tsx`
-- Ingestion-supported fallback renderer with metadata card and source file download/open button.
-
-#### [NEW] `frontend/src/features/document/renderers/DocumentRenderer.tsx`
-- Dispatcher component that queries `RendererRegistry`.
-
-#### [MODIFY] `frontend/src/components/DocumentViewer.tsx`
-- Refactor top-level viewer container to use state orchestration, consume `getMediaUrl()`, and mount `<DocumentRenderer />`.
-
----
-
-## 5. Verification & Testing Matrix
-
-### Automated Verification
-- `npx tsc --noEmit` in `frontend/` (report actual execution result).
-- `python -m pytest` in `backend/` (report actual executed test count and pass/fail summary).
-
-### Real-World Manual Test Suite
-
-| Category | Test Case | Description & Expected Result |
-| :--- | :--- | :--- |
-| **PDF Rendering** | Single-page & Multi-page PDF | Native PDF displayed cleanly; page controls update seamlessly. |
-| **PDF Edge Cases** | Large PDF (100+ pages) | Page jumping and scrolling performant without memory leak. |
-| **Scanned PDF** | Scanned PDF file | Rendered visually as exact original scanned pages; independent of RapidOCR text extraction. |
-| **Visual Fidelity** | PDF with tables & diagrams | Preserves original layout, typography, and embedded figures. |
-| **Images** | High-res PNG / JPG / WEBP / SVG | Displayed centered in `ImageRenderer` with zoom controls. |
-| **Text / Markdown** | `.md` / `.txt` file | Displayed in `TextRenderer` with formatted syntax. |
-| **Office Documents** | `.docx` / `.pptx` file | `FallbackRenderer` displays metadata card + "Download Original File" button. AI chat operates on indexed content. |
-| **Citation Jumps** | Citation click (`📄 Page 7`) | Viewer lands on Page 7 with brief accent highlight ring. |
-| **Boundary Tests** | Citation to Page 1 / Last Page / Invalid Page | Graceful handling without crash or blank screen. |
-| **Error Resiliency** | Missing file / Backend down | Displays clean error state without crashing application shell. |
-| **Video Parity** | Toggle to Video Workspace | Video player loads and plays without regression. |
-
----
-
-## 6. Extensibility Strategy
-
-To add visual support for a new format (e.g. EPUB, CAD) in the future:
-1. Create a renderer component in `renderers/` (e.g. `EpubRenderer.tsx`).
-2. Register the format mapping in `RendererRegistry.ts`.
-3. **Minimize and avoid modifications to core `DocumentViewer.tsx` orchestrator where possible.**
+- **Objective**: Ensure PDF documents (`.pdf`) uploaded to Athenus visually render the actual PDF content in the browser/Tauri viewer without blank purple background failures.
+- **Confirmed Root Cause**: `PdfRenderer.tsx` embeds `<iframe src="http://localhost:8000/api/v1/media/{id}/file#page=1">`. In Tauri desktop webview sandboxes and modern browser security contexts, embedding raw backend HTTP URLs inside an `<iframe>` is blocked or fails to load, leaving only the dark purple wrapper background (`#1a1a2e`) visible.
+- **Implementation Approach**: Update `PdfRenderer.tsx` to fetch the file binary from `getMediaUrl(mediaId)`, create a Blob URL (`URL.createObjectURL(blob)`), and embed/render the Blob object URL with load/error status handling.
+- **Files Affected**:
+  - `frontend/src/features/document/renderers/PdfRenderer.tsx`

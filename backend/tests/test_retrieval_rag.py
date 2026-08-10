@@ -69,3 +69,34 @@ def test_chat_query_endpoint():
     data = response.json()
     assert "answer" in data
     assert "citations" in data
+
+
+def test_enforce_token_budget():
+    from app.domain.knowledge.chunker import count_tokens
+    from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
+
+    bus = AIServiceBus(ModelRegistry(), ProviderRouter(ModelRegistry()))
+    retriever = MultiStageRetriever(bus)
+
+    # Large chunks
+    huge_chunk_1 = {"id": "c1", "source_type": "pdf", "page_number": 1, "text": "word " * 1500}
+    huge_chunk_2 = {"id": "c2", "source_type": "pdf", "page_number": 2, "text": "word " * 1500}
+    huge_chunk_3 = {"id": "c3", "source_type": "pdf", "page_number": 3, "text": "word " * 1500}
+
+    chunks = [huge_chunk_1, huge_chunk_2, huge_chunk_3]
+    context_limit = 4000  # Tight test context limit
+    reserved_output = 1000
+
+    assembled, final_chunks = retriever.enforce_token_budget(
+        query="Explain quantum mechanics",
+        chunks=chunks,
+        triples=[],
+        active_context="",
+        model_context_limit=context_limit,
+        reserved_output_tokens=reserved_output
+    )
+
+    input_tokens = count_tokens(assembled)
+    assert input_tokens + reserved_output <= context_limit
+    assert len(final_chunks) < len(chunks), "Expected lower scoring chunk to be trimmed"
+
