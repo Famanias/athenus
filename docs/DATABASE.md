@@ -1,6 +1,6 @@
 # DATABASE.md — Athenus Relational & Vector Storage Specifications
 
-This document defines the canonical relational database schema (21 tables in SQLite) and vector collection parameters for **Athenus**.
+This document defines the canonical relational database schema (SQLite) and vector collection parameters for **Athenus**.
 
 ---
 
@@ -13,20 +13,24 @@ All tables are defined as dual-compatible **SQLModel** / **SQLAlchemy ORM** clas
 - **`system_settings`**: Global provider configuration (`default_llm`, `selected_ollama_model`, `ollama_models_dir`, `default_stt`, `gpu_acceleration`).
 
 ### Ingestion & Media Asset Tables
-- **`media_items`**: Uploaded lecture asset metadata (`workspace_id`, `file_path`, `duration_seconds`, `status`, `error_message`).
-- **`transcript_segments`**: Raw Whisper ASR transcript output (`media_id`, `start_time`, `end_time`, `text`).
-- **`transcript_chunks`**: Processed RAG text chunks (`media_id`, `workspace_id`, `text`, `start_time`, `end_time`, `chunk_index`, `word_count`).
+- **`media_items`**: Uploaded asset metadata (`workspace_id`, `file_path`, `media_type` (`video`/`audio`/`document`), `duration_seconds`, `status`, `error_message`).
+- **`transcript_segments`**: Raw Whisper ASR transcript output for video/audio assets (`media_id`, `start_time`, `end_time`, `text`).
+- **`transcript_chunks`**: Processed ~500-word sub-chunks for document pages and video segments (`media_id`, `workspace_id`, `text`, `start_time`, `end_time`, `chunk_index`, `word_count`). Hard ceiling of $\le 750$ tokens per sub-chunk.
+- **`transcript_chunks_fts`**: SQLite FTS5 full-text search virtual table (`chunk_id UNINDEXED`, `workspace_id UNINDEXED`, `text`). Mirrored automatically via native SQLite DB triggers:
+  - `transcript_chunks_ai`: `AFTER INSERT ON transcript_chunks`
+  - `transcript_chunks_au`: `AFTER UPDATE ON transcript_chunks`
+  - `transcript_chunks_ad`: `AFTER DELETE ON transcript_chunks`
 - **`processing_logs`**: Immutable telemetry audit trail for background processing stages (`stage`, `status`, `progress`, `message`, `error_message`).
 
 ### Conversational Memory Tables
 - **`chat_sessions`**: Session containers bound to workspaces with session preview metadata (`title`, `last_message_at`, `message_count`, `preview_text`).
 - **`chat_messages`**: Conversational turn turns (`session_id`, `workspace_id`, `sender`, `content`, `citations_json`).
 
-### Knowledge Graph & Blueprint Tables
+### Knowledge Graph & Job Tables
 - **`knowledge_concepts`**: Domain concept nodes with provenance grounding (`workspace_id`, `name`, `description`, `status`, `media_id`, `source_chunk_ids`, `start_time`, `end_time`, `embedding`).
 - **`knowledge_relations`**: Directed graph relationship edges (`workspace_id`, `source_concept`, `target_concept`, `relation_type`, `weight`, `media_id`).
 - **`concept_aliases`**: Exact and alias mapping table for entity deduplication (`concept_id`, `alias`).
-- **`artifact_jobs`**: Async lifecycle job tracker for graph extraction and background processing (`workspace_id`, `job_type`, `status`, `progress`, `message`).
+- **`artifact_jobs`**: Async lifecycle job tracker for graph extraction, ingestion, and legacy document re-chunking migration (`workspace_id`, `artifact_type` (`ingestion`/`rechunk_ingestion`), `target_key`, `status`, `stage`, `progress`, `message`).
 
 ### Active Recall & Spaced Repetition Tables
 - **`flashcard_decks`**: Versioned flashcard decks (`workspace_id`, `name`, `version`, `status`, `media_ids`, `concept_ids`, `card_count`).
@@ -45,9 +49,9 @@ All tables are defined as dual-compatible **SQLModel** / **SQLAlchemy ORM** clas
 
 ---
 
-## 2. Factory Reset Purge Sequence (21 Tables)
+## 2. Factory Reset Purge Sequence
 
-When **CLEAR MY DATA** (`POST /api/v1/system/clear-data`) is invoked, `SystemResetService` executes a single transaction purging all 21 tables in strict foreign key order (child tables first):
+When **CLEAR MY DATA** (`POST /api/v1/system/clear-data`) is invoked, `SystemResetService` executes a single transaction purging all tables in strict foreign key order (child tables first):
 
 ```
 1. FlashcardReviewTable
@@ -66,7 +70,7 @@ When **CLEAR MY DATA** (`POST /api/v1/system/clear-data`) is invoked, `SystemRes
 14. ChatMessageTable
 15. ChatSessionTable
 16. TranscriptSegmentTable
-17. TranscriptChunkTable
+17. TranscriptChunkTable (and transcript_chunks_fts)
 18. ProcessingLogTable
 19. MediaItemTable
 20. WorkspaceTable (re-initialized with default workspace)
@@ -77,7 +81,9 @@ When **CLEAR MY DATA** (`POST /api/v1/system/clear-data`) is invoked, `SystemRes
 
 ## 3. Embedded Qdrant Vector Storage (`transcript_chunks`)
 
-* **Storage Path**: `./data/qdrant`
-* **Collection Name**: `transcript_chunks`
-* **Vector Dimension**: `384` (Cosine metric via `SentenceTransformersEmbeddingAdapter`)
-* **Payload Isolation Filter**: All queries enforce `FieldCondition(key="workspace_id", match=MatchValue(value=filter_workspace_id))`.
+- **Storage Path**: `./data/qdrant`
+- **Collection Name**: `transcript_chunks`
+- **Vector Dimension**: 384 (`BAAI/bge-small-en-v1.5`)
+- **Distance Metric**: Cosine Distance
+- **Score Thresholding**: `score_threshold = 0.2` (filters low-relevance noise)
+- **Point ID Scheme**: `uuid5(NAMESPACE_URL, chunk_id)`
