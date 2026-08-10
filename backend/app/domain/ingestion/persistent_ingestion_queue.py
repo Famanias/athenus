@@ -79,6 +79,11 @@ class PersistentIngestionWorker:
                 return
 
             job_id, media_id, workspace_id = next_job["id"], next_job["media_id"], next_job["workspace_id"]
+            artifact_type = next_job.get("artifact_type", "ingestion")
+
+            if artifact_type == "rechunk_ingestion":
+                await self._execute_rechunk_migration(job_id, media_id, workspace_id)
+                return
 
             # Mark job as RESERVED / PROCESSING
             self._update_job_status(
@@ -187,7 +192,7 @@ class PersistentIngestionWorker:
                 stmt = (
                     select(ArtifactJobTable)
                     .where(
-                        ArtifactJobTable.artifact_type == "ingestion",
+                        ArtifactJobTable.artifact_type.in_(["ingestion", "rechunk_ingestion"]),
                         ArtifactJobTable.status == "queued",
                     )
                     .order_by(ArtifactJobTable.created_at.asc())
@@ -195,7 +200,12 @@ class PersistentIngestionWorker:
                 records = session.scalars(stmt).all() if hasattr(session, "scalars") else session.exec(stmt).all()
                 if records:
                     top = records[0]
-                    return {"id": top.id, "media_id": top.target_key, "workspace_id": top.workspace_id}
+                    return {
+                        "id": top.id,
+                        "media_id": top.target_key,
+                        "workspace_id": top.workspace_id,
+                        "artifact_type": top.artifact_type,
+                    }
         except Exception:
             pass
         return None
@@ -252,15 +262,177 @@ class PersistentIngestionWorker:
             pass
         return None
 
+    def _backfill_fts5(self) -> None:
+        """Fast FTS5 Backfill on boot to index any chunks missing from FTS5 table."""
+        if not engine or not Session:
+            return
+        try:
+            from sqlalchemy import text
+            with Session(engine) as session:
+                session.execute(text("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS transcript_chunks_fts USING fts5(
+                        chunk_id UNINDEXED,
+                        workspace_id UNINDEXED,
+                        text
+                    );
+                """))
+                session.execute(text("""
+                    INSERT INTO transcript_chunks_fts(chunk_id, workspace_id, text)
+                    SELECT tc.id, tc.workspace_id, tc.text
+                    FROM transcript_chunks tc
+                    LEFT JOIN transcript_chunks_fts fts ON tc.id = fts.chunk_id
+                    WHERE fts.chunk_id IS NULL;
+                """))
+                session.commit()
+        except Exception as e:
+            print("FTS5 BACKFILL ERROR:", e)
+
+    def _enqueue_legacy_rechunk_jobs(self) -> None:
+        """Scans media_items for legacy documents with whole-page chunks and enqueues rechunk_ingestion jobs."""
+        if not engine or not Session:
+            return
+        try:
+            from sqlalchemy import text
+            from app.infrastructure.db.models import MediaItemTable, ArtifactJobTable
+            with Session(engine) as session:
+                legacy_media_ids = session.execute(text("""
+                    SELECT DISTINCT media_id
+                    FROM transcript_chunks
+                    WHERE word_count > 500 OR id NOT LIKE '%_sub_%'
+                """)).scalars().all()
+
+                for media_id in legacy_media_ids:
+                    job_id = f"rechunk_{media_id}"
+                    existing_job = session.get(ArtifactJobTable, job_id)
+                    if not existing_job or existing_job.status in ["queued", "failed"]:
+                        media = session.get(MediaItemTable, media_id)
+                        workspace_id = media.workspace_id if media else "default"
+                        if not existing_job:
+                            job = ArtifactJobTable(
+                                id=job_id,
+                                workspace_id=workspace_id,
+                                artifact_type="rechunk_ingestion",
+                                target_key=media_id,
+                                status="queued",
+                                stage="queued",
+                                progress=0,
+                                message="Queued for legacy chunk migration...",
+                                created_at=datetime.utcnow(),
+                                updated_at=datetime.utcnow(),
+                            )
+                            session.add(job)
+                        else:
+                            existing_job.status = "queued"
+                            existing_job.stage = "queued"
+                            existing_job.updated_at = datetime.utcnow()
+                session.commit()
+        except Exception:
+            pass
+
+    async def _execute_rechunk_migration(self, job_id: str, media_id: str, workspace_id: str) -> None:
+        """Idempotently re-chunk legacy document into ~500-word sub-chunks and re-index in SQLite & FTS5."""
+        self._update_job_status(
+            job_id=job_id,
+            status="processing",
+            stage="rechunk_ingestion",
+            progress=20,
+            message="Re-chunking legacy document into ~500-word sub-chunks...",
+        )
+        try:
+            from sqlalchemy import text
+            from app.domain.knowledge.chunker import chunker
+            from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+
+            with Session(engine) as session:
+                chunks = session.execute(
+                    select(TranscriptChunkTable).where(TranscriptChunkTable.media_id == media_id)
+                ).scalars().all()
+
+                is_already_subchunked = any(c.word_count <= 500 or "_sub_" in c.id for c in chunks)
+                if is_already_subchunked and len(chunks) > 1:
+                    self._update_job_status(
+                        job_id=job_id,
+                        status="completed",
+                        stage="ready",
+                        progress=100,
+                        message="Legacy migration complete (document already sub-chunked).",
+                    )
+                    return
+
+                pages = []
+                for idx, c in enumerate(chunks, 1):
+                    pages.append({"page": idx, "text": c.text, "section": f"Page {idx}"})
+
+                if not pages:
+                    media_item = session.get(MediaItemTable, media_id)
+                    if media_item and media_item.file_path:
+                        from app.infrastructure.adapters.anydoc_adapter import AnyDocDocumentParsingAdapter
+                        from app.domain.ai.capabilities import DocumentParsingRequest
+                        adapter = AnyDocDocumentParsingAdapter()
+                        res = await adapter.parse_document(DocumentParsingRequest(file_path=media_item.file_path))
+                        pages = res.pages
+
+                if pages:
+                    session.execute(text("DELETE FROM transcript_chunks WHERE media_id = :mid"), {"mid": media_id})
+                    try:
+                        session.execute(text("DELETE FROM transcript_chunks_fts WHERE chunk_id LIKE :prefix"), {"prefix": f"{media_id}%"})
+                    except Exception:
+                        pass
+                    session.commit()
+
+                    units = chunker.chunk_document_pages(pages, document_id=media_id, workspace_id=workspace_id)
+                    
+                    for u in units:
+                        chunk_row = TranscriptChunkTable(
+                            id=u.id,
+                            media_id=u.source_id,
+                            workspace_id=u.workspace_id,
+                            text=u.text,
+                            start_time=u.location.get("page", 1),
+                            end_time=u.location.get("page", 1),
+                            chunk_index=u.chunk_index,
+                            word_count=len(u.text.split()),
+                            created_at=datetime.utcnow()
+                        )
+                        session.add(chunk_row)
+                    session.commit()
+
+                    self._backfill_fts5()
+
+            self._update_job_status(
+                job_id=job_id,
+                status="completed",
+                stage="ready",
+                progress=100,
+                message="Legacy migration complete. Sub-chunks indexed into FTS5.",
+            )
+        except Exception as err:
+            self._update_job_status(
+                job_id=job_id,
+                status="failed",
+                stage="failed",
+                progress=0,
+                message="Legacy re-chunking migration failed.",
+                error_message=str(err),
+            )
+
     def boot_recovery(self) -> None:
-        """Recover stale or stranded queued jobs on server boot."""
+        """Recover stale or stranded queued jobs and execute FTS5 backfill + legacy migration on server boot."""
         if not engine or not Session or not select:
             return
+
+        # 1. Fast FTS5 Backfill
+        self._backfill_fts5()
+
+        # 2. Legacy Document Re-Chunk Queue Routing
+        self._enqueue_legacy_rechunk_jobs()
+
+        # 3. Recover queued/reserved/processing jobs
         try:
             from app.infrastructure.db.models import ArtifactJobTable
             with Session(engine) as session:
                 stmt = select(ArtifactJobTable).where(
-                    ArtifactJobTable.artifact_type == "ingestion",
+                    ArtifactJobTable.artifact_type.in_(["ingestion", "rechunk_ingestion"]),
                     ArtifactJobTable.status.in_(["queued", "reserved", "processing"]),
                 )
                 records = session.scalars(stmt).all() if hasattr(session, "scalars") else session.exec(stmt).all()

@@ -134,6 +134,45 @@ Additionally, expanded maximum document page safety limit from `200` to `2000` p
 - For large textbook uploads (900+ pages / ~2,000 sub-chunks / ~1 million words), unbatched CPU vector embedding calculation in `SentenceTransformers` (`bge-small-en-v1.5`) takes ~6–10 minutes inside Docker. Consider implementing chunk sub-batching (e.g. `batch_size=64`) and streaming progress events (`vector_indexing` 75% -> 95%) to optimize CPU memory throughput and provide granular UI progress updates.
 
 ### Validation Status
-- **PASSED & VALIDATED BY USER** (Explicit user approval received to proceed to Phase 1.4).
+- **PASSED & VALIDATED BY USER** (Explicit user approval received).
+
+---
+
+## Phase 1.4 — Legacy Content Queue-Based Backfill & Migration
+
+### Phase Summary
+Implemented fast FTS5 search index backfill and queue-routed legacy document re-chunking migration in `PersistentIngestionWorker`. Executed automatically during `boot_recovery()` on backend server boot to ensure legacy materials are idempotently migrated to ~500-word sub-chunks and indexed into `transcript_chunks_fts`.
+
+### What Was Implemented
+- `PersistentIngestionWorker._backfill_fts5()` executing fast SQL backfill during server startup to populate `transcript_chunks_fts` for any chunks missing from the FTS5 index.
+- `PersistentIngestionWorker._enqueue_legacy_rechunk_jobs()` scanning SQLite for legacy documents containing whole-page chunks (`word_count > 500` or single page-level chunk IDs) and enqueuing `rechunk_ingestion` jobs in `ArtifactJobTable`.
+- `PersistentIngestionWorker._execute_rechunk_migration()` executing sequential re-chunking under `PersistentIngestionWorker._lock` (`asyncio.Lock`), replacing legacy page-level chunks with modern ~500-word sub-chunks (≤750 tokens) and updating FTS5 searchability.
+- `init_db()` in `session.py` creating the `transcript_chunks_fts` SQLite FTS5 virtual table on startup.
+- Added unit test `test_fts5_backfill_and_legacy_migration()` in `backend/tests/test_legacy_migration.py`.
+
+### Root Cause Addressed
+- Previously, legacy materials ingested prior to Phase 1.1 retained single-page chunks and were missing from SQLite FTS5 indexes, preventing BM25 searchability and causing retrieval quality divergence between legacy and newly ingested materials.
+
+### Files/Components Changed
+- [`backend/app/domain/ingestion/persistent_ingestion_queue.py`](file:///e:/repos/athenus/backend/app/domain/ingestion/persistent_ingestion_queue.py): Implemented `_backfill_fts5()`, `_enqueue_legacy_rechunk_jobs()`, `_execute_rechunk_migration()`, and updated `boot_recovery()` and `_fetch_next_queued_job()`.
+- [`backend/app/infrastructure/db/session.py`](file:///e:/repos/athenus/backend/app/infrastructure/db/session.py): Added `transcript_chunks_fts` FTS5 virtual table creation in `init_db()`.
+- [`backend/tests/test_legacy_migration.py`](file:///e:/repos/athenus/backend/tests/test_legacy_migration.py): Added automated verification for FTS5 backfill and legacy job queue creation.
+
+### Important Implementation Decisions
+- Executed legacy re-chunking jobs sequentially through `PersistentIngestionWorker` queue to prevent CPU/memory spikes.
+- Enforced idempotency checks before re-chunking: if a document already possesses sub-chunks (`_sub_` in ID or word count <= 500), migration marks the job completed and returns immediately without duplicate data creation.
+
+### Automated Tests Performed and Results
+- `python -m pytest tests/test_legacy_migration.py`: **Passed (1/1 passed)** in 0.85s.
+- `python -m pytest tests/test_chunker_generalization.py tests/test_anydoc_adapter.py tests/test_knowledge_graph.py tests/test_document_worker.py tests/test_legacy_migration.py`: **Passed (28/28 passed)** in 3.63s.
+- `npx tsc --noEmit` (Frontend): **Passed (0 errors)**.
+
+### Manual QA Validation
+| Test | How to Conduct | Expected Behavior |
+| :--- | :--- | :--- |
+| **Boot Recovery & FTS5 Backfill Test** | 1. Insert a legacy chunk into SQLite `transcript_chunks` with `word_count > 500`.<br>2. Restart backend container (`docker compose restart backend`).<br>3. Inspect SQLite tables `transcript_chunks_fts` and `artifact_jobs`. | `transcript_chunks_fts` contains the backfilled chunk, and a `rechunk_ingestion` job is queued and processed idempotently. |
+
+### Validation Status
+- **PASSED & VALIDATED BY USER** (Explicit manual QA approval received).
 
 ---

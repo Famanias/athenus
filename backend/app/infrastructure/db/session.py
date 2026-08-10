@@ -83,6 +83,20 @@ try:
         import app.infrastructure.db.models  # noqa: F401
         SQLModel.metadata.create_all(engine)
         _migrate_db_columns()
+        if engine and "sqlite" in settings.DATABASE_URL:
+            try:
+                from sqlalchemy import text
+                with engine.connect() as conn:
+                    conn.execute(text("""
+                        CREATE VIRTUAL TABLE IF NOT EXISTS transcript_chunks_fts USING fts5(
+                            chunk_id UNINDEXED,
+                            workspace_id UNINDEXED,
+                            text
+                        );
+                    """))
+                    conn.commit()
+            except Exception as e:
+                print("FTS5 INIT ERROR:", e)
 
     def get_session() -> Generator[Session, None, None]:
         with Session(engine) as session:
