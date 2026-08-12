@@ -372,11 +372,11 @@ Surrounding Spoken Transcript ({time_range_str}):
 
         has_context = bool(context_text.strip() or active_context.strip() or kg_context.strip())
         if not has_context:
-            return f"""You are Athenus AI, an intelligent learning assistant. Answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps.
+            return f"""You are Athenus AI, an intelligent learning assistant. The user has asked questioned that is not in the provided multi-source context. Answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps.
 User Question: {query}
 Answer:"""
 
-        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question using ONLY the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context. If the context contains a direct answer, provide it CONCISELY without additional reasoning.
+        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question accurately using your general pretained knowledge, use the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below only if it helps to increase accuracy. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context. Do not give citations if it's not in the provided multi-source context 
 {active_context}
 
 Context:
