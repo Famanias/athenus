@@ -376,7 +376,7 @@ Surrounding Spoken Transcript ({time_range_str}):
 User Question: {query}
 Answer:"""
 
-        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question accurately using your general pretained knowledge, use the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below only if it helps to increase accuracy. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context. Do not give citations if it's not in the provided multi-source context 
+        return f"""You are Athenus AI, an intelligent learning assistant. Answer the user's question accurately using your general pretained knowledge, use the provided multi-source context (timestamped video segments, document pages, and knowledge graph relationships) below only if it helps to increase accuracy. If the context contains a direct answer, provide it CONCISELY without additional reasoning. Always include traceable citations (e.g. [MM:SS - MM:SS] for video or [Document Page X] for documents) matching the context. Do not give citations if it's not in the provided multi-source context 
 {active_context}
 
 Context:
