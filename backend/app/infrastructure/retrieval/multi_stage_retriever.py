@@ -372,7 +372,7 @@ Surrounding Spoken Transcript ({time_range_str}):
 
         has_context = bool(context_text.strip() or active_context.strip() or kg_context.strip())
         if not has_context:
-            return f"""You are Athenus AI, an intelligent learning assistant. The user has asked questioned that is not in the provided multi-source context. Answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps.
+            return f"""You are Athenus AI, an intelligent learning assistant. The user has asked a question that is not in the provided multi-source context. Answer the question accurately using your general pretrained knowledge. Do NOT invent, fabricate, or cite any uploaded sources, page numbers, or timestamps.
 User Question: {query}
 Answer:"""
 
