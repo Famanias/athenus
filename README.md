@@ -45,11 +45,11 @@ cd athenus
 # Optional: copy env template once (scripts do this automatically)
 ./scripts/setup.ps1        # Windows (PowerShell); macOS/Linux: ./scripts/setup.sh
 
-# Start the full CPU stack (backend :8000, frontend :3000, Ollama :11434)
+# Start the full CPU stack (backend :8000, frontend :47734, Ollama :11434)
 ./scripts/dev.ps1          # or: ./scripts/dev.sh | docker compose up -d --build
 ```
 
-Open http://localhost:3000. NVIDIA GPU users with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) can instead run `./scripts/dev.ps1 --gpu` (GPU profile for Faster-Whisper + Ollama).
+Open http://localhost:47734. NVIDIA GPU users with the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) can instead run `./scripts/dev.ps1 --gpu` (GPU profile for Faster-Whisper + Ollama).
 
 ### Ollama models (first-time setup)
 

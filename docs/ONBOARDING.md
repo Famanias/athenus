@@ -27,17 +27,17 @@ No Python install is needed for Dockerized workflows. For native host execution,
 git clone https://github.com/Famanias/athenus.git
 cd athenus
 
-# Create .env from the template (required — docker-compose.yml's `env_file: .env`
-# errors if the file is missing).
+# Create .env from the template (optional — docker-compose.yml's `env_file: .env`
+# is `required: false`; .env is still recommended for port/API-key overrides).
 cp .env.example .env
 #   or on Windows: ./scripts/setup.ps1   |   on macOS/Linux: ./scripts/setup.sh
 
-# Start the full CPU stack (backend :8000, frontend :3000, Ollama :11434)
+# Start the full CPU stack (backend :8000, frontend :47734, Ollama :11434)
 docker compose up -d --build
 #   or: ./scripts/dev.ps1 | ./scripts/dev.sh
 ```
 
-Open **http://localhost:3000** in your browser.
+Open **http://localhost:47734** in your browser.
 
 > **PowerShell note:** if execution policy blocks `./scripts/dev.ps1`, run
 > `powershell -ExecutionPolicy Bypass -File scripts/dev.ps1`, or just use the
@@ -187,7 +187,7 @@ In **Settings → AI System Settings & Capability Bus**, Athenus provides an int
 ```bash
 docker compose ps                        # backend should report "healthy"
 curl http://localhost:8000/api/v1/health  # {"status":"ok",...}
-curl -I http://localhost:3000             # HTTP 200
+curl -I http://localhost:47734            # HTTP 200
 docker compose logs -f backend            # follow ingestion/transcription progress
 ```
 

@@ -19,6 +19,6 @@ else
 fi
 
 echo
-echo "Web app:      http://localhost:3000"
+echo "Web app:      http://localhost:47734"
 echo "Backend API:  http://localhost:8000/api/v1"
 echo "Ollama:       http://localhost:11434"

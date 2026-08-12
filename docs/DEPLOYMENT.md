@@ -44,7 +44,7 @@ git clone https://github.com/Famanias/athenus.git
 cd athenus
 ./scripts/setup.sh          # or setup.ps1 on Windows (creates .env if missing)
 ./scripts/dev.sh            # or: docker compose up -d --build
-# Open http://localhost:3000
+# Open http://localhost:47734
 ```
 
 ### GPU workflow (NVIDIA, e.g. RTX 3060 / 4070 / 5090)

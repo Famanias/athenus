@@ -7,7 +7,7 @@ Complete specification for all REST API endpoints exposed by the FastAPI backend
 ## Base URL & Desktop IPC Security
 * **Base URL**: `http://localhost:8000/api/v1`
 * **Port**: `8000` (FastAPI / Uvicorn server)
-* **Configurable**: The browser/desktop base URL is resolved via `NEXT_PUBLIC_API_URL` (fallback `http://localhost:8000`) through [`src/config/env.ts`](file:///e:/repos/athenus/frontend/src/config/env.ts). When running the containerized web stack (`docker compose up -d --build`), the backend remains reachable at `http://localhost:8000` and the frontend at `http://localhost:3000` — no code changes required.
+* **Configurable**: The browser/desktop base URL is resolved via `NEXT_PUBLIC_API_URL` (fallback `http://localhost:8000`) through [`src/config/env.ts`](file:///e:/repos/athenus/frontend/src/config/env.ts). When running the containerized web stack (`docker compose up -d --build`), the backend remains reachable at `http://localhost:8000` and the frontend at `http://localhost:47734` — no code changes required.
 
 ---
 

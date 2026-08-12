@@ -1,5 +1,5 @@
 # Athenus — Development Stack (CPU default)
-# Single command: docker compose up -d --build  ->  http://localhost:3000
+# Single command: docker compose up -d --build  ->  http://localhost:47734
 # GPU-accelerated: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 # Desktop (Tauri): docker compose up -d backend  ->  npm run tauri dev (native)
 name: athenus
@@ -53,7 +53,8 @@ services:
       dockerfile: docker/frontend/Dockerfile.dev
     container_name: athenus-frontend
     ports:
-      - "${PORT_FRONTEND:-3000}:3000"
+      # Host 47734 -> container 3000 (Next dev). Override via PORT_FRONTEND in .env.
+      - "${PORT_FRONTEND:-47734}:3000"
     environment:
       # Browser runs on the host, so it must reach the backend via localhost.
       NEXT_PUBLIC_API_URL: "http://localhost:8000"

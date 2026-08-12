@@ -55,7 +55,7 @@ Future knowledge sources:
 * **Event-Driven Pipeline & Single Progress Source**: Asynchronous video ingestion pipeline decoupled from HTTP layer using `MediaRepository`, application-layer event handlers (`media_event_handlers.py`), and snapshot replay via `ProgressStore`.
 * **SQLite System Settings Persistence**: `SystemSettings` table in SQLite (`./data/athenus.db`) managed via `SettingsService` and auto-rehydrated on application launch.
 * **Local Ollama Model Discovery**: Pure local filesystem model discovery (`OllamaModelScanner`) with dynamic dropdown selection in LLM settings.
-* **Dockerized Development Architecture**: Single-command web stack (`docker compose up -d --build` → http://localhost:3000) with containerized FastAPI backend, Next.js frontend, and Ollama; GPU acceleration via an overlay file (`docker-compose.gpu.yml`, NVIDIA Container Toolkit); Tauri desktop shell remains native against the containerized backend. See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) and [`docs/ONBOARDING.md`](ONBOARDING.md).
+* **Dockerized Development Architecture**: Single-command web stack (`docker compose up -d --build` → http://localhost:47734) with containerized FastAPI backend, Next.js frontend, and Ollama; GPU acceleration via an overlay file (`docker-compose.gpu.yml`, NVIDIA Container Toolkit); Tauri desktop shell remains native against the containerized backend. See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) and [`docs/ONBOARDING.md`](ONBOARDING.md).
 
 ---
 

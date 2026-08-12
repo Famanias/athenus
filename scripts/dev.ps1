@@ -18,6 +18,6 @@ if ($args[0] -eq "--gpu") {
 }
 
 Write-Host ""
-Write-Host "Web app:      http://localhost:3000"
+Write-Host "Web app:      http://localhost:47734"
 Write-Host "Backend API:  http://localhost:8000/api/v1"
 Write-Host "Ollama:       http://localhost:11434"
