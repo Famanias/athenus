@@ -1,5 +1,6 @@
 from typing import Generator
 from app.core.config import settings
+from app.infrastructure.db.fts5_repair import repair_transcript_chunks_fts
 
 try:
     from sqlmodel import SQLModel, Session, create_engine
@@ -113,6 +114,14 @@ try:
                     conn.commit()
             except Exception as e:
                 print("FTS5 INIT ERROR:", e)
+            # Self-heal legacy DBs whose transcript_chunks_fts vtable is broken
+            # (e.g. vtable constructor failed). `repair_transcript_chunks_fts`
+            # is a no-op on healthy databases. Without this, factory-reset and
+            # any DELETE/UPDATE on transcript_chunks would 500.
+            try:
+                repair_transcript_chunks_fts(engine)
+            except Exception as e:
+                print("FTS5 REPAIR ERROR:", e)
 
     def get_session() -> Generator[Session, None, None]:
         with Session(engine) as session:

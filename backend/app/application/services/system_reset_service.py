@@ -30,6 +30,7 @@ from app.infrastructure.db.models import (
     SystemSettings,
 )
 from app.infrastructure.db.session import engine
+from app.infrastructure.db.fts5_repair import repair_transcript_chunks_fts
 
 try:
     from sqlmodel import Session, select
@@ -71,6 +72,21 @@ class SystemResetService:
 
             # 3. Purge ALL SQLite Tables (preserving table structures)
             if engine and Session:
+                # 3a. Defensive FTS5 heal — if the transcript_chunks_fts vtable
+                # is broken on disk (rare: legacy DB / interrupted write), the
+                # transcript_chunks_ad/au triggers below will fire into it on
+                # every DELETE/UPDATE and 500 the reset. Repair is idempotent
+                # and a single-probe no-op on healthy databases.
+                try:
+                    repair_transcript_chunks_fts(engine)
+                except Exception as repair_exc:
+                    # Don't block the reset if the heal itself fails; the
+                    # purge block below will surface the underlying error.
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "FTS5 repair before reset failed: %s", repair_exc
+                    )
+
                 try:
                     with Session(engine) as session:
                         for table in [
