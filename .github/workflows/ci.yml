@@ -57,7 +57,7 @@ jobs:
   tauri:
     name: Tauri — Build Check (Linux, deb)
     # Tauri v1 links against webkit2gtk-4.0 (webkit2gtk-sys 0.18 in Cargo.lock).
-    # Newer ubuntu-latest images no longer ship libwebkit2gtk-4.0-dev, so pin this job
+    # Newer ubuntu-latest images (Ubuntu 24.04) no longer ship libwebkit2gtk-4.0-dev, so pin this job
     # to ubuntu-22.04 where it is available. Do NOT switch to -4.1-dev — that is the
     # Tauri v2 package and would fail to link.
     runs-on: ubuntu-22.04

@@ -109,6 +109,8 @@ graph TD
 | **[ADR 0020](file:///e:/repos/athenus/docs/adr/0020-local-first-llm-generation-timeout-policy-and-error-integrity.md)** | Local-First LLM Timeout Policy & Error Integrity | Enforced 120s timeouts for local generation and clean user-facing error reporting. |
 | **[ADR 0021](file:///e:/repos/athenus/docs/adr/0021-generalized-document-pdf-ingestion-architecture.md)** | Generalized Document & PDF Ingestion Architecture | Implemented DocumentParsingPort (AnyDoc) + OCRPort (RapidOCR ONNX), single location_json schema, Semaphore=1 heavy task isolation, and 100MB / 200 page safety caps. |
 | **[ADR 0022](file:///e:/repos/athenus/docs/adr/0022-frontend-document-pdf-ingestion-integration.md)** | Frontend Document & PDF Ingestion Integration | Implemented the dual-modality workspace (video player / DocumentViewer), `activeSourceType` discriminator, page-aware chat query forwarding, `📄 Page X` citation badges, transient `targetPage` navigation, and document ingestion stages — with zero video regression. |
+| **[ADR 0023](file:///e:/repos/athenus/docs/adr/0023-rag-reliability-remediation-architecture.md)** | RAG Reliability Remediation Architecture | Sub-chunking (<=750 tokens), clean PDF parsing, zero-match KG guardrail, RRF hybrid search (k=60), active document boosting (1.5x), and page text context concatenation. |
+| **[ADR 0024](file:///e:/repos/athenus/docs/adr/0024-ci-pipeline-and-test-infrastructure-architecture.md)** | CI Pipeline & Test Infrastructure Architecture | Three-job GitHub Actions workflow (frontend, backend, tauri), runner pinning (ubuntu-22.04) for Tauri v1 webkit2gtk-4.0 compatibility, and test fixture schema initialization. |
 
 ---
 

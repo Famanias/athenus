@@ -131,7 +131,20 @@ After the stack is up, pull the default model into the production container once
 
 > For true multi-user scale-out, the documented target (see `docs/adr/0003-qdrant-embedded-vector-store.md` and `CONTEXT.md`) is PostgreSQL + containerized Qdrant; the embedded stack above is appropriate for self-hosted single-instance use.
 
-## 4. Cloud Mode (Railway / VPS)
-* FastAPI deployed to Railway / Coolify
-* Supabase / PostgreSQL for cloud metadata
-* Qdrant Cloud for managed vector database
+
+---
+
+## 5. Continuous Integration (GitHub Actions)
+
+The repository includes a automated CI pipeline (`.github/workflows/ci.yml`) validating every push and PR to `main` and `v1`:
+
+| Job | Environment / Runner | Executed Pipeline Commands |
+|---|---|---|
+| **`frontend`** | `ubuntu-latest` (Node 22) | `npm ci` $\rightarrow$ `npm run typecheck` $\rightarrow$ `npm run build` |
+| **`backend`** | `ubuntu-latest` (Python 3.11) | `pip install -r requirements.txt` $\rightarrow$ `mkdir -p data` $\rightarrow$ `python -m pytest tests` |
+| **`tauri`** | `ubuntu-22.04` (Node 22 + Rust) | `sudo apt-get install libwebkit2gtk-4.0-dev ...` $\rightarrow$ `npm run tauri build -- --bundles deb` |
+
+### Runner & Dependency Requirements
+- **`tauri` Job Runner Pinning**: Pinned to `ubuntu-22.04` because Tauri v1 (`@tauri-apps/cli` 1.5) links against `webkit2gtk-4.0`. Newer `ubuntu-latest` (24.04) images no longer package `libwebkit2gtk-4.0-dev`.
+- **Backend Test Isolation**: Tests run against an isolated SQLite DB (`DATABASE_URL=sqlite:///./data/ci_athenus.db`) with `mkdir -p data` executed prior to `pytest`.
+
