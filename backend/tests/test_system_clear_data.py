@@ -29,6 +29,26 @@ except ImportError:
 
 def test_system_clear_data_factory_reset():
     init_db()
+
+    # Legacy `document_pages` table has no ORM model and is NOT created by init_db().
+    # It only exists in databases that predate the legacy-table purge, so create it here
+    # as a fixture so the factory-reset purge can also be verified against a fresh DB.
+    with Session(engine) as session:
+        from sqlalchemy import text
+        session.execute(text("""
+            CREATE TABLE IF NOT EXISTS document_pages (
+                id INTEGER PRIMARY KEY,
+                media_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                page_number INTEGER NOT NULL,
+                text TEXT,
+                page_type TEXT,
+                section_title TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        session.commit()
+
     client = TestClient(app)
 
     uploads_dir = os.path.join(".", "data", "uploads")
