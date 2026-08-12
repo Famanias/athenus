@@ -13,7 +13,11 @@ services:
     ports:
       - "${PORT_BACKEND:-8000}:8000"
     env_file:
-      - .env
+      # .env is optional (scripts/setup.sh / dev.sh create it). Every required
+      # setting has a default (app/core/config.py) or is overridden below, so a
+      # fresh clone can run `docker compose up -d --build` without it.
+      - path: .env
+        required: false
     environment:
       # Container-friendly overrides. Native values stay in .env.example.
       ENVIRONMENT: development
@@ -65,7 +69,8 @@ services:
       - athenus-net
 
   ollama:
-    image: ollama/ollama:latest
+    # Pinned for reproducible fresh clones (was :latest).
+    image: ollama/ollama:0.32.9
     container_name: athenus-ollama
     ports:
       - "${PORT_OLLAMA:-11434}:11434"

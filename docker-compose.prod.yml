@@ -22,7 +22,12 @@ services:
       WHISPER_DEVICE: "cpu"
       WHISPER_COMPUTE_TYPE: "int8"
     volumes:
-      - ./data:/app/data
+      # Named volume, NOT a ./data bind: the image creates /app/data as appuser
+      # (docker/backend/Dockerfile) and Docker seeds a fresh named volume with
+      # that ownership, so the non-root backend can write SQLite/Qdrant/uploads.
+      # A host bind mount would be root-owned inside the container and would
+      # lock appuser out on a fresh clone.
+      - backend-data:/app/data
       - hf-cache:/root/.cache/huggingface
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -54,7 +59,8 @@ services:
       - athenus-net
 
   ollama:
-    image: ollama/ollama:latest
+    # Pinned for reproducible fresh clones (was :latest).
+    image: ollama/ollama:0.32.9
     container_name: athenus-prod-ollama
     restart: unless-stopped
     ports:
@@ -71,3 +77,4 @@ networks:
 volumes:
   hf-cache:
   ollama-data:
+  backend-data:
