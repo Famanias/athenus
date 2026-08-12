@@ -56,6 +56,7 @@ Future knowledge sources:
 * **SQLite System Settings Persistence**: `SystemSettings` table in SQLite (`./data/athenus.db`) managed via `SettingsService` and auto-rehydrated on application launch.
 * **Local Ollama Model Discovery**: Pure local filesystem model discovery (`OllamaModelScanner`) with dynamic dropdown selection in LLM settings.
 * **Dockerized Development Architecture**: Single-command web stack (`docker compose up -d --build` → http://localhost:3000) with containerized FastAPI backend, Next.js frontend, and Ollama; GPU acceleration via an overlay file (`docker-compose.gpu.yml`, NVIDIA Container Toolkit); Tauri desktop shell remains native against the containerized backend. See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) and [`docs/ONBOARDING.md`](ONBOARDING.md).
+* **MCP Exposure Layer (v1 — Designed, Not Yet Implemented)**: Design frozen across four grilling rounds + [ADR 0024](adr/0024-mcp-exposure-layer-and-retrieval-shaped-search.md). Initial catalogue: 4 tools (`list_workspaces`, `search_workspace`, `search_concepts`, `get_transcript_segment`) + 5 read-only resources (`workspace`, `media`, `media/transcript`, `media/document`, `graph/concept`). Phased implementation plan in [`implementation_plan.md`](../implementation_plan.md) awaiting review before any code changes.
 
 ---
 
@@ -91,8 +92,23 @@ Supports three deployment modes:
 
 ---
 
+# AI Agent Interop (MCP)
+
+* **Athenus MCP Server (MCP Exposure Layer)**: The Model Context Protocol interface through which external AI agents access Athenus knowledge and capabilities. An *exposure layer* (presentation/interoperability), never an application layer — it calls the same application/domain services the REST API uses and must not re-implement retrieval, citation, ingestion, graph, or learning logic.
+* **Capability**: A single, real Athenus operation backed by an existing application/domain service and surfaced to AI agents via the MCP server (e.g., searching a workspace, retrieving a transcript, fetching a concept).
+* **AI Agent**: An external or internal agent that accesses Athenus knowledge through the MCP server rather than through the REST/UI surface.
+* **MCP Tool (Athenus)**: A capability an AI agent invokes with explicit arguments — used for search/discovery/analysis (e.g., `search_workspace`). Tools *discover or perform operations*.
+* **MCP Resource (Athenus)**: A read-only, URI-addressable piece of Athenus knowledge (a transcript, a concept page, a deck version) that *represents addressable knowledge* and always carries provenance rather than flattened text — Athenus' core value is "LLM-readable knowledge with provenance."
+* **source_type (canonical)**: The type of an Athenus source, one of `video | audio | document`. A document is a `MediaItem` with `MediaType.DOCUMENT` (ADR 0021). Legacy internal `"pdf"` is normalized to `"document"` at the application boundary; MCP never exposes `pdf`.
+* **MCP Consumption (MCPToolAdapter)**: The inverse direction — Athenus' own agents consuming *external* MCP servers as tools (Phase 5 plan in `architecture-review-842026.md`). Currently parked; distinct from the Exposure Layer.
+
+---
+
 # Accepted Architectural Decisions
 
+* **Athenus MCP Server as Exposure Layer**: Athenus exposes its knowledge/learning capabilities to AI agents over MCP. Transport-agnostic (stdio + Streamable HTTP execute the same tool catalogue); read-only and safe by default; destructive operations (e.g., `clear-data`) omitted from the default catalogue unless explicitly opted in. The inverse direction (`MCPToolAdapter` consuming external MCP servers) is intentionally deferred.
+* **Explicit Workspace Identification (MCP)**: A workspace-scoped MCP operation — Tool *or* Resource — must always identify its workspace explicitly. MCP v1 keeps no implicit "active workspace" state; agents discover workspaces via `list_workspaces` and then select explicitly.
+* **MCP Exposure Layer Architecture (ADR 0024)**: Athenus exposes an MCP server — a transport-agnostic, read-only-by-default capability catalogue backed by the same application services REST uses. stdio first, Streamable HTTP later (bearer auth reusing `IPC_BEARER_TOKEN` semantics). Search is a retrieval capability (`MultiStageRetriever.search()` + `WorkspaceSearchService`) distinct from answer synthesis (`query_workspace`). `MediaQueryService` owns transcript/document reads with workspace-ownership validation. All resources are structured JSON preserving provenance. Explicit-error semantics distinguish unknown-workspace / cross-workspace / in-scope-missing / zero-results. Composition root in `bootstrap/mcp.py`, separate from the presentation layer. See [`docs/adr/0024-mcp-exposure-layer-and-retrieval-shaped-search.md`](adr/0024-mcp-exposure-layer-and-retrieval-shaped-search.md).
 * **Desktop-First & Local-First Architecture**
 * **Domain-Driven Architecture with 7 Bounded Contexts**: `Knowledge`, `Learning`, `Workspace`, `AI`, `User`, `Evaluation`, `Media`.
 * **AI Service Bus & Model Registry Architecture**: Centralized gateway for capability routing and model metadata resolution (`whisper-base`, `bge-small-en-v1.5`).
