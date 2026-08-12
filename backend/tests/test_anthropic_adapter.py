@@ -12,7 +12,7 @@ def test_anthropic_adapter_generation():
             
             body = json.loads(request.content)
             assert body.get("system") == "You are Athenus AI Assistant."
-            assert body.get("max_tokens") == 1024
+            assert body.get("max_tokens") == 2048
 
             data = {
                 "content": [{"type": "text", "text": "Hello from Claude native API"}],

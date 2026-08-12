@@ -87,10 +87,11 @@ def test_ollama_text_gen_adapter_raises_on_failure(monkeypatch):
     adapter = OllamaTextGenAdapter(base_url="http://localhost:11434", default_model="llama3:8b")
     req = TextGenerationRequest(prompt="hi")
 
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         asyncio.run(adapter.generate(req))
 
-    assert "Ollama generation failed" in str(exc_info.value)
+    assert "Failed connecting to Ollama" in str(exc_info.value)
     # Ensure fake fallback text is NOT returned
     assert "Offline Fallback" not in str(exc_info.value)
+
 

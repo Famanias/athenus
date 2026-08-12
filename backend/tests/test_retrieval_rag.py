@@ -1,15 +1,15 @@
 import asyncio
 import pytest
-from app.domain.ai.capabilities import ITextGenerationCapability, TextGenerationRequest, TextGenerationResponse
+from app.domain.ai.capabilities import ITextGenerationCapability, IEmbeddingCapability, TextGenerationRequest, TextGenerationResponse
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.ai.provider_router import ProviderRouter
 from app.domain.ai.service_bus import AIServiceBus
 from app.domain.knowledge.bm25_retriever import BM25Retriever
 from app.domain.knowledge.reranker import CrossEncoderReranker
-from app.infrastructure.adapters.sentence_transformers_adapter import SentenceTransformersEmbeddingAdapter
 from app.application.services.workspace_intelligence import WorkspaceIntelligenceManager
 from fastapi.testclient import TestClient
 from app.main import app
+from typing import List
 
 class MockOllamaAdapter(ITextGenerationCapability):
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResponse:
@@ -21,6 +21,14 @@ class MockOllamaAdapter(ITextGenerationCapability):
 
     async def stream(self, request: TextGenerationRequest):
         yield "Artificial intelligence is transforming education by enabling personalized learning paths [00:00 - 00:10]."
+
+class MockEmbeddingAdapter(IEmbeddingCapability):
+    """Deterministic 384-dim mock embedding for CI — avoids HuggingFace download."""
+    async def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        return [[0.01 * (i + 1) for i in range(384)] for _ in texts]
+
+    async def embed_query(self, query: str) -> List[float]:
+        return [0.01 * (i + 1) for i in range(384)]
 
 def test_bm25_retriever():
     retriever = BM25Retriever()
@@ -49,7 +57,7 @@ def test_workspace_intelligence_manager():
         router = ProviderRouter(registry)
         bus = AIServiceBus(registry, router)
         bus.register_text_adapter("ollama", MockOllamaAdapter())
-        bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
+        bus.register_embedding_adapter("sentence_transformers", MockEmbeddingAdapter())
 
         manager = WorkspaceIntelligenceManager(bus)
         res = await manager.query_workspace("What is AI?", workspace_id="ws1")
@@ -58,17 +66,31 @@ def test_workspace_intelligence_manager():
 
     asyncio.run(_test())
 
+def _build_mock_intelligence_manager() -> WorkspaceIntelligenceManager:
+    """Build a WorkspaceIntelligenceManager wired with mock adapters for endpoint testing."""
+    registry = ModelRegistry()
+    router = ProviderRouter(registry)
+    bus = AIServiceBus(registry, router)
+    bus.register_text_adapter("ollama", MockOllamaAdapter())
+    bus.register_embedding_adapter("sentence_transformers", MockEmbeddingAdapter())
+    return WorkspaceIntelligenceManager(bus)
+
 def test_chat_query_endpoint():
-    client = TestClient(app)
-    payload = {
-        "query": "Explain how RAG retrieval works",
-        "workspace_id": "ws_test"
-    }
-    response = client.post("/api/v1/chat/query", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-    assert "answer" in data
-    assert "citations" in data
+    from app.presentation.api.v1.chat import get_intelligence_manager
+    app.dependency_overrides[get_intelligence_manager] = _build_mock_intelligence_manager
+    try:
+        client = TestClient(app)
+        payload = {
+            "query": "Explain how RAG retrieval works",
+            "workspace_id": "ws_test"
+        }
+        response = client.post("/api/v1/chat/query", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert "answer" in data
+        assert "citations" in data
+    finally:
+        app.dependency_overrides.pop(get_intelligence_manager, None)
 
 
 def test_enforce_token_budget():
@@ -99,4 +121,3 @@ def test_enforce_token_budget():
     input_tokens = count_tokens(assembled)
     assert input_tokens + reserved_output <= context_limit
     assert len(final_chunks) < len(chunks), "Expected lower scoring chunk to be trimmed"
-

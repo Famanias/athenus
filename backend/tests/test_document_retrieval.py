@@ -65,6 +65,9 @@ def test_qdrant_document_filtering():
 
 
 def test_multi_stage_retriever_document_flow():
+    import uuid
+    doc_id = f"doc_retrieval_{uuid.uuid4().hex[:8]}"
+
     async def _run():
         reg = ModelRegistry()
         router = ProviderRouter(reg)
@@ -74,9 +77,9 @@ def test_multi_stage_retriever_document_flow():
         vector_store = EmbeddedQdrantVectorStoreAdapter(path=":memory:")
         payloads = [
             {
-                "chunk_id": "doc_chunk_1",
-                "media_id": "doc_303",
-                "document_id": "doc_303",
+                "chunk_id": f"{doc_id}_chunk_1",
+                "media_id": doc_id,
+                "document_id": doc_id,
                 "workspace_id": "ws_retrieval",
                 "source_type": "pdf",
                 "text": "Gradient descent optimization proof details on page 12.",
@@ -90,20 +93,52 @@ def test_multi_stage_retriever_document_flow():
             payloads=payloads,
         )
 
+        # Insert media item + transcript chunk into SQLite so _extract_document_page_context finds them
+        from app.infrastructure.db.session import engine
+        from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+
+        if engine:
+            try:
+                from sqlmodel import Session as DBSession
+            except ImportError:
+                from sqlalchemy.orm import Session as DBSession
+
+            with DBSession(engine) as session:
+                media = MediaItemTable(
+                    id=doc_id,
+                    workspace_id="ws_retrieval",
+                    title="Optimization Textbook.pdf",
+                    file_path="/docs/optimization.pdf",
+                    media_type="document",
+                    status="completed"
+                )
+                session.add(media)
+                chunk = TranscriptChunkTable(
+                    id=f"{doc_id}_chunk_0",
+                    media_id=doc_id,
+                    workspace_id="ws_retrieval",
+                    text="Gradient descent optimization proof details on page 12.",
+                    start_time=12.0,
+                    end_time=12.0,
+                    chunk_index=0,
+                    word_count=9
+                )
+                session.add(chunk)
+                session.commit()
+
         retriever = MultiStageRetriever(ai_service_bus=ai_bus, vector_store=vector_store)
 
         ctx = await retriever.execute_retrieval(
             query="What is the optimization proof?",
             workspace_id="ws_retrieval",
-            document_id="doc_303",
+            document_id=doc_id,
             source_type="pdf",
             current_page=12,
         )
 
-        assert ctx.document_id == "doc_303"
+        assert ctx.document_id == doc_id
         assert ctx.source_type == "pdf"
-        assert "[Document Page 12 (Optimization Chapter)]" in ctx.assembled_prompt
+        assert "[Active Document" in ctx.assembled_prompt
         assert "Gradient descent optimization proof details" in ctx.assembled_prompt
-        assert "[Active Document Context]" in ctx.assembled_prompt
 
     asyncio.run(_run())

@@ -18,7 +18,10 @@ def test_qdrant_adapter_score_threshold():
     """Verify EmbeddedQdrantVectorStoreAdapter search respects score_threshold parameter."""
     async def _test():
         adapter = EmbeddedQdrantVectorStoreAdapter(path=":memory:")
-        
+
+        # Force fallback path to test the in-memory score_threshold filtering
+        adapter._client = None
+
         # Upsert items into fallback memory with distinct scores
         adapter._fallback_memory = [
             {"id": "c1", "score": 0.85, "payload": {"workspace_id": "ws1", "text": "High relevance chunk."}},
