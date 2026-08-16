@@ -4,7 +4,6 @@ import { SidebarItem } from './SidebarItem';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
 import { SessionList } from './SessionList';
-import { WorkspaceDropdown } from './WorkspaceDropdown';
 
 export const Sidebar: React.FC = () => {
   const { initLazyNewChat, setWorkspaceModalOpen } = useAppStore();
@@ -24,11 +23,6 @@ export const Sidebar: React.FC = () => {
             </h1>
           </div>
         </div>
-      </div>
-
-      {/* Select Workspace */}
-      <div className="p-3 border-b border-outline-variant/50">
-        <WorkspaceDropdown />
       </div>
 
       {/* Quick "+ New Chat" Action */}
