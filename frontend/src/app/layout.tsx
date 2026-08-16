@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Athenus Knowledge OS",
+  title: "Athenus - AI Learning Space",
   description: "AI-Native Knowledge Operating System",
 };
 

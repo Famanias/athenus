@@ -4,9 +4,10 @@ import { SidebarItem } from './SidebarItem';
 import { Button } from '@/components/ui/Button';
 import { useAppStore } from '@/store/useAppStore';
 import { SessionList } from './SessionList';
+import { WorkspaceDropdown } from './WorkspaceDropdown';
 
 export const Sidebar: React.FC = () => {
-  const { setActiveView, initLazyNewChat, setWorkspaceModalOpen } = useAppStore();
+  const { initLazyNewChat, setWorkspaceModalOpen } = useAppStore();
 
   return (
     <aside className="fixed left-0 top-0 h-screen flex flex-col z-40 bg-surface-container-low border-r border-outline-variant w-sidebar-width transition-all">
@@ -23,6 +24,11 @@ export const Sidebar: React.FC = () => {
             </h1>
           </div>
         </div>
+      </div>
+
+      {/* Select Workspace */}
+      <div className="p-3 border-b border-outline-variant/50">
+        <WorkspaceDropdown />
       </div>
 
       {/* Quick "+ New Chat" Action */}
@@ -66,19 +72,6 @@ export const Sidebar: React.FC = () => {
         {/* Sessions List within active workspace */}
         <SessionList />
       </nav>
-
-      {/* Upload Media Quick Trigger */}
-      <div className="p-3 border-t border-outline-variant">
-        <Button
-          variant="secondary"
-          size="md"
-          icon="upload_file"
-          className="w-full"
-          onClick={() => setActiveView('view-ingestion')}
-        >
-          Upload Media File
-        </Button>
-      </div>
     </aside>
   );
 };

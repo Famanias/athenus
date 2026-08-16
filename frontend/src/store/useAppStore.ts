@@ -34,7 +34,6 @@ interface UISlice {
   currentTime: string;
   targetSeekSeconds: number | null;
   playbackSpeed: number;
-  isCmdPaletteOpen: boolean;
   isWorkspaceModalOpen: boolean;
   searchQuery: string;
 
@@ -64,7 +63,6 @@ interface UISlice {
   setCurrentTime: (time: string) => void;
   setTargetSeekSeconds: (seconds: number | null) => void;
   setPlaybackSpeed: (speed: number) => void;
-  setCmdPaletteOpen: (isOpen: boolean) => void;
   setWorkspaceModalOpen: (isOpen: boolean) => void;
   setSearchQuery: (query: string) => void;
   setProviderSettings: (llm: string, stt: string, gpu: boolean, activeModel?: string) => void;
@@ -143,7 +141,6 @@ export const useAppStore = create<AppState>()((...args) => {
     currentTime: '00:00',
     targetSeekSeconds: null,
     playbackSpeed: 1.0,
-    isCmdPaletteOpen: false,
     isWorkspaceModalOpen: false,
     searchQuery: '',
 
@@ -225,7 +222,6 @@ export const useAppStore = create<AppState>()((...args) => {
       }
       set({ playbackSpeed: speed });
     },
-    setCmdPaletteOpen: (isOpen) => set({ isCmdPaletteOpen: isOpen }),
     setWorkspaceModalOpen: (isOpen) => set({ isWorkspaceModalOpen: isOpen }),
     setSearchQuery: (query) => set({ searchQuery: query }),
     setProviderSettings: (llm, stt, gpu, activeModel) => {

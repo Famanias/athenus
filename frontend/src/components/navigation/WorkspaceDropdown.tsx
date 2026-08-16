@@ -76,17 +76,17 @@ export const WorkspaceDropdown: React.FC = () => {
         <span className="material-symbols-outlined text-secondary text-sm shrink-0">
           {activeWs?.icon || 'psychology'}
         </span>
-        <span className="font-mono text-xs text-on-surface font-semibold max-w-[200px] truncate">
+        <span className="font-mono text-xs text-on-surface font-semibold flex-1 min-w-0 truncate">
           {activeWs ? activeWs.name : 'Select Workspace'}
         </span>
-        <span className="material-symbols-outlined text-on-surface-variant text-xs transition-transform duration-200">
+        <span className="material-symbols-outlined text-on-surface-variant text-xs transition-transform duration-200 shrink-0">
           {isOpen ? 'expand_less' : 'expand_more'}
         </span>
       </button>
 
       {/* Dropdown Menu Overlay */}
       {isOpen && (
-        <div className="absolute left-0 top-full mt-2 w-72 bg-surface-container-high border border-outline-variant rounded-lg shadow-2xl z-50 overflow-hidden flex flex-col">
+        <div className="absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-1rem)] bg-surface-container-high border border-outline-variant rounded-lg shadow-2xl z-50 overflow-hidden flex flex-col">
           {/* Search Filter */}
           <div className="p-2 border-b border-outline-variant bg-surface-container-low">
             <div className="relative">
@@ -121,7 +121,7 @@ export const WorkspaceDropdown: React.FC = () => {
                         : 'text-on-surface hover:bg-surface-container'
                     }`}
                   >
-                    <div className="flex items-center gap-2 truncate">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                       <span className="material-symbols-outlined text-xs shrink-0 text-secondary">
                         {ws.icon || 'psychology'}
                       </span>
@@ -155,7 +155,7 @@ export const WorkspaceDropdown: React.FC = () => {
                         : 'text-on-surface hover:bg-surface-container'
                     }`}
                   >
-                    <div className="flex items-center gap-2 truncate">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
                       <span className="material-symbols-outlined text-xs shrink-0 text-on-surface-variant">
                         {ws.icon || 'psychology'}
                       </span>

@@ -3,9 +3,7 @@
 import React, { useEffect } from 'react';
 import { Sidebar } from '@/components/navigation/Sidebar';
 import { TopToolbar } from '@/components/navigation/TopToolbar';
-import { StatusBar } from '@/components/layout/StatusBar';
 import { MainPanel } from '@/components/layout/MainPanel';
-import { CommandPalette } from '@/components/navigation/CommandPalette';
 import { useAppStore, rehydrateStoredState } from '@/store/useAppStore';
 
 // Feature Components (Phases B through F)
@@ -75,13 +73,7 @@ export const DesktopShell: React.FC = () => {
             </div>
           )}
         </MainPanel>
-
-        {/* Bottom Status Bar */}
-        <StatusBar />
       </main>
-
-      {/* Global Command Palette Modal */}
-      <CommandPalette />
     </div>
   );
 };

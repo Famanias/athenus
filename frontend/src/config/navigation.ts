@@ -25,8 +25,8 @@ export const NAVIGATION_CONFIG: NavCategory[] = [
     id: 'knowledge',
     title: 'Knowledge',
     items: [
-      { id: 'view-dashboard', label: 'Workspace Library', icon: 'grid_view' },
-      { id: 'view-video', label: 'Video', icon: 'smart_display', badge: 'Active', badgeType: 'active' },
+      { id: 'view-dashboard', label: 'Library', icon: 'library_books' },
+      { id: 'view-video', label: 'Learning', icon: 'school', badge: 'Active', badgeType: 'active' },
       { id: 'view-graph', label: 'Blueprint', icon: 'hub', badge: 'Active', badgeType: 'active' },
     ],
   },
@@ -43,7 +43,7 @@ export const NAVIGATION_CONFIG: NavCategory[] = [
     id: 'infrastructure',
     title: 'Infrastructure',
     items: [
-      { id: 'view-ingestion', label: 'Pipelines', icon: 'database', badge: 'Active', badgeType: 'active' },
+      { id: 'view-ingestion', label: 'Uploads', icon: 'upload', badge: 'Active', badgeType: 'active' },
       { id: 'view-settings', label: 'Settings', icon: 'settings' },
     ],
   },

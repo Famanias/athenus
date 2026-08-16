@@ -194,8 +194,8 @@ export const VideoWorkspace: React.FC = () => {
         </h3>
         <p className="text-xs text-on-surface-variant max-w-md leading-relaxed">
           {activeSourceType === 'pdf'
-            ? 'Please upload a PDF or document in Pipelines or select an existing document asset from the Workspace Library.'
-            : 'Please upload a lecture video in Pipelines or select an existing asset from the Workspace Library.'}
+            ? 'Please upload a PDF or document in Uploads or select an existing document asset from the Library.'
+            : 'Please upload a lecture video in Uploads or select an existing asset from the Library.'}
         </p>
         <div className="flex gap-3 pt-2">
           <Button variant="primary" icon="upload_file" onClick={() => setActiveView('view-ingestion')}>

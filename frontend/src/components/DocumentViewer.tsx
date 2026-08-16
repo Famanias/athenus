@@ -182,7 +182,7 @@ export const DocumentViewer: React.FC = () => {
             No document selected
           </h4>
           <p className="text-xs text-on-surface-variant">
-            Upload a document in the Pipelines tab or select an existing
+            Upload a document in the Uploads tab or select an existing
             document asset from the Library to view it here.
           </p>
         </div>
