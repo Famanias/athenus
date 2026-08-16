@@ -12,9 +12,9 @@ export const TopToolbar: React.FC = () => {
 
   return (
     <>
-      <header className="shrink-0 flex justify-between items-center w-full px-6 h-14 z-50 bg-background border-b border-outline-variant">
-        {/* Active Background Task Progress Badge */}
-        {activeJobs.length > 0 && (
+      {activeJobs.length > 0 && (
+        <header className="shrink-0 flex justify-between items-center w-full px-6 py-2 z-50 bg-background border-b border-outline-variant">
+          {/* Active Background Task Progress Badge */}
           <button
             type="button"
             onClick={() => setActiveView('view-ingestion')}
@@ -28,8 +28,8 @@ export const TopToolbar: React.FC = () => {
                 : `⚡ ${activeJobs.length} Background Tasks Running`}
             </span>
           </button>
-        )}
-      </header>
+        </header>
+      )}
 
       {/* Global Workspace Modal */}
       <WorkspaceModal />
