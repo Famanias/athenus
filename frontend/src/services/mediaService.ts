@@ -43,16 +43,24 @@ export async function getTranscript(mediaId: string, workspaceId?: string): Prom
   return apiClient<BackendTranscriptDTO>(`/api/v1/media/${encodeURIComponent(mediaId)}/transcript${query}`);
 }
 
-export async function uploadMedia(file: File, workspaceId = 'default'): Promise<MediaUploadDTO> {
+export async function uploadMedia(
+  file: File,
+  workspaceId = 'default',
+  title?: string
+): Promise<MediaUploadDTO> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('workspace_id', workspaceId);
+  if (title) {
+    formData.append('title', title);
+  }
 
   return apiClient<MediaUploadDTO>('/api/v1/media/upload', {
     method: 'POST',
     body: formData,
   });
 }
+
 
 export function createMediaProcessingStream(mediaId: string): EventSource {
   return new EventSource(`${API_BASE_URL}/api/v1/media/${encodeURIComponent(mediaId)}/stream`);

@@ -51,7 +51,8 @@ async def upload_media(
     ext = os.path.splitext(filename)[1].lower()
 
     doc_exts = {".pdf", ".docx", ".pptx", ".xlsx", ".epub", ".md", ".txt"}
-    audio_exts = {".mp3", ".wav", ".m4a", ".aac", ".flac"}
+    audio_exts = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".webm", ".ogg"}
+
 
     is_doc = ext in doc_exts
     is_audio = ext in audio_exts
