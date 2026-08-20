@@ -1,128 +1,77 @@
-## CI Pipeline — GitHub Actions (Phase 1)
+# Note Generation Engine & Study Workspace — Implementation Walkthrough
 
-### Phase Summary
-Implemented a GitHub Actions CI pipeline (`.github/workflows/ci.yml`) with three independent jobs: frontend typecheck + build, backend test suite, and Tauri desktop shell build check. Stabilized the backend test baseline from 6 failures to 0, with all fixes being test-only changes (no application behavior modifications). Added a `typecheck` script to `frontend/package.json`. Frontend lint is intentionally deferred to Phase 2 — `next lint` was removed in Next 16 and ESLint is not installed.
+## 1. Summary of Changes
 
-### What Was Implemented
-- **`.github/workflows/ci.yml`** — Three independent jobs on `ubuntu-latest`, triggered on push/PR to `main`+`v1` plus manual `workflow_dispatch`. Concurrency group with `cancel-in-progress: true`.
-  - **frontend**: Node 22, npm cache, `npm ci` → `npm run typecheck` → `npm run build` (static export)
-  - **backend**: Python 3.11, pip cache, `pip install -r requirements.txt` → `mkdir -p data` → `python -m pytest tests`
-  - **tauri**: Node 22 + Rust stable + Tauri v1 apt deps (`libwebkit2gtk-4.0-dev`) → `npm ci` → `npm run tauri build -- --bundles deb`
-- **`frontend/package.json`** — Added `"typecheck": "tsc --noEmit"` script (matches existing repo convention)
-- **Backend test stabilization** — Fixed 6 test-isolation bugs across 5 test files:
-  - `test_ollama_provider_adapter.py`: Expected `RuntimeError` but adapter raises `ValueError`
-  - `test_retrieval_rag.py`: `test_chat_query_endpoint` hit live LLM; `test_workspace_intelligence_manager` downloaded 100MB HuggingFace model
-  - `test_sessions.py`: `test_session_lifecycle_and_lazy_creation` hit live LLM
-  - `test_anthropic_adapter.py`: Mock asserted `max_tokens==1024` but dataclass defaults to 2048
-  - `test_phase_3_2_and_3_3.py`: Set `_fallback_memory` but qdrant client was initialized (fallback path not taken)
-  - `test_document_retrieval.py`: Missing SQLite data for document page context extraction
+Implemented the complete end-to-end **Note Generation** capability in Athenus. Following the verified architectural patterns of Athenus's existing Flashcard and Quiz learning services, this feature converts ingested lecture audio/video transcripts and document pages into structured, versioned, timestamp-grounded study notes with executive summaries, key takeaways, and action items.
 
-### Files/Components Changed
-- [`.github/workflows/ci.yml`](file:///e:/repos/athenus/.github/workflows/ci.yml): **[NEW]** CI pipeline workflow
-- [`frontend/package.json`](file:///e:/repos/athenus/frontend/package.json): Added `typecheck` script
-- [`backend/tests/test_ollama_provider_adapter.py`](file:///e:/repos/athenus/backend/tests/test_ollama_provider_adapter.py): Fixed exception type assertion
-- [`backend/tests/test_retrieval_rag.py`](file:///e:/repos/athenus/backend/tests/test_retrieval_rag.py): Mocked embedding adapter + FastAPI dependency override for chat/query
-- [`backend/tests/test_sessions.py`](file:///e:/repos/athenus/backend/tests/test_sessions.py): FastAPI dependency override for chat/query
-- [`backend/tests/test_anthropic_adapter.py`](file:///e:/repos/athenus/backend/tests/test_anthropic_adapter.py): Fixed `max_tokens` assertion
-- [`backend/tests/test_phase_3_2_and_3_3.py`](file:///e:/repos/athenus/backend/tests/test_phase_3_2_and_3_3.py): Force fallback path for score threshold test
-- [`backend/tests/test_document_retrieval.py`](file:///e:/repos/athenus/backend/tests/test_document_retrieval.py): Insert test data into SQLite + use unique IDs
-
-### Important Implementation Decisions
-- **Frontend lint deferred (Option A):** `next lint` was removed in Next 16 and ESLint is not installed. Adding ESLint 9 + flat config is a separate Phase 2 task.
-- **`--bundles deb` for Tauri:** `tauri.conf.json` sets `bundle.targets: "all"` which attempts AppImage (requires FUSE/`libfuse2`) and rpm (requires `rpmbuild`) on Linux. Restricting to `deb` makes the build deterministic for CI.
-- **`libwebkit2gtk-4.0-dev` (not 4.1):** Tauri v1 links against webkit2gtk-4.0. The 4.1 package is for Tauri v2.
-- **`python -m pytest` (not `pytest`):** Required because there is no `__init__.py` — `python -m` adds cwd to `sys.path` so `from app.main import app` works.
-- **`mkdir -p data`:** `backend/data/` is gitignored and absent in a fresh checkout; SQLite cannot create the DB file without the parent directory.
-- **No `continue-on-error` / `|| true`:** Failures must fail the workflow.
-- **No secrets in CI:** All API keys are optional with safe defaults; test suite mocks all providers.
-
-### Automated Tests Performed and Results
-- `python -m pytest tests -v` (Backend, full suite): **Passed (160/160 passed)** in 73.61s.
-- `ci.yml` YAML validation: **Passed** (parsed successfully by PyYAML).
-- Frontend typecheck/build and Tauri build: **Not validated locally** (no Node.js installed on Windows dev machine). Will be validated by the first GitHub Actions run.
-
-### Manual QA Validation Matrix
-| Test | How to Conduct | Expected Behavior |
-| :--- | :--- | :--- |
-| **GitHub Actions CI Trigger Test** | Push to `v1` or `main` branch, or open a PR targeting either. | All 3 jobs (frontend, backend, tauri) run and pass. |
-| **Backend Test Baseline** | Run `cd backend && python -m pytest tests -v` on a fresh checkout with `mkdir -p data`. | 160/160 tests pass. |
-| **Frontend Typecheck** | Run `cd frontend && npm ci && npm run typecheck`. | 0 TypeScript errors. |
-| **Frontend Build** | Run `cd frontend && npm run build`. | Static export to `frontend/out/` succeeds. |
-| **Tauri Build (Linux)** | On Ubuntu: install Tauri v1 apt deps, then `cd frontend && npm ci && npm run tauri build -- --bundles deb`. | Produces `.deb` in `frontend/src-tauri/target/release/bundle/deb/`. |
-
-### Validation Status
-- **Backend tests: VERIFIED** — 160/160 passed locally (Windows, Python 3.11.5).
-- **CI workflow: AWAITING FIRST GITHUB ACTIONS RUN** — Push to `v1`/`main` required to validate frontend, backend, and tauri jobs on GitHub runners.
-
-
-
-# Athenus CI Pipeline — Implementation Walkthrough
-
-## Summary
-
-Implemented a GitHub Actions CI pipeline with three independent jobs and stabilized the backend test suite from 6 failures to a fully green baseline (160/160).
-
-**No application behavior was changed.** All modifications are CI infrastructure and test-only fixes.
+Key architectural highlights:
+1. **Domain Note Generation Engine (`note_generation.py`):** Structured JSON schema prompt builder, resilient markdown-fence JSON parser, and offline deterministic heuristic clustering fallback.
+2. **Domain Service & Versioning (`note_service.py`):** Lifecycle management with staged progress tracking (`collect_context(20%)` $\to$ `llm_generation(50%)` $\to$ `persist(85%)` $\to$ `ready(100%)`) recorded into the `artifact_jobs` table. Enforces immutable versions (`note_{ws}_{media}_v{n}`) where regenerations create `v2`, `v3` without overwriting historical notes.
+3. **Database Schema & Persistence (`models.py`):** Added `NoteTable` and `NoteSectionTable` with SQLModel and SQLAlchemy support, linking sections to source chunks and timestamp intervals.
+4. **REST API Endpoints (`learning.py`):** Exposed 6 endpoints under `/api/v1/learning/notes/` for creation, listing, status polling, version retrieval, latest retrieval, and section querying.
+5. **Interactive Frontend Workspace (`NotesWorkspace.tsx`):** Responsive study workspace in Next.js + Tailwind with dynamic version switching, inline stage progress bar, interactive action-item checklist, and clickable `[MM:SS]` / `[Page X]` citation badges that seek the video player or document viewer.
+6. **Telemetry & Analytics Integration (`analytics_service.py`):** Emits and handles `NoteGeneratedEvent` to record study activity.
 
 ---
 
-## Changes Made
+## 2. Changes Made by File
 
-### 1. New: `.github/workflows/ci.yml`
+### Backend Domain & Architecture
+* **[`backend/app/domain/learning/entities.py`](file:///e:/repos/athenus/backend/app/domain/learning/entities.py)**: Added domain dataclasses `Note` and `NoteSection`.
+* **[`backend/app/domain/learning/note_generation.py`](file:///e:/repos/athenus/backend/app/domain/learning/note_generation.py)**: Added prompt builder (`build_notes_prompt`), JSON parser (`parse_llm_notes`), and deterministic heuristic fallback generator (`generate_notes_heuristic`).
+* **[`backend/app/domain/learning/note_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/note_service.py)**: Added `NoteService` orchestrating chunk loading, LLM dispatch, artifact job tracking, versioning, and persistence.
+* **[`backend/app/infrastructure/db/models.py`](file:///e:/repos/athenus/backend/app/infrastructure/db/models.py)**: Added `NoteTable` and `NoteSectionTable` for SQLModel and SQLAlchemy schemas.
+* **[`backend/app/presentation/api/v1/learning.py`](file:///e:/repos/athenus/backend/app/presentation/api/v1/learning.py)**: Added response DTOs (`NoteResponse`, `NoteSectionResponse`), serializer helpers, and REST routes (`POST /notes/{ws}`, `GET /notes/{ws}`, `GET /notes/{ws}/status`, `GET /notes/{ws}/version/{v}`, `GET /notes/{ws}/latest`, `GET /notes/{note_id}/sections`).
+* **[`backend/app/domain/analytics/analytics_service.py`](file:///e:/repos/athenus/backend/app/domain/analytics/analytics_service.py)**: Subscribed to `NoteGeneratedEvent` and implemented `handle_note_generated` for session tracking.
 
-Three independent jobs on `ubuntu-latest`:
+### Frontend Presentation & UI
+* **[`frontend/src/features/notes/useNotes.ts`](file:///e:/repos/athenus/frontend/src/features/notes/useNotes.ts)**: Custom React hook managing note fetching, version switching, generation triggers, 5s status polling, and source seeking (`jumpToSource`).
+* **[`frontend/src/features/notes/NoteSummaryHeader.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteSummaryHeader.tsx)**: Header card rendering topic title, metadata, executive summary, and an interactive action-item checklist.
+* **[`frontend/src/features/notes/NoteSectionCard.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteSectionCard.tsx)**: Section component rendering formatted content, key takeaways tags, and clickable `[MM:SS]` timestamp badges.
+* **[`frontend/src/features/notes/NotesWorkspace.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NotesWorkspace.tsx)**: Main workspace view with version selector, inline generation progress bar, and empty state.
+* **[`frontend/src/config/navigation.ts`](file:///e:/repos/athenus/frontend/src/config/navigation.ts)**: Added `view-notes` navigation entry under Knowledge.
+* **[`frontend/src/components/layout/DesktopShell.tsx`](file:///e:/repos/athenus/frontend/src/components/layout/DesktopShell.tsx)**: Mounted `<NotesWorkspace />` when `activeView === 'view-notes'`.
 
-| Job | Working Dir | Pipeline |
-|---|---|---|
-| **frontend** | `frontend/` | Node 22 → `npm ci` → `npm run typecheck` → `npm run build` |
-| **backend** | `backend/` | Python 3.11 → `pip install` → `mkdir -p data` → `python -m pytest tests` |
-| **tauri** | `frontend/` | Node 22 + Rust stable + Tauri v1 apt deps → `npm ci` → `npm run tauri build -- --bundles deb` |
-
-Triggers: `push`/`pull_request` on `main`+`v1`, plus `workflow_dispatch`.
-
-### 2. Modified: `frontend/package.json`
-
-Added `"typecheck": "tsc --noEmit"` to scripts. Matches existing repo convention.
-
-### 3. Backend Test Stabilization (6 fixes, all test-only)
-
-| Test File | Bug | Fix |
-|---|---|---|
-| `test_ollama_provider_adapter.py` | Expected `RuntimeError`, adapter raises `ValueError` | Changed assertion to `ValueError` with correct message |
-| `test_retrieval_rag.py` (chat_query) | Hit live `/api/v1/chat/query` without mocking LLM | Added FastAPI `dependency_overrides` with mock manager |
-| `test_retrieval_rag.py` (workspace_intelligence) | Used real `SentenceTransformersEmbeddingAdapter` (100MB download) | Replaced with `MockEmbeddingAdapter` (384-dim deterministic vectors) |
-| `test_sessions.py` | Steps 4+6 called `/api/v1/chat/query` hitting real LLM | Added FastAPI `dependency_overrides` with mock manager |
-| `test_anthropic_adapter.py` | Mock asserted `max_tokens==1024`, dataclass defaults to `2048` | Updated assertion to `2048` |
-| `test_phase_3_2_and_3_3.py` | Set `_fallback_memory` but qdrant client was initialized | Set `adapter._client = None` to force fallback path |
-| `test_document_retrieval.py` | Missing SQLite media item for page context extraction | Insert test data into SQLite; use UUID-based unique IDs |
-
-### 4. Modified: `walkthrough.md`
-
-Appended "CI Pipeline — GitHub Actions (Phase 1)" section following the existing per-phase structure.
+### Automated Test Suites
+* **[`backend/tests/test_note_generation.py`](file:///e:/repos/athenus/backend/tests/test_note_generation.py)**: 9 unit tests covering prompt construction, JSON parsing resilience, heuristic extraction, LLM invocation, and version caching.
+* **[`backend/tests/test_note_endpoints.py`](file:///e:/repos/athenus/backend/tests/test_note_endpoints.py)**: End-to-end API integration tests verifying all 6 REST endpoints.
 
 ---
 
-## What Was Tested
+## 3. Automated Test Results
 
-- **Backend test suite**: `python -m pytest tests -v` → **160/160 passed** (73.61s)
-- **CI YAML validation**: Parsed successfully by PyYAML
-- **Frontend/Tauri**: Not validated locally (no Node.js on Windows dev machine) — awaits first GitHub Actions run
-
----
-
-## Validation Results
+All 175 tests in the backend test suite passed with 100% success rate:
 
 ```
-================== 160 passed, 1 warning in 73.61s (0:01:13) ==================
+============================= test session starts =============================
+platform win32 -- Python 3.11.5, pytest-8.3.5, pluggy-1.5.0
+rootdir: E:\repos\athenus\backend
+
+tests/test_note_endpoints.py::test_note_generation_endpoints_e2e PASSED  [ 61%]
+tests/test_note_generation.py::test_build_notes_prompt PASSED            [ 62%]
+tests/test_note_generation.py::test_parse_llm_notes_valid_json PASSED    [ 62%]
+tests/test_note_generation.py::test_parse_llm_notes_markdown_fences PASSED [ 63%]
+tests/test_note_generation.py::test_parse_llm_notes_malformed_returns_none PASSED [ 64%]
+tests/test_note_generation.py::test_generate_notes_heuristic_empty PASSED [ 64%]
+tests/test_note_generation.py::test_generate_notes_heuristic_with_chunks PASSED [ 65%]
+tests/test_note_generation.py::test_note_service_heuristic_execution PASSED [ 65%]
+tests/test_note_generation.py::test_note_service_llm_execution PASSED    [ 66%]
+tests/test_note_generation.py::test_note_service_caching_and_versioning PASSED [ 66%]
+...
+============================ 175 passed in 43.71s =============================
 ```
 
 ---
 
-## Key Decisions
+## 4. Manual QA Validation Matrix
 
-1. **Frontend lint deferred** — `next lint` removed in Next 16, ESLint not installed. Phase 2 task.
-2. **`--bundles deb`** — Avoids AppImage (FUSE) and rpm (rpmbuild) CI hazards.
-3. **`libwebkit2gtk-4.0-dev`** — Tauri v1 (not 4.1 which is Tauri v2).
-4. **No `continue-on-error`** — Failures must fail the workflow.
-5. **No secrets** — All API keys optional with safe defaults; tests mock all providers.
+Follow these step-by-step instructions to manually verify the Note Generation feature in your development environment.
 
+| Test Case # | Feature / User Flow | Step-by-Step Instructions | Expected Behavior |
+| :--- | :--- | :--- | :--- |
+| **QA-1** | **Navigation & Empty State** | 1. Start backend (`cd backend && uvicorn app.main:app --reload`) and frontend (`cd frontend && npm run dev`).<br>2. Open browser to `http://localhost:3000`.<br>3. Click the **Notes** icon in the sidebar under Knowledge. | The **AI Synthesis & Study Notes** workspace loads with an empty state prompt ("No Study Notes Yet") and a primary "Generate First Notes" button. |
+| **QA-2** | **Note Generation & Progress Bar** | 1. In a workspace with an uploaded video or PDF, click **Generate First Notes**.<br>2. Observe the UI during generation. | The button enters a disabled generating state and an inline progress bar transitions through `20% (Collecting context)` $\to$ `50% (Synthesizing notes)` $\to$ `85% (Saving structured sections)` $\to$ `100% (Ready)`. |
+| **QA-3** | **Structured Notes Presentation** | 1. Inspect the completed note view after generation finishes. | • **Executive Summary** banner renders with synthesis text.<br>• **Action Items** checklist displays interactive checkboxes.<br>• **Sections List** displays numbered headings, bullet points, and Key Takeaway pills. |
+| **QA-4** | **Timestamp / Citation Seeking** | 1. Locate a section card with a timestamp badge (e.g. `[02:15]`).<br>2. Click the timestamp button. | The workspace automatically switches to the **Learning (Video)** view and seeks the video player directly to `02:15`. |
+| **QA-5** | **Immutable Versioning (Regeneration)** | 1. Return to the Notes view.<br>2. Click **Regenerate (v2)**.<br>3. Wait for generation to complete.<br>4. Open the **Version** dropdown in the top header. | The header displays `Active v2`. The Version dropdown lists both `v1` and `v2`. Selecting `v1` instantly displays the previous version without data loss. |
+| **QA-6** | **Offline Fallback Resilience** | 1. Stop local Ollama server or configure invalid LLM API keys in Settings.<br>2. Generate notes for a new workspace asset. | The generation engine falls back to `generate_notes_heuristic()`, successfully outputting structured sections clustered by time without throwing an unhandled error. |

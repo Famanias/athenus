@@ -27,6 +27,7 @@ export const NAVIGATION_CONFIG: NavCategory[] = [
     items: [
       { id: 'view-dashboard', label: 'Library', icon: 'library_books' },
       { id: 'view-video', label: 'Learning', icon: 'school', badge: 'Active', badgeType: 'active' },
+      { id: 'view-notes', label: 'Notes', icon: 'auto_stories', badge: 'Active', badgeType: 'active' },
       { id: 'view-graph', label: 'Blueprint', icon: 'hub', badge: 'Active', badgeType: 'active' },
     ],
   },

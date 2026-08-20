@@ -277,6 +277,33 @@ try:
         duration_seconds: float = 0.0
         created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    class NoteTable(SQLModel, table=True):
+        __tablename__ = "notes"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        media_id: Optional[str] = Field(default=None, index=True)
+        title: str
+        summary: Optional[str] = None
+        version: int = Field(default=1)
+        status: str = "ready"  # pending | generating | ready | failed
+        action_items_json: Optional[str] = None
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class NoteSectionTable(SQLModel, table=True):
+        __tablename__ = "note_sections"
+        id: str = Field(primary_key=True)
+        note_id: str = Field(index=True)
+        workspace_id: str = Field(index=True)
+        heading: str
+        body: str
+        key_takeaways_json: Optional[str] = None
+        start_time: Optional[float] = None
+        end_time: Optional[float] = None
+        source_chunk_ids: Optional[str] = None
+        order_index: int = 0
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+
 except ImportError:
     from sqlalchemy import Column, String, Float, Integer, DateTime, Text
     from app.infrastructure.db.session import Base
@@ -546,4 +573,31 @@ except ImportError:
         started_at = Column(DateTime, default=datetime.utcnow)
         ended_at = Column(DateTime, nullable=True)
         duration_seconds = Column(Float, default=0.0)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
+    class NoteTable(Base):
+        __tablename__ = "notes"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        media_id = Column(String, index=True, nullable=True)
+        title = Column(String, nullable=False)
+        summary = Column(Text, nullable=True)
+        version = Column(Integer, default=1)
+        status = Column(String, default="ready")
+        action_items_json = Column(Text, nullable=True)
+        created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
+    class NoteSectionTable(Base):
+        __tablename__ = "note_sections"
+        id = Column(String, primary_key=True)
+        note_id = Column(String, index=True, nullable=False)
+        workspace_id = Column(String, index=True, nullable=False)
+        heading = Column(String, nullable=False)
+        body = Column(Text, nullable=False)
+        key_takeaways_json = Column(Text, nullable=True)
+        start_time = Column(Float, nullable=True)
+        end_time = Column(Float, nullable=True)
+        source_chunk_ids = Column(Text, nullable=True)
+        order_index = Column(Integer, default=0)
         created_at = Column(DateTime, default=datetime.utcnow)

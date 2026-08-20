@@ -52,6 +52,8 @@ class AnalyticsService:
             self.event_bus.subscribe("QuizAttemptEvent", self.handle_quiz_attempt)
             self.event_bus.subscribe("ConceptGraphUpdatedEvent", self.handle_graph_updated)
             self.event_bus.subscribe("FlashcardReviewedEvent", self.handle_flashcard_review)
+            self.event_bus.subscribe("NoteGeneratedEvent", self.handle_note_generated)
+
 
     # ------------------------------------------------------------------
     # Persistence helpers
@@ -184,9 +186,24 @@ class AnalyticsService:
         except Exception:
             pass
 
+    async def handle_note_generated(self, event: DomainEvent) -> None:
+        if not engine or not Session:
+            return
+        workspace_id = event.payload.get("workspace_id") or event.aggregate_id
+        try:
+            with Session(engine) as session:
+                ws = self._ensure_workspace_analytics(session, workspace_id)
+                ws.last_activity_at = datetime.utcnow()
+                ws.updated_at = datetime.utcnow()
+                self._record_study_session(session, workspace_id, "notes", 0.0)
+                session.commit()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
     @staticmethod
     def _compute_mastery(quiz_correct: int, quiz_attempts: int, review_count: int, success_bonus: float = 0.0) -> float:
         score = 0.0

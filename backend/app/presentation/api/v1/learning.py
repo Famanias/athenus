@@ -5,9 +5,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from app.domain.learning.entities import FlashcardCard, FlashcardDeck, QuizContainer, QuizQuestionItem
+from app.domain.learning.entities import FlashcardCard, FlashcardDeck, QuizContainer, QuizQuestionItem, Note, NoteSection
 from app.domain.learning.flashcard_service import FlashcardService
 from app.domain.learning.quiz_service import QuizService
+from app.domain.learning.note_service import NoteService
 from app.infrastructure.exporters.anki_exporter import (
     export_deck_apkg,
     export_deck_csv,
@@ -21,16 +22,19 @@ router = APIRouter()
 graph_service = KnowledgeGraphService()
 flashcard_service = FlashcardService(graph_service=graph_service, event_bus=global_event_bus)
 quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_bus)
+note_service = NoteService(graph_service=graph_service, event_bus=global_event_bus)
 # Precomputed analytics subscribe to domain events once at import time.
 _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
 
 
 def set_ai_service_bus(ai_bus) -> None:
     """Inject the process-wide AIServiceBus instance built in main.py cleanly into services."""
-    global flashcard_service, quiz_service, _analytics
+    global flashcard_service, quiz_service, note_service, _analytics
     flashcard_service = FlashcardService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
     quiz_service = QuizService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
+    note_service = NoteService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
     _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
+
 
 
 
@@ -479,8 +483,135 @@ def patch_workspace_learning_settings(workspace_id: str, payload: WorkspaceLearn
 
 
 # ---------------------------------------------------------------------------
+# Note studio responses & endpoints
+# ---------------------------------------------------------------------------
+class NoteSectionResponse(BaseModel):
+    id: str
+    note_id: str
+    workspace_id: str
+    heading: str
+    body: str
+    key_takeaways: List[str] = []
+    media_id: Optional[str] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    source_chunk_ids: List[str] = []
+    order_index: int = 0
+    created_at: Optional[str] = None
+
+
+class NoteResponse(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    summary: Optional[str] = None
+    media_id: Optional[str] = None
+    version: int = 1
+    status: str = "ready"
+    action_items: List[str] = []
+    sections: List[NoteSectionResponse] = []
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+def _section_to_response(section: NoteSection) -> NoteSectionResponse:
+    return NoteSectionResponse(
+        id=section.id,
+        note_id=section.note_id,
+        workspace_id=section.workspace_id,
+        heading=section.heading,
+        body=section.body,
+        key_takeaways=section.key_takeaways or [],
+        media_id=section.media_id,
+        start_time=section.start_time,
+        end_time=section.end_time,
+        source_chunk_ids=section.source_chunk_ids or [],
+        order_index=section.order_index,
+        created_at=section.created_at.isoformat() if section.created_at else None,
+    )
+
+
+def _note_to_response(note: Note) -> NoteResponse:
+    return NoteResponse(
+        id=note.id,
+        workspace_id=note.workspace_id,
+        title=note.title,
+        summary=note.summary,
+        media_id=note.media_id,
+        version=note.version,
+        status=note.status,
+        action_items=note.action_items or [],
+        sections=[_section_to_response(s) for s in (note.sections or [])],
+        created_at=note.created_at.isoformat() if note.created_at else None,
+        updated_at=note.updated_at.isoformat() if note.updated_at else None,
+    )
+
+
+@router.post("/learning/notes/{workspace_id}", response_model=NoteResponse)
+async def create_note(
+    workspace_id: str,
+    media_id: Optional[str] = None,
+    title: Optional[str] = None,
+    force_new_version: bool = False,
+):
+    try:
+        note = await note_service.generate_notes(
+            workspace_id=workspace_id,
+            media_id=media_id,
+            title=title,
+            force_new_version=force_new_version,
+        )
+        return _note_to_response(note)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning/notes/{workspace_id}", response_model=List[NoteResponse])
+def list_notes(workspace_id: str, media_id: Optional[str] = None):
+    notes = note_service.list_notes(workspace_id, media_id=media_id)
+    return [_note_to_response(n) for n in notes]
+
+
+@router.get("/learning/notes/{workspace_id}/status", response_model=Optional[ArtifactJobStatusResponse])
+def get_note_artifact_status(workspace_id: str, media_id: Optional[str] = None):
+    target_key = media_id or workspace_id
+    job = graph_service.get_artifact_job(workspace_id, "notes", target_key=target_key)
+    if not job:
+        return None
+    return _artifact_job_to_response(job)
+
+
+@router.get("/learning/notes/{workspace_id}/version/{version}", response_model=NoteResponse)
+def get_note_version(workspace_id: str, version: int, media_id: Optional[str] = None):
+    note = note_service.get_workspace_note(workspace_id, media_id=media_id, version=version)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note version not found")
+    return _note_to_response(note)
+
+
+@router.get("/learning/notes/{workspace_id}/latest", response_model=NoteResponse)
+def get_latest_note(workspace_id: str, media_id: Optional[str] = None):
+    latest = note_service._latest_version(workspace_id, media_id=media_id)
+    if latest <= 0:
+        raise HTTPException(status_code=404, detail="No notes found for workspace")
+    note = note_service.get_workspace_note(workspace_id, media_id=media_id, version=latest)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return _note_to_response(note)
+
+
+@router.get("/learning/notes/{note_id}/sections", response_model=List[NoteSectionResponse])
+def get_note_sections(note_id: str):
+    sections = note_service.get_note_sections(note_id)
+    return [_section_to_response(s) for s in sections]
+
+
+# ---------------------------------------------------------------------------
 # Legacy endpoints (kept for backward compatibility with existing tests/UIs)
 # ---------------------------------------------------------------------------
+
 class QuizQuestionResponse(BaseModel):
     id: str
     question_text: str

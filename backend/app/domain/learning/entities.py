@@ -138,3 +138,39 @@ class QuizAttempt:
     answers: Optional[dict] = None
     time_taken: float = 0.0
     created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Note studio entities (concept-grounded, timestamp/page provenance-aware)
+# ---------------------------------------------------------------------------
+@dataclass
+class NoteSection:
+    id: str
+    note_id: str
+    workspace_id: str
+    heading: str
+    body: str
+    key_takeaways: List[str] = field(default_factory=list)
+    # Grounding & provenance contract
+    media_id: Optional[str] = None
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    source_chunk_ids: List[str] = field(default_factory=list)
+    order_index: int = 0
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass
+class Note:
+    id: str
+    workspace_id: str
+    title: str
+    summary: Optional[str] = None
+    media_id: Optional[str] = None
+    version: int = 1
+    status: str = "ready"  # pending | generating | ready | failed
+    action_items: List[str] = field(default_factory=list)
+    sections: List[NoteSection] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+
