@@ -7,17 +7,15 @@ import { formatSecondsToTimestamp } from '@/services/chatService';
 interface NoteSectionCardProps {
   section: NoteSectionDTO;
   index: number;
-  onJumpToSource: (mediaId: string | null, seconds: number | null) => void;
 }
 
 export const NoteSectionCard: React.FC<NoteSectionCardProps> = ({
   section,
   index,
-  onJumpToSource,
 }) => {
   const hasTime = section.start_time !== null && section.start_time !== undefined;
   const isPageCitation = hasTime && section.start_time! < 100 && section.start_time! === section.end_time;
-  const citationLabel = isPageCitation
+  const timestampLabel = isPageCitation
     ? `Page ${Math.floor(section.start_time!)}`
     : hasTime
     ? formatSecondsToTimestamp(section.start_time!)
@@ -36,18 +34,16 @@ export const NoteSectionCard: React.FC<NoteSectionCardProps> = ({
           </h4>
         </div>
 
-        {/* Timestamp / Provenance Seeking Badge */}
+        {/* Static Non-Clickable Timestamp Label */}
         {hasTime && (
-          <button
-            onClick={() => onJumpToSource(section.media_id, section.start_time)}
-            title="Seek video player to this timestamp"
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-mono font-medium transition-all group cursor-pointer"
+          <div
+            className="flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-surface-container-high text-on-surface-variant border border-outline-variant/40 text-xs font-mono select-none"
           >
-            <span className="material-symbols-outlined text-sm group-hover:scale-110 transition-transform">
-              play_circle
+            <span className="material-symbols-outlined text-[13px] opacity-70">
+              schedule
             </span>
-            <span>{citationLabel}</span>
-          </button>
+            <span>{timestampLabel}</span>
+          </div>
         )}
       </div>
 

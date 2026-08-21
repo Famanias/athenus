@@ -63,6 +63,44 @@ export interface NoteChanges {
   folder_id?: string | null;
 }
 
+export interface NoteTranscriptSegmentDTO {
+  start_time: number;
+  end_time: number;
+  text: string;
+}
+
+export interface NoteTranscriptDTO {
+  media_id: string;
+  full_text: string;
+  segments: NoteTranscriptSegmentDTO[];
+}
+
+export async function transcribeNoteAudio(
+  noteId: string,
+  blob: Blob,
+  workspaceId = 'default'
+): Promise<NoteTranscriptDTO> {
+  const formData = new FormData();
+  const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const file = new File([blob], `note_audio_${Date.now()}.${ext}`, { type: blob.type });
+  formData.append('file', file);
+  formData.append('workspace_id', workspaceId);
+
+  return apiClient<NoteTranscriptDTO>(
+    `/api/v1/learning/notes/item/${encodeURIComponent(noteId)}/transcribe`,
+    {
+      method: 'POST',
+      body: formData,
+    }
+  );
+}
+
+export async function getNoteTranscript(noteId: string): Promise<NoteTranscriptDTO> {
+  return apiClient<NoteTranscriptDTO>(
+    `/api/v1/learning/notes/item/${encodeURIComponent(noteId)}/transcript`
+  );
+}
+
 export function useNotes() {
   const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
   const activeMediaId = useAppStore((state) => state.activeMediaId);
@@ -109,6 +147,7 @@ export function useNotes() {
   }, []);
 
   const selectNote = useCallback(async (noteId: string) => {
+    setLoading(true);
     setError(null);
     try {
       const note = await apiClient<NoteDTO>(
@@ -117,172 +156,240 @@ export function useNotes() {
       setActiveNote(note);
       return note;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to load note.');
+      setError(cause instanceof Error ? cause.message : 'Failed to load selected note.');
       return null;
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const createNote = useCallback(async (folderId: string | null = null) => {
-    const workspaceId = workspaceRef.current;
-    if (!workspaceId) return null;
-    setError(null);
-    try {
-      const note = await apiClient<NoteDTO>(
-        `/api/v1/learning/notes/${encodeURIComponent(workspaceId)}/item`,
-        {
-          method: 'POST',
-          body: JSON.stringify({ title: 'Untitled Note', folder_id: folderId, content: '' }),
+  const createNote = useCallback(
+    async (folderId?: string | null, title = 'Untitled Note', content?: string) => {
+      const workspaceId = workspaceRef.current;
+      if (!workspaceId) return null;
+      try {
+        const note = await apiClient<NoteDTO>(
+          `/api/v1/learning/notes/${encodeURIComponent(workspaceId)}/item`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              title: title.trim() || 'Untitled Note',
+              folder_id: folderId || null,
+              content: content || null,
+            }),
+          }
+        );
+        setActiveNote(note);
+        setNotes((current) => [note, ...current]);
+        await refreshFolders();
+        notify('New note created');
+        return note;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to create note.');
+        return null;
+      }
+    },
+    [notify, refreshFolders]
+  );
+
+  const updateNote = useCallback(
+    async (changes: NoteChanges, noteId?: string) => {
+      const targetNoteId = noteId || activeNote?.id;
+      if (!targetNoteId) return null;
+      setSaving(true);
+      setError(null);
+      try {
+        const note = await apiClient<NoteDTO>(
+          `/api/v1/learning/notes/item/${encodeURIComponent(targetNoteId)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify(changes),
+          }
+        );
+        setActiveNote(note);
+        setNotes((current) => current.map((item) => (item.id === note.id ? note : item)));
+        await refreshFolders();
+        return note;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to save note changes.');
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [activeNote?.id, refreshFolders]
+  );
+
+  const deleteNote = useCallback(
+    async (noteId?: string) => {
+      const targetNoteId = noteId || activeNote?.id;
+      if (!targetNoteId) return false;
+      try {
+        await apiClient(`/api/v1/learning/notes/item/${encodeURIComponent(targetNoteId)}`, {
+          method: 'DELETE',
+        });
+        const remaining = await refreshNotes();
+        await refreshFolders();
+        if (activeNote?.id === targetNoteId) {
+          const next = remaining[0] || null;
+          setActiveNote(next);
+          if (next) {
+            await selectNote(next.id);
+          }
         }
-      );
-      setActiveNote(note);
-      setNotes((current) => [note, ...current]);
-      await refreshFolders();
-      notify('Note created');
-      return note;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to create note.');
-      return null;
-    }
-  }, [notify, refreshFolders]);
-
-  const updateNote = useCallback(async (noteId: string, changes: NoteChanges) => {
-    setSaving(true);
-    setError(null);
-    try {
-      const note = await apiClient<NoteDTO>(
-        `/api/v1/learning/notes/item/${encodeURIComponent(noteId)}`,
-        { method: 'PATCH', body: JSON.stringify(changes) }
-      );
-      setNotes((current) => current.map((item) => item.id === note.id ? note : item));
-      setActiveNote((current) => current?.id === note.id ? note : current);
-      if ('folder_id' in changes) await refreshFolders();
-      return note;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to save note.');
-      return null;
-    } finally {
-      setSaving(false);
-    }
-  }, [refreshFolders]);
-
-  const deleteNote = useCallback(async (noteId: string) => {
-    try {
-      await apiClient<void>(`/api/v1/learning/notes/item/${encodeURIComponent(noteId)}`, {
-        method: 'DELETE',
-      });
-      const remaining = await refreshNotes();
-      if (activeNote?.id === noteId) {
-        if (remaining[0]) await selectNote(remaining[0].id);
-        else setActiveNote(null);
+        notify('Note deleted');
+        return true;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to delete note.');
+        return false;
       }
-      await refreshFolders();
-      notify('Note deleted');
-      return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to delete note.');
-      return false;
-    }
-  }, [activeNote?.id, notify, refreshFolders, refreshNotes, selectNote]);
+    },
+    [activeNote?.id, notify, refreshFolders, refreshNotes, selectNote]
+  );
 
-  const createFolder = useCallback(async (name: string) => {
-    const workspaceId = workspaceRef.current;
-    if (!workspaceId) return null;
-    try {
-      const folder = await apiClient<NoteFolderDTO>(
-        `/api/v1/learning/folders/${encodeURIComponent(workspaceId)}`,
-        { method: 'POST', body: JSON.stringify({ name }) }
-      );
-      setFolders((current) => [...current, folder]);
-      notify('Folder created');
-      return folder;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to create folder.');
-      return null;
-    }
-  }, [notify]);
-
-  const renameFolder = useCallback(async (folderId: string, name: string) => {
-    try {
-      const folder = await apiClient<NoteFolderDTO>(
-        `/api/v1/learning/folders/${encodeURIComponent(folderId)}`,
-        { method: 'PATCH', body: JSON.stringify({ name }) }
-      );
-      setFolders((current) => current.map((item) => item.id === folder.id ? folder : item));
-      notify('Folder renamed');
-      return folder;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to rename folder.');
-      return null;
-    }
-  }, [notify]);
-
-  const deleteFolder = useCallback(async (folderId: string) => {
-    try {
-      await apiClient<void>(`/api/v1/learning/folders/${encodeURIComponent(folderId)}`, {
-        method: 'DELETE',
-      });
-      setFolders((current) => current.filter((folder) => folder.id !== folderId));
-      const remaining = await refreshNotes();
-      if (activeNote?.folder_id === folderId) {
-        if (remaining[0]) await selectNote(remaining[0].id);
-        else setActiveNote(null);
+  const createFolder = useCallback(
+    async (name: string) => {
+      const workspaceId = workspaceRef.current;
+      if (!workspaceId || !name.trim()) return null;
+      try {
+        const folder = await apiClient<NoteFolderDTO>(
+          `/api/v1/learning/folders/${encodeURIComponent(workspaceId)}`,
+          { method: 'POST', body: JSON.stringify({ name: name.trim() }) }
+        );
+        setFolders((current) => [...current, folder]);
+        notify(`Folder "${folder.name}" created`);
+        return folder;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to create folder.');
+        return null;
       }
-      notify('Folder and its notes deleted');
-      return true;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to delete folder.');
-      return false;
-    }
-  }, [activeNote?.folder_id, notify, refreshNotes, selectNote]);
+    },
+    [notify]
+  );
 
-  const attachAudio = useCallback(async (mediaId: string, noteId?: string) => {
-    const targetNoteId = noteId || activeNote?.id;
-    if (!targetNoteId) return null;
-    try {
-      const note = await apiClient<NoteDTO>(
-        `/api/v1/learning/notes/item/${encodeURIComponent(targetNoteId)}/attach-audio`,
-        { method: 'POST', body: JSON.stringify({ media_id: mediaId }) }
-      );
-      setActiveNote(note);
-      setNotes((current) => current.map((item) => item.id === note.id ? note : item));
-      notify('Recording attached');
-      return note;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to attach recording.');
-      return null;
-    }
-  }, [activeNote?.id, notify]);
-
-  const generateNotes = useCallback(async (customInstruction?: string, noteId?: string) => {
-    const targetNoteId = noteId || activeNote?.id;
-    if (!targetNoteId) return null;
-    setGenerating(true);
-    setError(null);
-    try {
-      const query = customInstruction
-        ? `?custom_instruction=${encodeURIComponent(customInstruction)}`
-        : '';
-      const note = await apiClient<NoteDTO>(
-        `/api/v1/learning/notes/item/${encodeURIComponent(targetNoteId)}/generate${query}`,
-        { method: 'POST' }
-      );
-      setActiveNote(note);
-      setNotes((current) => current.map((item) => item.id === note.id ? note : item));
-      await refreshFolders();
-      if (note.generation_method === 'heuristic') {
-        const reason = note.fallback_reason ? ` (${note.fallback_reason})` : '';
-        notify(`Notes generated via fallback engine${reason}`);
-      } else {
-        notify('AI notes generated and saved');
+  const renameFolder = useCallback(
+    async (folderId: string, name: string) => {
+      if (!name.trim()) return false;
+      try {
+        const folder = await apiClient<NoteFolderDTO>(
+          `/api/v1/learning/folders/${encodeURIComponent(folderId)}`,
+          { method: 'PATCH', body: JSON.stringify({ name: name.trim() }) }
+        );
+        setFolders((current) => current.map((item) => (item.id === folder.id ? folder : item)));
+        notify(`Folder renamed to "${folder.name}"`);
+        return true;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to rename folder.');
+        return false;
       }
-      return note;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Failed to generate study notes.');
-      return null;
-    } finally {
-      setGenerating(false);
-    }
-  }, [activeNote?.id, notify, refreshFolders]);
+    },
+    [notify]
+  );
+
+  const deleteFolder = useCallback(
+    async (folderId: string) => {
+      try {
+        await apiClient(`/api/v1/learning/folders/${encodeURIComponent(folderId)}`, {
+          method: 'DELETE',
+        });
+        await refreshFolders();
+        const remaining = await refreshNotes();
+        if (activeNote?.folder_id === folderId) {
+          const next = remaining[0] || null;
+          setActiveNote(next);
+          if (next) {
+            await selectNote(next.id);
+          }
+        }
+        notify('Folder and its notes deleted');
+        return true;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to delete folder.');
+        return false;
+      }
+    },
+    [activeNote?.folder_id, notify, refreshFolders, refreshNotes, selectNote]
+  );
+
+  const attachAudio = useCallback(
+    async (mediaId: string, noteId?: string) => {
+      const targetNoteId = noteId || activeNote?.id;
+      if (!targetNoteId) return null;
+      try {
+        const note = await apiClient<NoteDTO>(
+          `/api/v1/learning/notes/item/${encodeURIComponent(targetNoteId)}/attach-audio`,
+          { method: 'POST', body: JSON.stringify({ media_id: mediaId }) }
+        );
+        setActiveNote(note);
+        setNotes((current) => current.map((item) => (item.id === note.id ? note : item)));
+        notify('Recording attached');
+        return note;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to attach recording.');
+        return null;
+      }
+    },
+    [activeNote?.id, notify]
+  );
+
+  const transcribeAudioForNote = useCallback(
+    async (noteId: string, blob: Blob): Promise<NoteTranscriptDTO | null> => {
+      const workspaceId = workspaceRef.current || 'default';
+      try {
+        const result = await transcribeNoteAudio(noteId, blob, workspaceId);
+        if (result?.media_id) {
+          setActiveNote((current) =>
+            current && current.id === noteId ? { ...current, media_id: result.media_id } : current
+          );
+          setNotes((current) =>
+            current.map((item) =>
+              item.id === noteId ? { ...item, media_id: result.media_id } : item
+            )
+          );
+        }
+        notify('Audio transcribed');
+        return result;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to transcribe audio.');
+        return null;
+      }
+    },
+    [notify]
+  );
+
+  const generateNotes = useCallback(
+    async (customInstruction?: string, noteId?: string) => {
+      const targetNoteId = noteId || activeNote?.id;
+      if (!targetNoteId) return null;
+      setGenerating(true);
+      setError(null);
+      try {
+        const query = customInstruction
+          ? `?custom_instruction=${encodeURIComponent(customInstruction)}`
+          : '';
+        const note = await apiClient<NoteDTO>(
+          `/api/v1/learning/notes/item/${encodeURIComponent(targetNoteId)}/generate${query}`,
+          { method: 'POST' }
+        );
+        setActiveNote(note);
+        setNotes((current) => current.map((item) => (item.id === note.id ? note : item)));
+        await refreshFolders();
+        if (note.generation_method === 'heuristic') {
+          const reason = note.fallback_reason ? ` (${note.fallback_reason})` : '';
+          notify(`Notes generated via fallback engine${reason}`);
+        } else {
+          notify('AI notes generated and saved');
+        }
+        return note;
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Failed to generate study notes.');
+        return null;
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [activeNote?.id, notify, refreshFolders]
+  );
 
   const refreshArtifactStatus = useCallback(async () => {
     const workspaceId = workspaceRef.current;
@@ -304,26 +411,32 @@ export function useNotes() {
 
   useEffect(() => {
     let cancelled = false;
-    async function initialize() {
-      if (!workspaceRef.current) return;
+    async function loadWorkspaceNotes() {
+      if (!activeWorkspaceId) {
+        setFolders([]);
+        setNotes([]);
+        setActiveNote(null);
+        return;
+      }
       setLoading(true);
       setError(null);
       try {
         const [, existingNotes] = await Promise.all([refreshFolders(), refreshNotes()]);
-        if (!cancelled) {
+        if (!cancelled && existingNotes.length > 0 && !activeNote) {
           if (existingNotes[0]) await selectNote(existingNotes[0].id);
-          else setActiveNote(null);
         }
       } catch (cause) {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : 'Failed to initialize notes.');
+          setError(cause instanceof Error ? cause.message : 'Failed to load workspace notes.');
         }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
-    initialize();
-    return () => { cancelled = true; };
+    loadWorkspaceNotes();
+    return () => {
+      cancelled = true;
+    };
   }, [activeWorkspaceId, refreshFolders, refreshNotes, selectNote]);
 
   useEffect(() => {
@@ -331,25 +444,6 @@ export function useNotes() {
     const timer = window.setInterval(refreshArtifactStatus, 5000);
     return () => window.clearInterval(timer);
   }, [refreshArtifactStatus]);
-
-  const jumpToSource = useCallback((mediaId: string | null, seconds: number | null) => {
-    const targetMedia = mediaId || activeNote?.media_id || activeMediaId;
-    if (!targetMedia || seconds == null) return;
-    const { activeSourceType, activeDocumentId } = useAppStore.getState();
-    if (activeSourceType === 'pdf' || targetMedia === activeDocumentId) {
-      useAppStore.setState({
-        activeDocumentId: targetMedia,
-        targetPage: Math.max(1, Math.floor(seconds)),
-        activeView: 'view-video',
-      });
-    } else {
-      useAppStore.setState({
-        activeMediaId: targetMedia,
-        targetSeekSeconds: seconds,
-        activeView: 'view-video',
-      });
-    }
-  }, [activeMediaId, activeNote?.media_id]);
 
   return {
     folders,
@@ -370,11 +464,11 @@ export function useNotes() {
     renameFolder,
     deleteFolder,
     attachAudio,
+    transcribeAudioForNote,
     generateNotes,
     refreshNotes,
     refreshFolders,
     refreshArtifactStatus,
-    jumpToSource,
     setActiveView,
   };
 }

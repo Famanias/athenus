@@ -302,13 +302,14 @@ class NoteService:
             note = session.scalars(note_stmt).first() if hasattr(session, "scalars") else session.exec(note_stmt).first()
             if not note:
                 return None
-            media_stmt = select(MediaItemTable).where(
-                MediaItemTable.id == media_id,
-                MediaItemTable.workspace_id == note.workspace_id,
-            )
-            media = session.scalars(media_stmt).first() if hasattr(session, "scalars") else session.exec(media_stmt).first()
-            if not media:
-                raise ValueError("Audio media not found in note workspace")
+            if not media_id.startswith("note_audio_"):
+                media_stmt = select(MediaItemTable).where(
+                    MediaItemTable.id == media_id,
+                    MediaItemTable.workspace_id == note.workspace_id,
+                )
+                media = session.scalars(media_stmt).first() if hasattr(session, "scalars") else session.exec(media_stmt).first()
+                if not media:
+                    raise ValueError("Audio media not found in note workspace")
             note.media_id = media_id
             note.updated_at = datetime.utcnow()
             session.add(note)
@@ -700,10 +701,10 @@ class NoteService:
         note = self.get_note(note_id)
         if not note:
             raise ValueError("Note not found")
-        if not note.media_id:
-            raise ValueError("Attach transcribed audio before generating notes")
+        if not note.media_id and not (note.content and note.content.strip()):
+            raise ValueError("Add note content or record audio before generating notes")
 
-        target_key = note.media_id
+        target_key = note.media_id or note.id
 
         def update_job(stage: str, progress: int, message: str, status: str = "generating") -> None:
             try:
@@ -729,7 +730,19 @@ class NoteService:
             media_id=note.media_id,
         )
         update_job("collect_context", 20, "Collecting transcript chunks and concepts...")
-        chunks = load_chunks(note.media_id, note.workspace_id)
+        chunks = load_chunks(note.media_id, note.workspace_id) if note.media_id else []
+        if not chunks and note.content and note.content.strip():
+            chunks = [
+                {
+                    "id": f"chunk_manual_{note.id}",
+                    "media_id": note.media_id or f"manual_{note.id}",
+                    "workspace_id": note.workspace_id,
+                    "text": note.content.strip(),
+                    "start_time": None,
+                    "end_time": None,
+                    "chunk_index": 0,
+                }
+            ]
         if not chunks:
             self._upsert_note_record(
                 note.id,
@@ -739,8 +752,8 @@ class NoteService:
                 "failed",
                 media_id=note.media_id,
             )
-            update_job("failed", 0, "No transcript chunks available for note generation.", status="failed")
-            raise ValueError("No transcript chunks found for the attached audio")
+            update_job("failed", 0, "No content or transcript chunks available for note generation.", status="failed")
+            raise ValueError("No content or transcript chunks available for note generation")
 
         concepts = self._concept_dicts(note.workspace_id)
         update_job("llm_generation", 50, "Synthesizing comprehensive notes with AI model...")

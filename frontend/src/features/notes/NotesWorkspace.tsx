@@ -1,7 +1,7 @@
 'use client';
 
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { useNotes, type NoteDTO } from './useNotes';
+import { useNotes, type NoteDTO, getNoteTranscript } from './useNotes';
 import { useAudioRecorder } from './useAudioRecorder';
 import { NoteTopToolbar, NoteViewMode } from './NoteTopToolbar';
 import { NoteSummaryHeader } from './NoteSummaryHeader';
@@ -55,7 +55,6 @@ const NoteTreeItem: React.FC<{
 
 export const NotesWorkspace: React.FC = () => {
   const activeWorkspaceId = useAppStore((state) => state.activeWorkspaceId);
-  const activeMediaId = useAppStore((state) => state.activeMediaId);
 
   const {
     folders,
@@ -75,8 +74,8 @@ export const NotesWorkspace: React.FC = () => {
     renameFolder,
     deleteFolder,
     attachAudio,
+    transcribeAudioForNote,
     generateNotes,
-    jumpToSource,
   } = useNotes();
 
   const {
@@ -84,9 +83,12 @@ export const NotesWorkspace: React.FC = () => {
     recordingDuration,
     audioLevel,
     isUploading,
+    sourceMode,
+    error: audioError,
+    warning: audioWarning,
+    setSourceMode,
     startRecording,
     stopRecording,
-    uploadRecordedAudio,
   } = useAudioRecorder();
 
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
@@ -170,7 +172,7 @@ export const NotesWorkspace: React.FC = () => {
     const title = noteTitle.trim() || 'Untitled Note';
     if (title === activeNote.title && manualContent === content) return;
     const timer = window.setTimeout(() => {
-      updateNote(activeNote.id, { title, content: manualContent });
+      updateNote({ title, content: manualContent }, activeNote.id);
     }, 650);
     return () => window.clearTimeout(timer);
   }, [activeNote, manualContent, noteTitle, updateNote]);
@@ -178,14 +180,25 @@ export const NotesWorkspace: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     async function loadTranscript() {
-      if (!activeNote?.media_id) {
+      if (!activeNote) {
         setTranscriptSegments([]);
         return;
       }
       setLoadingTranscript(true);
       try {
-        const transcript = await getTranscript(activeNote.media_id, activeWorkspaceId || undefined);
-        if (!cancelled) setTranscriptSegments(transcript?.segments || []);
+        if (activeNote.id) {
+          const res = await getNoteTranscript(activeNote.id);
+          if (!cancelled && res?.segments?.length) {
+            setTranscriptSegments(res.segments);
+            return;
+          }
+        }
+        if (activeNote.media_id) {
+          const transcript = await getTranscript(activeNote.media_id, activeWorkspaceId || undefined);
+          if (!cancelled) setTranscriptSegments(transcript?.segments || []);
+        } else {
+          if (!cancelled) setTranscriptSegments([]);
+        }
       } catch {
         if (!cancelled) setTranscriptSegments([]);
       } finally {
@@ -194,25 +207,7 @@ export const NotesWorkspace: React.FC = () => {
     }
     loadTranscript();
     return () => { cancelled = true; };
-  }, [activeNote?.media_id, activeWorkspaceId]);
-
-  const pollTranscript = async (mediaId: string) => {
-    setLoadingTranscript(true);
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-      try {
-        const transcript = await getTranscript(mediaId, activeWorkspaceId || undefined);
-        if (transcript?.segments?.length) {
-          setTranscriptSegments(transcript.segments);
-          setLoadingTranscript(false);
-          return;
-        }
-      } catch {
-        // Transcription is still processing.
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 3000));
-    }
-    setLoadingTranscript(false);
-  };
+  }, [activeNote?.id, activeNote?.media_id, activeWorkspaceId]);
 
   const handleNewNote = async () => {
     await createNote(activeFolderId);
@@ -286,26 +281,22 @@ export const NotesWorkspace: React.FC = () => {
     }
 
     const blob = await stopRecording();
-    if (!blob || !activeWorkspaceId || !activeNote) return;
-    const upload = await uploadRecordedAudio(
-      blob,
-      activeWorkspaceId,
-      noteTitle || 'Live Audio Note'
-    );
-    if (!upload?.media_id) return;
-    await attachAudio(upload.media_id, activeNote.id);
-    useAppStore.setState({ activeMediaId: upload.media_id });
+    if (!blob || !activeNote) return;
+    setLoadingTranscript(true);
     setViewMode('transcript');
-    void pollTranscript(upload.media_id);
+    try {
+      const res = await transcribeAudioForNote(activeNote.id, blob);
+      if (res?.segments) {
+        setTranscriptSegments(res.segments);
+      }
+    } finally {
+      setLoadingTranscript(false);
+    }
   };
 
   const handleGenerateNotes = async () => {
     let target = activeNote;
     if (!target) target = await createNote(activeFolderId);
-    if (!target) return;
-    if (!target.media_id && activeMediaId) {
-      target = await attachAudio(activeMediaId, target.id);
-    }
     if (!target) return;
     const generated = await generateNotes(promptValue.trim() || undefined, target.id);
     if (generated) setViewMode('editor');
@@ -515,9 +506,16 @@ export const NotesWorkspace: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto custom-scrollbar pb-32">
           <div className="max-w-4xl mx-auto w-full px-6 md:px-12 py-6 space-y-6">
-            {error && (
-              <div role="alert" className="px-4 py-3 bg-error/10 border border-error/30 rounded-lg text-error text-xs">
-                {error}
+            {(error || audioError) && (
+              <div role="alert" className="px-4 py-3 bg-error/10 border border-error/30 rounded-lg text-error text-xs flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
+                <span>{error || audioError}</span>
+              </div>
+            )}
+            {audioWarning && (
+              <div role="status" aria-live="polite" className="px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 font-mono text-xs flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px] shrink-0 text-amber-400">warning</span>
+                <span>{audioWarning}</span>
               </div>
             )}
             {toastMessage && (
@@ -557,7 +555,6 @@ export const NotesWorkspace: React.FC = () => {
               <TranscriptView
                 segments={transcriptSegments}
                 loading={loadingTranscript}
-                onSeek={(seconds) => jumpToSource(activeNote.media_id, seconds)}
                 onStartRecording={handleToggleRecording}
               />
             ) : (
@@ -571,7 +568,7 @@ export const NotesWorkspace: React.FC = () => {
                         Detailed Sections ({activeNote.sections.length})
                       </h3>
                       {activeNote.sections.map((section, index) => (
-                        <NoteSectionCard key={section.id || index} section={section} index={index} onJumpToSource={jumpToSource} />
+                        <NoteSectionCard key={section.id || index} section={section} index={index} />
                       ))}
                     </div>
                   </div>
@@ -588,6 +585,8 @@ export const NotesWorkspace: React.FC = () => {
               recordingDuration={recordingDuration}
               audioLevel={audioLevel}
               isUploading={isUploading}
+              sourceMode={sourceMode}
+              onSourceModeChange={setSourceMode}
               onToggleRecording={handleToggleRecording}
               onGenerateNotes={handleGenerateNotes}
               generating={generating}

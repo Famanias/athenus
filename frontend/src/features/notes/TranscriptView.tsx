@@ -14,14 +14,12 @@ export interface TranscriptSegmentDTO {
 interface TranscriptViewProps {
   segments: TranscriptSegmentDTO[];
   loading?: boolean;
-  onSeek?: (seconds: number) => void;
   onStartRecording?: () => void;
 }
 
 export const TranscriptView: React.FC<TranscriptViewProps> = ({
   segments,
   loading = false,
-  onSeek,
   onStartRecording,
 }) => {
   if (loading) {
@@ -37,12 +35,12 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({
     return (
       <div className="py-20 px-6 text-center bg-surface-container-low border border-dashed border-outline-variant rounded-2xl flex flex-col items-center justify-center space-y-4 max-w-md mx-auto my-8">
         <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-          <span className="material-symbols-outlined text-2xl">mic</span>
+          <span className="material-symbols-outlined text-2xl">hearing</span>
         </div>
         <div>
           <h4 className="font-type-light text-base font-bold text-on-surface">No Transcript Available</h4>
           <p className="text-xs text-on-surface-variant mt-1 max-w-xs">
-            Start a live audio recording using the microphone button below or select a transcribed lecture from your workspace library.
+            Start a live audio recording (capturing your mic and computer audio) using the record button below.
           </p>
         </div>
         {onStartRecording && (
@@ -51,7 +49,7 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 text-xs font-semibold transition-all cursor-pointer"
           >
             <span className="material-symbols-outlined text-base">mic</span>
-            <span>Start Live Dictation</span>
+            <span>Start Audio Recording</span>
           </button>
         )}
       </div>
@@ -62,7 +60,7 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({
     <div className="space-y-3 p-1">
       <div className="flex items-center justify-between pb-2 border-b border-outline-variant/20 text-xs text-on-surface-variant font-mono">
         <span>{segments.length} Speech Utterances</span>
-        <span>Click timestamp to seek</span>
+        <span className="text-[11px] text-on-surface-variant/70">Note Audio Transcript</span>
       </div>
 
       <div className="space-y-2.5">
@@ -89,13 +87,13 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({
                     {seg.speaker || `Speaker Turn ${idx + 1}`}
                   </span>
 
+                  {/* Static Non-Clickable Timestamp Label */}
                   {hasTime && (
-                    <button
-                      onClick={() => onSeek?.(seg.start_time!)}
-                      className="text-[11px] font-mono text-primary bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded border border-primary/20 transition-colors cursor-pointer"
+                    <span
+                      className="text-[11px] font-mono text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded border border-outline-variant/40 select-none"
                     >
                       {timeLabel}
-                    </button>
+                    </span>
                   )}
                 </div>
 

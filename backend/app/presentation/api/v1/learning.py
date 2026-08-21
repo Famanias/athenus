@@ -1,7 +1,7 @@
 import io
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, File, UploadFile, Form
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
@@ -670,6 +670,136 @@ def delete_note_item(note_id: str):
     if not note_service.delete_note(note_id):
         raise HTTPException(status_code=404, detail="Note not found")
     return Response(status_code=204)
+
+
+class NoteTranscriptSegmentResponse(BaseModel):
+    start_time: float
+    end_time: float
+    text: str
+
+
+class NoteTranscriptResponse(BaseModel):
+    media_id: str
+    full_text: str
+    segments: List[NoteTranscriptSegmentResponse]
+
+
+@router.post("/learning/notes/item/{note_id}/transcribe", response_model=NoteTranscriptResponse)
+async def transcribe_note_audio(
+    note_id: str,
+    file: UploadFile = File(...),
+    workspace_id: str = Form("default"),
+):
+    note = note_service.get_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    import os
+    import uuid
+    from app.core.config import settings
+    from app.domain.ai.capabilities import SpeechToTextRequest
+    from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
+    from app.infrastructure.db.models import TranscriptChunkTable, TranscriptSegmentTable
+    from app.infrastructure.db.session import engine
+    from sqlmodel import Session
+    from sqlalchemy import text
+
+    filename = file.filename or "recording.webm"
+    notes_upload_dir = os.path.join(settings.UPLOADS_DIR, "notes")
+    os.makedirs(notes_upload_dir, exist_ok=True)
+    temp_path = os.path.join(notes_upload_dir, f"note_{note_id}_{uuid.uuid4().hex[:6]}_{filename}")
+
+    with open(temp_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    try:
+        adapter = FasterWhisperSTTAdapter()
+        stt_resp = await adapter.transcribe(SpeechToTextRequest(audio_file_path=temp_path))
+    except Exception as exc:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+
+    # Persist transcript_segments and transcript_chunks linked to note_audio_{note_id}
+    # (Isolated from media_items so it never appears in the workspace library)
+    media_id = f"note_audio_{note_id}"
+    segments_resp = []
+    with Session(engine) as session:
+        session.execute(text("DELETE FROM transcript_segments WHERE media_id = :mid"), {"mid": media_id})
+        session.execute(text("DELETE FROM transcript_chunks WHERE media_id = :mid"), {"mid": media_id})
+
+        for idx, seg in enumerate(stt_resp.segments):
+            seg_row = TranscriptSegmentTable(
+                media_id=media_id,
+                start_time=seg.start_time,
+                end_time=seg.end_time,
+                text=seg.text,
+            )
+            session.add(seg_row)
+
+            chunk_row = TranscriptChunkTable(
+                id=f"chunk_{media_id}_{idx}",
+                media_id=media_id,
+                workspace_id=workspace_id,
+                text=seg.text,
+                start_time=seg.start_time,
+                end_time=seg.end_time,
+                chunk_index=idx,
+                word_count=len(seg.text.split()),
+            )
+            session.add(chunk_row)
+            segments_resp.append(
+                NoteTranscriptSegmentResponse(
+                    start_time=seg.start_time,
+                    end_time=seg.end_time,
+                    text=seg.text,
+                )
+            )
+        session.commit()
+
+    note_service.attach_audio(note_id, media_id)
+
+    return NoteTranscriptResponse(
+        media_id=media_id,
+        full_text=stt_resp.text,
+        segments=segments_resp,
+    )
+
+
+@router.get("/learning/notes/item/{note_id}/transcript", response_model=NoteTranscriptResponse)
+def get_note_transcript(note_id: str):
+    note = note_service.get_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if not note.media_id:
+        return NoteTranscriptResponse(media_id="", full_text="", segments=[])
+
+    from app.infrastructure.db.models import TranscriptSegmentTable
+    from app.infrastructure.db.session import engine
+    from sqlmodel import Session, select
+
+    with Session(engine) as session:
+        stmt = (
+            select(TranscriptSegmentTable)
+            .where(TranscriptSegmentTable.media_id == note.media_id)
+            .order_by(TranscriptSegmentTable.start_time)
+        )
+        records = session.scalars(stmt).all() if hasattr(session, "scalars") else session.exec(stmt).all()
+        segments = [
+            NoteTranscriptSegmentResponse(
+                start_time=r.start_time,
+                end_time=r.end_time,
+                text=r.text,
+            )
+            for r in records
+        ]
+        full_text = " ".join(s.text for s in segments)
+        return NoteTranscriptResponse(
+            media_id=note.media_id,
+            full_text=full_text,
+            segments=segments,
+        )
 
 
 @router.post("/learning/notes/item/{note_id}/attach-audio", response_model=NoteResponse)
