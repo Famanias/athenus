@@ -215,6 +215,13 @@ export const NotesWorkspace: React.FC = () => {
     setViewMode('editor');
   };
 
+  const handleNewNoteInFolder = async (folderId: string) => {
+    setActiveFolderId(folderId);
+    setExpandedFolders((current) => new Set(current).add(folderId));
+    await createNote(folderId);
+    setViewMode('editor');
+  };
+
   const handleSelectNote = async (note: NoteDTO) => {
     setActiveFolderId(note.folder_id);
     await selectNote(note.id);
@@ -317,18 +324,9 @@ export const NotesWorkspace: React.FC = () => {
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
-      <aside className="hidden md:flex w-64 border-r border-outline-variant/30 bg-surface-container-lowest/70 flex-col shrink-0 select-none">
+      <aside className="hidden md:flex w-sidebar-width border-r border-outline-variant/30 bg-surface-container-lowest/70 flex-col shrink-0 select-none">
         <div className="p-3 border-b border-outline-variant/20 space-y-2">
-          <button
-            type="button"
-            onClick={handleNewNote}
-            className="w-full min-h-11 flex items-center gap-2 px-3 rounded-lg bg-secondary text-on-secondary hover:brightness-110 text-xs font-semibold transition-all border border-secondary shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary/70"
-          >
-            <span className="material-symbols-outlined text-[17px] text-on-secondary" aria-hidden="true">edit_square</span>
-            <span>New note</span>
-            <span className="ml-auto text-[10px] text-on-surface-variant">in selected folder</span>
-          </button>
-          <div className="flex items-center justify-between px-1 pt-2">
+          <div className="flex items-center justify-between px-1 pt-1">
             <span className="text-[11px] font-mono uppercase tracking-wider text-on-surface-variant">Folders</span>
             <button
               type="button"
@@ -423,6 +421,15 @@ export const NotesWorkspace: React.FC = () => {
                           <span className="ml-auto font-mono text-[10px] group-hover/folder:hidden">{folder.note_count}</span>
                         </button>
                         <div className="hidden group-hover/folder:flex group-focus-within/folder:flex items-center pr-1">
+                          <button
+                            type="button"
+                            onClick={() => handleNewNoteInFolder(folder.id)}
+                            aria-label={`Add note to ${folder.name}`}
+                            title="Add note to folder"
+                            className="w-9 h-9 rounded text-on-surface-variant hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+                          >
+                            <span className="material-symbols-outlined text-[16px]" aria-hidden="true">add</span>
+                          </button>
                           <button
                             type="button"
                             onClick={() => { setEditingFolderId(folder.id); setEditingFolderName(folder.name); }}
