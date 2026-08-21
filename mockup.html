@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Athenus — Knowledge OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        /* ==========================================================================
+     Design Tokens
+     ========================================================================== */
+        :root {
+            /* Colors — surfaces */
+            --color-bg-app: #051424;
+            --color-bg-sidenav: #051424;
+            --color-bg-aside: #010f1f;
+            --color-bg-surface: #122131;
+            /* breadcrumb pill, active note bg, view-toggle track */
+            --color-bg-surface-alt: #1c2b3c;
+            /* search input, active-folder bg, new-project btn */
+            --color-bg-active-link: #0d1c2d;
+            /* active side-nav link */
+            --color-bg-generate-btn: #273647;
+
+            /* Colors — borders */
+            --color-border: #45464c;
+            --color-border-accent: rgba(233, 195, 73, 0.3);
+
+            /* Colors — accent */
+            --color-accent: #e9c349;
+            --color-accent-ink: #3c2f00;
+            --color-accent-bg: rgba(233, 195, 73, 0.05);
+
+            /* Colors — text */
+            --color-text-heading: #d4e4fa;
+            --color-text-body: #c6c6cc;
+            --color-text-muted: #6b7280;
+            --color-text-placeholder: rgba(198, 198, 204, 0.5);
+
+            /* Typography */
+            --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+            --fs-2xs: 10px;
+            --fs-xs: 11px;
+            --fs-sm: 13px;
+            --fs-sm2: 14px;
+            --fs-base: 16px;
+            --fs-md: 18px;
+            --fs-lg: 20px;
+            --fs-xl: 24px;
+
+            /* Spacing scale */
+            --space-1: 4px;
+            --space-2: 8px;
+            --space-3: 12px;
+            --space-4: 16px;
+            --space-5: 24px;
+            --space-6: 32px;
+
+            /* Radii */
+            --radius-xs: 2px;
+            --radius-sm: 4px;
+            --radius-md: 12px;
+
+            /* Layout */
+            --sidenav-width: 260px;
+            --notesnav-width: 242px;
+            --topnav-height: 64px;
+        }
+
+        /* ==========================================================================
+     Reset
+     ========================================================================== */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            font-family: var(--font-display);
+            background: var(--color-bg-app);
+            color: var(--color-text-body);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        ul,
+        ol {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        button {
+            font: inherit;
+            color: inherit;
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+
+        input {
+            font: inherit;
+            color: inherit;
+            background: none;
+            border: none;
+            outline: none;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        p {
+            margin: 0;
+        }
+
+        img,
+        svg {
+            display: block;
+        }
+
+        :focus-visible {
+            outline: 2px solid var(--color-accent);
+            outline-offset: 2px;
+        }
+
+        .icon {
+            flex-shrink: 0;
+        }
+
+        /* ==========================================================================
+     App shell
+     ========================================================================== */
+        .app {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ==========================================================================
+     Sidenav — App-level BEM block: "sidenav"
+     ========================================================================== */
+        .sidenav {
+            width: var(--sidenav-width);
+            flex-shrink: 0;
+            background: var(--color-bg-sidenav);
+            border-right: 1px solid var(--color-border);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: var(--space-4) 1px var(--space-4) 0;
+            height: 100%;
+        }
+
+        .sidenav__brand {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: 0 var(--space-5) var(--space-6);
+        }
+
+        .sidenav__logo {
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+            border-radius: var(--radius-xs);
+            background: var(--color-accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: var(--fs-md);
+            line-height: 28px;
+            color: var(--color-accent-ink);
+        }
+
+        .sidenav__brand-name {
+            margin: 0;
+            font-weight: 700;
+            font-size: var(--fs-md);
+            line-height: 27px;
+            color: var(--color-text-heading);
+        }
+
+        .sidenav__brand-tag {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: var(--fs-xs);
+            line-height: 11px;
+            color: var(--color-text-body);
+        }
+
+        .sidenav__new-project {
+            margin: 0 var(--space-5) var(--space-5);
+        }
+
+        .btn-new-project {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-2);
+            padding: 9px 1px;
+            background: var(--color-bg-surface-alt);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-xs);
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-heading);
+        }
+
+        .btn-new-project:hover {
+            background: #223447;
+        }
+
+        .sidenav__nav {
+            flex: 1 1 0;
+            min-height: 0;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+            padding: 0 var(--space-2);
+        }
+
+        .sidenav__link {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            width: 100%;
+            padding: var(--space-2) var(--space-4);
+            border-radius: var(--radius-xs);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-body);
+            text-align: left;
+        }
+
+        .sidenav__link:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .sidenav__link--active {
+            background: var(--color-bg-active-link);
+            border-left: 2px solid var(--color-accent);
+            padding-left: 14px;
+            color: var(--color-accent);
+            font-weight: 500;
+        }
+
+        .sidenav__footer {
+            border-top: 1px solid var(--color-border);
+            padding-top: 17px;
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+            padding-left: var(--space-2);
+            padding-right: var(--space-2);
+        }
+
+        .sidenav__account {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-4);
+        }
+
+        .sidenav__avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 12px;
+            border: 1px solid var(--color-border);
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+
+        .sidenav__account-name {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-heading);
+        }
+
+        .sidenav__account-email {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-body);
+        }
+
+        /* ==========================================================================
+     Main column
+     ========================================================================== */
+        .main {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* ==========================================================================
+     Top nav bar
+     ========================================================================== */
+        .topnav {
+            height: var(--topnav-height);
+            flex-shrink: 0;
+            background: var(--color-bg-app);
+            border-bottom: 1px solid var(--color-border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--space-5);
+            gap: var(--space-4);
+        }
+
+        .topnav__left {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            min-width: 0;
+        }
+
+        .hamburger {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: var(--radius-xs);
+            border: 1px solid var(--color-border);
+            background: var(--color-bg-surface);
+            flex-shrink: 0;
+        }
+
+        .hamburger:hover {
+            background: var(--color-bg-surface-alt);
+        }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: 7px 13px;
+            background: var(--color-bg-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            min-width: 0;
+        }
+
+        .breadcrumb__label {
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-body);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .topnav__right {
+            display: flex;
+            align-items: center;
+            gap: var(--space-4);
+            flex-shrink: 0;
+        }
+
+        .search {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .search__icon {
+            position: absolute;
+            left: 12px;
+            color: var(--color-text-muted);
+        }
+
+        .search__input {
+            width: 256px;
+            padding: 8px 17px 8px 41px;
+            background: var(--color-bg-surface-alt);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            font-size: var(--fs-sm2);
+        }
+
+        .search__input::placeholder {
+            color: var(--color-text-muted);
+        }
+
+        .topnav__icon-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--color-text-body);
+        }
+
+        .topnav__icon-btn:hover {
+            color: var(--color-text-heading);
+        }
+
+        /* ==========================================================================
+     Body split: notes nav + editor
+     ========================================================================== */
+        .main__body {
+            flex: 1 1 0;
+            min-height: 0;
+            display: flex;
+            position: relative;
+        }
+
+        /* ==========================================================================
+     Notes navigator (aside)
+     ========================================================================== */
+        .notesnav {
+            width: var(--notesnav-width);
+            flex-shrink: 0;
+            background: var(--color-bg-aside);
+            border-right: 1px solid var(--color-border);
+            padding: var(--space-2) 1px var(--space-2) var(--space-2);
+            overflow-y: auto;
+        }
+
+        .notesnav__group {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+            width: 100%;
+        }
+
+        .notesnav__new-note {
+            padding: var(--space-1) var(--space-2);
+            text-align: left;
+            width: 100%;
+        }
+
+        .notesnav__new-note-label {
+            font-family: var(--font-mono);
+            font-size: var(--fs-2xs);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            line-height: 15px;
+            color: var(--color-text-body);
+        }
+
+        .notesnav__list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+            padding-left: var(--space-4);
+            width: 100%;
+        }
+
+        .notesnav__folder {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 6px var(--space-2);
+            border-radius: var(--radius-xs);
+            text-align: left;
+        }
+
+        .notesnav__folder:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .notesnav__folder-main {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            min-width: 0;
+        }
+
+        .notesnav__folder-name {
+            font-size: var(--fs-sm2);
+            line-height: 20px;
+            color: var(--color-text-body);
+            white-space: nowrap;
+        }
+
+        .notesnav__folder-count {
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-body);
+            flex-shrink: 0;
+        }
+
+        .notesnav__folder--active {
+            flex-direction: column;
+            align-items: stretch;
+            gap: var(--space-1);
+            padding: 0;
+        }
+
+        .notesnav__folder--active .notesnav__folder-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding: 6px var(--space-2);
+            border-radius: var(--radius-xs);
+            background: var(--color-bg-surface-alt);
+        }
+
+        .notesnav__folder--active .notesnav__folder-name {
+            font-weight: 500;
+            color: var(--color-text-heading);
+        }
+
+        .notesnav__notes {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-1);
+            padding-left: var(--space-6);
+            width: 100%;
+        }
+
+        .notesnav__note {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            width: 100%;
+            padding: 4px var(--space-2);
+            border-radius: var(--radius-xs);
+            min-width: 0;
+            text-align: left;
+        }
+
+        .notesnav__note:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .notesnav__note-title {
+            font-size: var(--fs-sm);
+            line-height: 19.5px;
+            color: var(--color-text-body);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .notesnav__note--active {
+            background: var(--color-bg-surface);
+            border: 1px solid var(--color-border);
+            padding: 5px 9px;
+        }
+
+        .notesnav__note--active .notesnav__note-title {
+            color: var(--color-accent);
+        }
+
+        /* ==========================================================================
+     Editor
+     ========================================================================== */
+        .editor {
+            flex: 1 1 0;
+            min-width: 0;
+            position: relative;
+            background: var(--color-bg-app);
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .editor__header {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: var(--color-bg-app);
+            padding: 23px var(--space-6) var(--space-5);
+        }
+
+        .editor__header-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: var(--space-4);
+        }
+
+        .editor__title {
+            margin: 0;
+            font-weight: 600;
+            font-size: var(--fs-xl);
+            letter-spacing: -0.64px;
+            line-height: 38.4px;
+            color: var(--color-text-heading);
+        }
+
+        .view-toggle {
+            display: flex;
+            align-items: flex-start;
+            padding: 3px;
+            background: var(--color-bg-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-sm);
+            flex-shrink: 0;
+        }
+
+        .view-toggle__btn {
+            display: flex;
+            align-items: center;
+            gap: var(--space-1);
+            padding: 4.5px 12px 5.5px;
+            border-radius: var(--radius-xs);
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-text-body);
+        }
+
+        .view-toggle__btn--active {
+            background: var(--color-bg-surface-alt);
+            border: 1px solid var(--color-border);
+            color: var(--color-text-heading);
+            box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+        }
+
+        .editor__content {
+            max-width: 900px;
+            width: 100%;
+            padding: var(--space-6);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-5);
+        }
+
+        .editor__section-heading {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            font-weight: 700;
+            font-size: var(--fs-lg);
+            line-height: 28px;
+            color: var(--color-text-heading);
+        }
+
+        .editor__section-heading .icon {
+            color: var(--color-text-body);
+        }
+
+        .editor__lead {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-2);
+            padding-left: var(--space-5);
+            font-size: var(--fs-md);
+            line-height: 29.25px;
+            color: var(--color-text-body);
+        }
+
+        .editor__lead p {
+            margin: 0;
+        }
+
+        .editor__block {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-4);
+            width: 100%;
+        }
+
+        .editor__subsection {
+            display: flex;
+            flex-direction: column;
+            gap: 7.75px;
+            width: 100%;
+        }
+
+        .editor__subheading {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            font-weight: 500;
+            font-size: var(--fs-md);
+            line-height: 29.25px;
+            color: var(--color-text-heading);
+        }
+
+        .editor__dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 12px;
+            background: var(--color-accent);
+            flex-shrink: 0;
+        }
+
+        .editor__definitions {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-2) 0;
+            padding-left: var(--space-6);
+        }
+
+        .editor__definitions li {
+            font-size: var(--fs-base);
+            line-height: 26px;
+        }
+
+        .editor__definitions dfn {
+            font-style: normal;
+            color: var(--color-text-heading);
+        }
+
+        .editor__definitions span {
+            color: var(--color-text-body);
+        }
+
+        .editor__paragraph {
+            padding-left: var(--space-6);
+            font-size: var(--fs-base);
+            line-height: 26px;
+            color: var(--color-text-body);
+        }
+
+        .callout {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-3);
+            width: 100%;
+            padding: 17px;
+            background: var(--color-accent-bg);
+            border: 1px solid var(--color-border-accent);
+            border-radius: var(--radius-sm);
+        }
+
+        .callout__icon {
+            color: var(--color-accent);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        .callout__title {
+            margin: 0;
+            font-weight: 500;
+            font-size: var(--fs-md);
+            line-height: 29.25px;
+            color: var(--color-accent);
+        }
+
+        .callout__body {
+            margin: 0;
+            font-size: var(--fs-sm2);
+            line-height: 20px;
+            color: var(--color-text-body);
+        }
+
+        /* ==========================================================================
+     AI floating action bar
+     ========================================================================== */
+        .ai-bar-wrap {
+            position: sticky;
+            bottom: 0;
+            display: flex;
+            justify-content: center;
+            padding: 0 var(--space-6) var(--space-5);
+            pointer-events: none;
+        }
+
+        .ai-bar {
+            pointer-events: auto;
+            width: 100%;
+            max-width: 714px;
+            display: flex;
+            align-items: center;
+            padding: 7px;
+            background: var(--color-bg-surface);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.35), 0 4px 6px -4px rgba(0, 0, 0, 0.35);
+        }
+
+        .ai-bar__mic {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            border-radius: var(--radius-md);
+            color: var(--color-text-body);
+            flex-shrink: 0;
+        }
+
+        .ai-bar__mic:hover {
+            color: var(--color-text-heading);
+        }
+
+        .ai-bar__input {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 9px var(--space-4);
+            font-size: var(--fs-sm2);
+        }
+
+        .ai-bar__input::placeholder {
+            color: var(--color-text-placeholder);
+        }
+
+        .ai-bar__generate {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: 7px 17px;
+            background: var(--color-bg-generate-btn);
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius-md);
+            font-family: var(--font-mono);
+            font-size: var(--fs-base);
+            line-height: 24px;
+            color: var(--color-accent);
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .ai-bar__generate:hover {
+            background: #2f4155;
+        }
+
+        /* ==========================================================================
+     Overlay (mobile drawer backdrop)
+     ========================================================================== */
+        .overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(1, 6, 12, 0.6);
+            z-index: 40;
+        }
+
+        .overlay--visible {
+            display: block;
+        }
+
+        /* ==========================================================================
+     Tablet — <=1024px: SideNavBar + Notes navigator become off-canvas drawers
+     ========================================================================== */
+        @media (max-width: 1024px) {
+            .hamburger {
+                display: flex;
+            }
+
+            .sidenav {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                z-index: 50;
+                transform: translateX(-100%);
+                transition: transform 0.28s ease;
+                box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4);
+            }
+
+            .sidenav[data-open="true"] {
+                transform: translateX(0);
+            }
+
+            .notesnav {
+                position: fixed;
+                top: var(--topnav-height);
+                left: 0;
+                bottom: 0;
+                z-index: 45;
+                width: 280px;
+                max-width: 82vw;
+                transform: translateX(-100%);
+                transition: transform 0.28s ease;
+                box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4);
+            }
+
+            .notesnav[data-open="true"] {
+                transform: translateX(0);
+            }
+
+            .search__input {
+                width: 200px;
+            }
+        }
+
+        /* ==========================================================================
+     Mobile — <=768px
+     ========================================================================== */
+        @media (max-width: 768px) {
+            .topnav {
+                padding: 0 var(--space-4);
+                gap: var(--space-2);
+            }
+
+            .breadcrumb__label {
+                max-width: 40vw;
+            }
+
+            .search__input {
+                width: 140px;
+                font-size: var(--fs-sm);
+            }
+
+            .search__input {
+                padding-right: 10px;
+            }
+
+            .editor__header {
+                padding: 16px var(--space-4) var(--space-4);
+            }
+
+            .editor__header-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: var(--space-3);
+            }
+
+            .editor__title {
+                font-size: 20px;
+                line-height: 30px;
+            }
+
+            .editor__content {
+                padding: var(--space-4);
+                gap: var(--space-4);
+            }
+
+            .editor__lead,
+            .editor__paragraph,
+            .editor__definitions {
+                padding-left: var(--space-4);
+            }
+
+            .ai-bar-wrap {
+                padding: 0 var(--space-3) var(--space-3);
+            }
+
+            .ai-bar__generate span.label {
+                display: none;
+            }
+
+            .notesnav {
+                width: 260px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app">
+
+        <!-- ==========================================================================
+       Primary navigation (SideNavBar)
+       ========================================================================== -->
+        <aside class="sidenav" id="sidenav" data-open="false" aria-label="Primary navigation">
+            <div>
+                <div class="sidenav__brand">
+                    <div class="sidenav__logo" aria-hidden="true">A</div>
+                    <div>
+                        <p class="sidenav__brand-name">Athenus</p>
+                        <p class="sidenav__brand-tag">Knowledge OS</p>
+                    </div>
+                </div>
+
+                <div class="sidenav__new-project">
+                    <button class="btn-new-project" type="button">
+                        <svg class="icon" width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                        </svg>
+                        New Project
+                    </button>
+                </div>
+            </div>
+
+            <nav class="sidenav__nav" aria-label="Sections">
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="14" height="15" viewBox="0 0 14 15" fill="none" aria-hidden="true">
+                        <path d="M1 6.5 7 1l6 5.5V14a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6.5Z" stroke="currentColor"
+                            stroke-width="1.3" stroke-linejoin="round" />
+                    </svg>
+                    Home
+                </a>
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3" />
+                        <rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3" />
+                        <rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3" />
+                        <rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.3" />
+                    </svg>
+                    Workspace
+                </a>
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="13" height="17" viewBox="0 0 13 17" fill="none" aria-hidden="true">
+                        <path d="M1 1h7l4 4v10a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1Z" stroke="currentColor"
+                            stroke-width="1.2" stroke-linejoin="round" />
+                        <path d="M4 9h5M4 12h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    Transcript
+                </a>
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+                        <path d="M1 2h15v9H6l-4 4v-4H1V2Z" stroke="currentColor" stroke-width="1.2"
+                            stroke-linejoin="round" />
+                    </svg>
+                    Chat
+                </a>
+                <a class="sidenav__link sidenav__link--active" href="#" aria-current="page">
+                    <svg class="icon" width="15" height="13" viewBox="0 0 15 13" fill="none" aria-hidden="true">
+                        <path d="M1 1h6l1.5 1.5H14v9a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V1Z" stroke="currentColor"
+                            stroke-width="1.2" stroke-linejoin="round" />
+                        <path d="M9.5 6 12 8.5 9.5 11" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                    Notes
+                </a>
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+                        <path d="M1 1h15v4H1V1Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+                        <path d="M2 5v10a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V5" stroke="currentColor" stroke-width="1.2" />
+                        <path d="M6.5 8.5h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    Library
+                </a>
+            </nav>
+
+            <div class="sidenav__footer">
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+                        <circle cx="8.5" cy="8.5" r="2.6" stroke="currentColor" stroke-width="1.2" />
+                        <path
+                            d="M8.5 1v2M8.5 14v2M1 8.5h2M14 8.5h2M3.2 3.2l1.4 1.4M12 12l1.4 1.4M3.2 13.8l1.4-1.4M12 5l1.4-1.4"
+                            stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                    </svg>
+                    Settings
+                </a>
+                <a class="sidenav__link" href="#">
+                    <svg class="icon" width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+                        <circle cx="8.5" cy="8.5" r="7.5" stroke="currentColor" stroke-width="1.2" />
+                        <path d="M6.4 6.4a2.1 2.1 0 1 1 3 1.9c-.8.4-1.4 1-1.4 2v.4" stroke="currentColor"
+                            stroke-width="1.2" stroke-linecap="round" />
+                        <circle cx="8.5" cy="12.4" r="0.7" fill="currentColor" />
+                    </svg>
+                    Support
+                </a>
+                <div class="sidenav__account">
+                    <img class="sidenav__avatar" src="https://i.pravatar.cc/64?img=13"
+                        alt="Profile photo for the current user account">
+                    <div>
+                        <p class="sidenav__account-name">User Account</p>
+                        <p class="sidenav__account-email">user@athenus.io</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="overlay" id="overlay"></div>
+
+        <!-- ==========================================================================
+       Main column
+       ========================================================================== -->
+        <div class="main">
+            <header class="topnav">
+                <div class="topnav__left">
+                    <button class="hamburger" id="hamburgerBtn" type="button" aria-expanded="false"
+                        aria-controls="sidenav" aria-label="Toggle primary navigation">
+                        <svg width="18" height="14" viewBox="0 0 18 14" fill="none" aria-hidden="true">
+                            <path d="M1 1h16M1 7h16M1 13h16" stroke="currentColor" stroke-width="1.6"
+                                stroke-linecap="round" />
+                        </svg>
+                    </button>
+                    <button class="breadcrumb" type="button">
+                        <svg class="icon" width="14" height="11" viewBox="0 0 15 11" fill="none" aria-hidden="true">
+                            <path d="M1 2h4l1.5 1.5H14v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2Z" stroke="currentColor"
+                                stroke-width="1.2" stroke-linejoin="round" />
+                        </svg>
+                        <span class="breadcrumb__label">Machine Learning &amp; Deep Learning</span>
+                        <svg class="icon" width="8" height="5" viewBox="0 0 8 5" fill="none" aria-hidden="true">
+                            <path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="topnav__right">
+                    <div class="search">
+                        <svg class="icon search__icon" width="14" height="14" viewBox="0 0 14 14" fill="none"
+                            aria-hidden="true">
+                            <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.3" />
+                            <path d="M13 13l-3.5-3.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                        </svg>
+                        <input class="search__input" type="search" placeholder="Search knowledge base...">
+                    </div>
+                    <button class="topnav__icon-btn" type="button" aria-label="Notifications">
+                        <svg width="16" height="20" viewBox="0 0 16 20" fill="none" aria-hidden="true">
+                            <path
+                                d="M8 1a5 5 0 0 0-5 5v3.5c0 1-.4 2-1 2.8L1 13.5h14l-1-1.2c-.6-.8-1-1.8-1-2.8V6a5 5 0 0 0-5-5Z"
+                                stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+                            <path d="M6 17a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.2" />
+                        </svg>
+                    </button>
+                    <button class="topnav__icon-btn" type="button" aria-label="Sync status">
+                        <svg width="22" height="16" viewBox="0 0 22 16" fill="none" aria-hidden="true">
+                            <path d="M6 14a4.5 4.5 0 0 1-.5-9 5.5 5.5 0 0 1 10.6-1.8A4 4 0 0 1 16 14H6Z"
+                                stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                </div>
+            </header>
+
+            <div class="main__body">
+
+                <!-- ====================================================================
+           Notes navigator
+           ==================================================================== -->
+                <aside class="notesnav" id="notesnav" data-open="false" aria-label="Notes navigator">
+                    <div class="notesnav__group">
+                        <button class="notesnav__new-note" type="button">
+                            <span class="notesnav__new-note-label">+ new Note</span>
+                        </button>
+
+                        <ul class="notesnav__list">
+                            <li>
+                                <button class="notesnav__folder" type="button">
+                                    <span class="notesnav__folder-main">
+                                        <svg class="icon" width="13" height="11" viewBox="0 0 14 11" fill="none"
+                                            aria-hidden="true">
+                                            <path d="M1 1h4l1.4 1.4H13v7.6a1 1 0 0 1-1 1H1V1Z" stroke="currentColor"
+                                                stroke-width="1.1" stroke-linejoin="round" />
+                                        </svg>
+                                        <span class="notesnav__folder-name">Personal</span>
+                                    </span>
+                                    <span class="notesnav__folder-count">5</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button class="notesnav__folder" type="button">
+                                    <span class="notesnav__folder-main">
+                                        <svg class="icon" width="13" height="11" viewBox="0 0 14 11" fill="none"
+                                            aria-hidden="true">
+                                            <path d="M1 1h4l1.4 1.4H13v7.6a1 1 0 0 1-1 1H1V1Z" stroke="currentColor"
+                                                stroke-width="1.1" stroke-linejoin="round" />
+                                        </svg>
+                                        <span class="notesnav__folder-name">Meetings</span>
+                                    </span>
+                                    <span class="notesnav__folder-count">1</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button class="notesnav__folder" type="button">
+                                    <span class="notesnav__folder-main">
+                                        <svg class="icon" width="13" height="11" viewBox="0 0 14 11" fill="none"
+                                            aria-hidden="true">
+                                            <path d="M1 1h4l1.4 1.4H13v7.6a1 1 0 0 1-1 1H1V1Z" stroke="currentColor"
+                                                stroke-width="1.1" stroke-linejoin="round" />
+                                        </svg>
+                                        <span class="notesnav__folder-name">Videos</span>
+                                    </span>
+                                </button>
+                            </li>
+
+                            <li class="notesnav__folder notesnav__folder--active">
+                                <button class="notesnav__folder-row" type="button" aria-expanded="true">
+                                    <span class="notesnav__folder-main">
+                                        <svg class="icon" width="8" height="5" viewBox="0 0 8 5" fill="none"
+                                            aria-hidden="true">
+                                            <path d="M1 1l3 3 3-3" stroke="currentColor" stroke-width="1.3"
+                                                stroke-linecap="round" stroke-linejoin="round" />
+                                        </svg>
+                                        <svg class="icon" width="14" height="11" viewBox="0 0 14 11" fill="none"
+                                            aria-hidden="true">
+                                            <path
+                                                d="M1 2.5 2.6 1H6l1.4 1.5H13a1 1 0 0 1 1 1.2l-1.1 5.8a1 1 0 0 1-1 .8H2a1 1 0 0 1-1-1V2.5Z"
+                                                stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" />
+                                        </svg>
+                                        <span class="notesnav__folder-name">Learning</span>
+                                    </span>
+                                    <span class="notesnav__folder-count">4</span>
+                                </button>
+
+                                <ul class="notesnav__notes">
+                                    <li>
+                                        <button class="notesnav__note" type="button">
+                                            <svg class="icon" width="11" height="11" viewBox="0 0 11 11" fill="none"
+                                                aria-hidden="true">
+                                                <path d="M1 1h6l3 3v6H1V1Z" stroke="currentColor" stroke-width="1"
+                                                    stroke-linejoin="round" />
+                                            </svg>
+                                            <span class="notesnav__note-title">AI Periodic Table Foundations</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button class="notesnav__note notesnav__note--active" type="button"
+                                            aria-current="true">
+                                            <svg class="icon" width="11" height="11" viewBox="0 0 11 11" fill="none"
+                                                aria-hidden="true">
+                                                <path d="M1 1h6l3 3v6H1V1Z" stroke="currentColor" stroke-width="1"
+                                                    stroke-linejoin="round" />
+                                            </svg>
+                                            <span class="notesnav__note-title">Data Science and AI Tables</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button class="notesnav__note" type="button">
+                                            <svg class="icon" width="11" height="11" viewBox="0 0 11 11" fill="none"
+                                                aria-hidden="true">
+                                                <path d="M1 1h6l3 3v6H1V1Z" stroke="currentColor" stroke-width="1"
+                                                    stroke-linejoin="round" />
+                                            </svg>
+                                            <span class="notesnav__note-title">Neural Architectures Overview</span>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                </aside>
+
+                <div class="overlay" id="notesOverlay"></div>
+
+                <!-- ====================================================================
+           Editor
+           ==================================================================== -->
+                <main class="editor">
+                    <div class="editor__header">
+                        <div class="editor__header-row">
+                            <h1 class="editor__title">Note Name</h1>
+                            <div class="view-toggle" role="tablist" aria-label="Note view">
+                                <button class="view-toggle__btn" type="button" role="tab" aria-selected="false">
+                                    <svg class="icon" width="11" height="13" viewBox="0 0 11 13" fill="none"
+                                        aria-hidden="true">
+                                        <path d="M1 1h6l3 3v8H1V1Z" stroke="currentColor" stroke-width="1.1"
+                                            stroke-linejoin="round" />
+                                    </svg>
+                                    Transcript
+                                </button>
+                                <button class="view-toggle__btn view-toggle__btn--active" type="button" role="tab"
+                                    aria-selected="true">
+                                    <svg class="icon" width="12" height="11" viewBox="0 0 13 11" fill="none"
+                                        aria-hidden="true">
+                                        <path d="M1 1h6l1.5 1.5H12v8H1V1Z" stroke="currentColor" stroke-width="1.1"
+                                            stroke-linejoin="round" />
+                                    </svg>
+                                    Notes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="editor__content">
+
+                        <section>
+                            <h2 class="editor__section-heading">
+                                Overview
+                                <svg class="icon" width="8" height="12" viewBox="0 0 8 12" fill="none"
+                                    aria-hidden="true">
+                                    <path d="M1 1l6 5-6 5" stroke="currentColor" stroke-width="1.3"
+                                        stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            </h2>
+                            <div class="editor__lead">
+                                <p>Data science provides the foundation for AI; modern AI systems both depend on and
+                                    influence data-science processes.</p>
+                                <p>Both domains use extensive jargon, prompting the creation of "periodic tables" as
+                                    learning aids (not official standards).</p>
+                            </div>
+                        </section>
+
+                        <section>
+                            <h2 class="editor__section-heading">
+                                Data-Science Periodic Table (learning aid)
+                                <svg class="icon" width="8" height="12" viewBox="0 0 8 12" fill="none"
+                                    aria-hidden="true">
+                                    <path d="M1 1l6 5-6 5" stroke="currentColor" stroke-width="1.3"
+                                        stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            </h2>
+
+                            <div class="editor__block">
+                                <div class="editor__subsection">
+                                    <h3 class="editor__subheading"><span class="editor__dot"
+                                            aria-hidden="true"></span>Rows (maturity levels)</h3>
+                                    <ul class="editor__definitions">
+                                        <li><dfn>Raw data</dfn><span> – source-level information.</span></li>
+                                        <li><dfn>Prepared data</dfn><span> – cleaned, encoded, and transformed.</span>
+                                        </li>
+                                        <li><dfn>Model data</dfn><span> – inputs for clustering, aggregation,
+                                                etc.</span></li>
+                                        <li><dfn>Validation &amp; governance</dfn><span> – audited, governed
+                                                data.</span></li>
+                                    </ul>
+                                </div>
+
+                                <div class="editor__subsection">
+                                    <h3 class="editor__subheading"><span class="editor__dot"
+                                            aria-hidden="true"></span>Columns (functional groups)</h3>
+                                    <p class="editor__paragraph">Acquisition, Preparation, Generation, Evaluation.</p>
+                                </div>
+                            </div>
+                        </section>
+
+                        <div class="callout">
+                            <svg class="icon callout__icon" width="22" height="22" viewBox="0 0 22 22" fill="none"
+                                aria-hidden="true">
+                                <path d="M11 1l2.2 6.8L20 10l-6.8 2.2L11 19l-2.2-6.8L2 10l6.8-2.2L11 1Z"
+                                    stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+                            </svg>
+                            <div>
+                                <p class="callout__title">Quantum addendum</p>
+                                <p class="callout__body">(optional for quantum-enhanced workflows): quantum encoding,
+                                    quantum metrics, etc.</p>
+                            </div>
+                        </div>
+
+                        <section>
+                            <h2 class="editor__section-heading">
+                                AI Periodic Table (learning aid)
+                                <svg class="icon" width="8" height="12" viewBox="0 0 8 12" fill="none"
+                                    aria-hidden="true">
+                                    <path d="M1 1l6 5-6 5" stroke="currentColor" stroke-width="1.3"
+                                        stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                            </h2>
+
+                            <div class="editor__subsection">
+                                <h3 class="editor__subheading"><span class="editor__dot"
+                                        aria-hidden="true"></span>Groups (columns)</h3>
+                                <ul class="editor__definitions">
+                                    <li><dfn>Reactive</dfn><span> – agents that act on input.</span></li>
+                                    <li><dfn>Retrieval</dfn><span> – embeddings, vector databases (memory).</span></li>
+                                    <li>&nbsp;</li>
+                                    <li>&nbsp;</li>
+                                    <li>&nbsp;</li>
+                                </ul>
+                            </div>
+                        </section>
+
+                    </div>
+
+                    <div class="ai-bar-wrap">
+                        <div class="ai-bar">
+                            <button class="ai-bar__mic" type="button" aria-label="Dictate">
+                                <svg width="12" height="16" viewBox="0 0 12 16" fill="none" aria-hidden="true">
+                                    <rect x="3" y="1" width="6" height="9" rx="3" stroke="currentColor"
+                                        stroke-width="1.2" />
+                                    <path d="M1 8a5 5 0 0 0 10 0M6 13v2" stroke="currentColor" stroke-width="1.2"
+                                        stroke-linecap="round" />
+                                </svg>
+                            </button>
+                            <input class="ai-bar__input" type="text"
+                                placeholder="Ask AI to expand, summarize, or format...">
+                            <button class="ai-bar__generate" type="button">
+                                <svg class="icon" width="15" height="15" viewBox="0 0 15 15" fill="none"
+                                    aria-hidden="true">
+                                    <path d="M7.5 1l1.5 4.5L13.5 7l-4.5 1.5L7.5 13 6 8.5 1.5 7l4.5-1.5L7.5 1Z"
+                                        stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" />
+                                </svg>
+                                <span class="label">Generate Notes</span>
+                            </button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var sidenav = document.getElementById('sidenav');
+            var hamburgerBtn = document.getElementById('hamburgerBtn');
+            var overlay = document.getElementById('overlay');
+            var notesnav = document.getElementById('notesnav');
+            var notesOverlay = document.getElementById('notesOverlay');
+
+            function closeAll() {
+                sidenav.setAttribute('data-open', 'false');
+                hamburgerBtn.setAttribute('aria-expanded', 'false');
+                overlay.classList.remove('overlay--visible');
+                notesnav.setAttribute('data-open', 'false');
+                notesOverlay.classList.remove('overlay--visible');
+            }
+
+            hamburgerBtn.addEventListener('click', function () {
+                var isOpen = sidenav.getAttribute('data-open') === 'true';
+                closeAll();
+                if (!isOpen) {
+                    sidenav.setAttribute('data-open', 'true');
+                    hamburgerBtn.setAttribute('aria-expanded', 'true');
+                    overlay.classList.add('overlay--visible');
+                }
+            });
+
+            overlay.addEventListener('click', closeAll);
+            notesOverlay.addEventListener('click', closeAll);
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeAll();
+            });
+
+            window.addEventListener('resize', function () {
+                if (window.innerWidth > 1024) closeAll();
+            });
+        })();
+    </script>
+
+</body>
+
+</html>

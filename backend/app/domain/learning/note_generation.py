@@ -29,7 +29,11 @@ class ExtractedNotes:
 # ---------------------------------------------------------------------------
 # LLM prompt assembly & response parsing
 # ---------------------------------------------------------------------------
-def build_notes_prompt(chunks: List[dict], concepts: Optional[List[dict]] = None) -> str:
+def build_notes_prompt(
+    chunks: List[dict],
+    concepts: Optional[List[dict]] = None,
+    custom_instruction: Optional[str] = None,
+) -> str:
     """Build a structured prompt instructing the LLM to output notes strictly in JSON format."""
     concept_blob = ""
     if concepts:
@@ -43,30 +47,30 @@ def build_notes_prompt(chunks: List[dict], concepts: Optional[List[dict]] = None
         for c in chunks
     )
 
-    return f"""You are an expert academic tutor and note synthesis assistant for an educational video or lecture.
+    extra_instruction = f"\nAdditional User Formatting Instructions: {custom_instruction}\n" if custom_instruction else ""
 
-Generate comprehensive, well-structured study notes from the transcript chunks and concepts provided below.
-
+    return f"""Transform the provided transcript into clean, well-structured notes in markdown. Preserve the user's intent and all substantive information. Remove filler, small talk, false starts, and redundant content. For personal notes, improve grammar and structure for readability. For meeting transcripts, extract key discussion points, decisions, action items, and follow-ups.
+{extra_instruction}
 Requirements:
-1. "title": A clear, informative, topic-specific title for these notes.
-2. "summary": A concise 2-3 sentence high-level overview synthesizing the core ideas of the material.
-3. "sections": Group the content into chronological or thematic sections. For each section:
+1. "title": A clear, informative topic or meeting title for these notes.
+2. "summary": A concise high-level overview synthesizing the core discussion and takeaways.
+3. "sections": Group the content into logical, chronological, or thematic sections. For each section:
    - "heading": Descriptive section heading.
-   - "body": In-depth summary explaining the concepts clearly in markdown (use bullet points or short paragraphs).
-   - "key_takeaways": 2-4 concise bullet points highlighting crucial facts, equations, or conclusions.
-   - "start_time": The start timestamp (in seconds, or page number) representing this section from the referenced chunks.
-   - "end_time": The end timestamp (in seconds, or page number) representing this section from the referenced chunks.
+   - "body": Clean, well-structured notes in markdown (use bullet points, headings, or short paragraphs).
+   - "key_takeaways": 2-4 concise bullet points highlighting crucial facts, decisions, or conclusions.
+   - "start_time": The start timestamp (in seconds) representing this section from the referenced chunks.
+   - "end_time": The end timestamp (in seconds) representing this section from the referenced chunks.
    - "source_chunk_ids": List of chunk IDs referenced in this section (e.g. ["chunk_0", "chunk_1"]).
-4. "action_items": 2-4 actionable follow-up study tasks, review questions, or practice prompts for the student.
+4. "action_items": Key action items, decisions, and follow-up tasks.
 
 Respond with ONLY a valid JSON object matching exactly this schema:
 {{
-  "title": "Comprehensive Topic Title",
+  "title": "Topic or Meeting Title",
   "summary": "High-level summary of the entire session...",
   "sections": [
     {{
       "heading": "Section Heading",
-      "body": "Markdown explanation with key details...",
+      "body": "Markdown notes with key details...",
       "key_takeaways": ["Takeaway 1", "Takeaway 2"],
       "start_time": 0.0,
       "end_time": 125.4,
@@ -74,8 +78,8 @@ Respond with ONLY a valid JSON object matching exactly this schema:
     }}
   ],
   "action_items": [
-    "Review concept X in detail",
-    "Practice deriving formula Y"
+    "Action item or follow-up 1",
+    "Action item or follow-up 2"
   ]
 }}
 {concept_blob}

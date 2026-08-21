@@ -207,6 +207,7 @@ class NoteService:
         self,
         chunks: List[dict],
         concepts: Optional[List[dict]] = None,
+        custom_instruction: Optional[str] = None,
     ) -> Optional[ExtractedNotes]:
         if not self.ai_service_bus:
             logger.warning("NoteService: ai_service_bus is None — falling back to heuristic.")
@@ -217,7 +218,7 @@ class NoteService:
             logger.warning("NoteService: failed to resolve text capability — %s", exc)
             return None
 
-        prompt = build_notes_prompt(chunks, concepts)
+        prompt = build_notes_prompt(chunks, concepts, custom_instruction=custom_instruction)
         try:
             gen_res = await text_capability.generate(
                 TextGenerationRequest(
@@ -261,6 +262,7 @@ class NoteService:
         workspace_id: str,
         media_id: Optional[str] = None,
         title: Optional[str] = None,
+        custom_instruction: Optional[str] = None,
         force_new_version: bool = False,
     ) -> Note:
         """Generate structured study notes for a workspace / media asset.
@@ -335,7 +337,7 @@ class NoteService:
         concepts = self._concept_dicts(workspace_id)
 
         update_job("llm_generation", 50, "Synthesizing comprehensive notes with AI model...")
-        extracted: Optional[ExtractedNotes] = await self._generate_with_llm(chunks, concepts)
+        extracted: Optional[ExtractedNotes] = await self._generate_with_llm(chunks, concepts, custom_instruction=custom_instruction)
         if not extracted or not extracted.sections:
             extracted = generate_notes_heuristic(chunks, concepts, version=version)
 

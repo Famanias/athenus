@@ -110,7 +110,7 @@ export function useNotes() {
   );
 
   const generateNotes = useCallback(
-    async (forceNewVersion = false) => {
+    async (forceNewVersion = false, customInstruction?: string) => {
       const ws = wsRef.current;
       if (!ws) return null;
       setGenerating(true);
@@ -120,6 +120,7 @@ export function useNotes() {
         const params = new URLSearchParams();
         if (activeMediaId) params.append('media_id', activeMediaId);
         if (forceNewVersion) params.append('force_new_version', 'true');
+        if (customInstruction) params.append('custom_instruction', customInstruction);
         const queryStr = params.toString() ? `?${params.toString()}` : '';
 
         const note = await apiClient<NoteDTO>(

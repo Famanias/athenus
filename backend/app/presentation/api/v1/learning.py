@@ -552,6 +552,7 @@ async def create_note(
     workspace_id: str,
     media_id: Optional[str] = None,
     title: Optional[str] = None,
+    custom_instruction: Optional[str] = None,
     force_new_version: bool = False,
 ):
     try:
@@ -559,6 +560,7 @@ async def create_note(
             workspace_id=workspace_id,
             media_id=media_id,
             title=title,
+            custom_instruction=custom_instruction,
             force_new_version=force_new_version,
         )
         return _note_to_response(note)

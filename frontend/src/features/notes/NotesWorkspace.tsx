@@ -115,9 +115,9 @@ export const NotesWorkspace: React.FC = () => {
 
   // Generate Notes Handler
   const handleGenerateNotes = async () => {
-    const note = await generateNotes(!!activeNote);
+    const note = await generateNotes(!!activeNote, promptValue.trim() || undefined);
     if (note) {
-      setViewMode('enhanced');
+      setViewMode('editor');
     }
   };
 
@@ -132,7 +132,7 @@ export const NotesWorkspace: React.FC = () => {
       {/* Left Spaces Secondary Sidebar */}
       <aside className="w-56 border-r border-outline-variant/30 bg-surface-container-lowest/70 flex flex-col justify-between p-3 shrink-0 select-none">
         <div className="space-y-4">
-          {/* New Note & Search Action */}
+          {/* New Note Action */}
           <div className="space-y-2">
             <button
               onClick={handleNewNote}
@@ -141,25 +141,6 @@ export const NotesWorkspace: React.FC = () => {
               <span className="material-symbols-outlined text-[16px] text-primary">edit_square</span>
               <span>New note</span>
             </button>
-
-            <div className="relative">
-              <span className="material-symbols-outlined absolute left-2.5 top-2 text-[15px] text-on-surface-variant/60">
-                search
-              </span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search notes"
-                className="w-full bg-surface-container-low/60 text-xs text-on-surface placeholder:text-on-surface-variant/40 pl-8 pr-2 py-1.5 rounded-lg border border-outline-variant/30 outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex items-center gap-2 px-2 text-xs text-on-surface-variant hover:text-on-surface cursor-pointer">
-            <span className="material-symbols-outlined text-[16px]">bolt</span>
-            <span>Actions</span>
           </div>
 
           {/* Private Spaces List */}
@@ -217,11 +198,9 @@ export const NotesWorkspace: React.FC = () => {
           <NoteTopToolbar
             title={noteTitle}
             onTitleChange={setNoteTitle}
-            folderName={selectedSpace}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             hasTranscript={transcriptSegments.length > 0}
-            hasEnhanced={!!activeNote}
           />
         </div>
 
@@ -265,21 +244,15 @@ export const NotesWorkspace: React.FC = () => {
           )}
 
           {viewMode === 'editor' && (
-            <ManualNotesEditor
-              content={manualContent}
-              onChange={setManualContent}
-            />
-          )}
-
-          {viewMode === 'enhanced' && (
             <div className="space-y-6">
-              {loading ? (
-                <div className="py-24 flex flex-col items-center justify-center space-y-3 text-on-surface-variant">
-                  <span className="material-symbols-outlined text-3xl animate-spin text-primary">sync</span>
-                  <p className="text-xs font-mono">Loading enhanced study notes...</p>
-                </div>
-              ) : activeNote ? (
-                <div className="space-y-6">
+              <ManualNotesEditor
+                content={manualContent}
+                onChange={setManualContent}
+              />
+
+              {/* Synthesized Notes Sections if available */}
+              {activeNote && (
+                <div className="pt-6 border-t border-outline-variant/30 space-y-6">
                   {/* Executive Summary & Action Items Header */}
                   <NoteSummaryHeader note={activeNote} />
 
@@ -317,37 +290,23 @@ export const NotesWorkspace: React.FC = () => {
                     ))}
                   </div>
                 </div>
-              ) : (
-                <div className="py-20 px-6 text-center bg-surface-container-low border border-dashed border-outline-variant rounded-2xl flex flex-col items-center justify-center space-y-4 max-w-md mx-auto">
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                    <span className="material-symbols-outlined text-2xl">auto_stories</span>
-                  </div>
-                  <div>
-                    <h4 className="font-type-light text-base font-bold text-on-surface">No Enhanced Notes Yet</h4>
-                    <p className="text-xs text-on-surface-variant mt-1 max-w-xs">
-                      Click the "✨ Generate Notes" button in the bottom bar to synthesize structured notes from your speech transcript and written text.
-                    </p>
-                  </div>
-                </div>
               )}
             </div>
           )}
         </div>
 
-        {/* Dedicated Bottom Bar matching OpenWhispr reference */}
-        <div className="absolute bottom-4 left-6 right-6 z-20">
-          <NoteBottomBar
-            isRecording={isRecording}
-            recordingDuration={recordingDuration}
-            audioLevel={audioLevel}
-            isUploading={isUploading}
-            onToggleRecording={handleToggleRecording}
-            promptValue={promptValue}
-            onPromptChange={setPromptValue}
-            onGenerateNotes={handleGenerateNotes}
-            generating={generating}
-          />
-        </div>
+        {/* Floating Bottom AI Action Bar */}
+        <NoteBottomBar
+          isRecording={isRecording}
+          recordingDuration={recordingDuration}
+          audioLevel={audioLevel}
+          isUploading={isUploading}
+          onToggleRecording={handleToggleRecording}
+          onGenerateNotes={handleGenerateNotes}
+          generating={generating}
+          promptValue={promptValue}
+          onPromptChange={setPromptValue}
+        />
       </main>
     </div>
   );
