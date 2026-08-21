@@ -117,7 +117,19 @@ sequenceDiagram
 
 ---
 
-### 2.4 Subsystem 4: Precomputed Learning Analytics
+### 2.4 Subsystem 4: Persistent Notes Workspace
+- **Trigger**: Manual note/folder actions, recording completion, or **Generate Notes** in the Notes workspace.
+- **Components**: `NoteService` (`domain/learning/note_service.py`), Faster-Whisper media ingestion, `note_generation.py`, and the Notes frontend feature.
+- **Transformation Pipeline**:
+  1. Users create notes inside the active folder or **Unorganized Notes**, then edit the title and Markdown content with debounced persistence.
+  2. Stopping a recording uploads it through the media pipeline and stores the resulting `media_id` on the active note. The UI polls the canonical transcript endpoint while Faster-Whisper finishes.
+  3. **Generate Notes** reads the linked transcript chunks and canonical concepts, invokes the configured text capability, and falls back to deterministic heuristic synthesis when the LLM is unavailable.
+  4. Executive summary, action items, and ordered grounded sections are written back to the same note without replacing its manual Markdown or folder placement.
+- **Persistence**: Writes `NoteFolderTable`, `NoteTable`, and `NoteSectionTable`. Deleting a folder transactionally deletes its notes and their generated sections.
+
+---
+
+### 2.5 Subsystem 5: Precomputed Learning Analytics
 - **Trigger**: Asynchronous event handlers subscribed to `QuizAttemptEvent`, `FlashcardReviewedEvent`, and `ConceptGraphUpdatedEvent`.
 - **Components**: `AnalyticsService` (`domain/analytics/analytics_service.py`).
 - **Transformation Pipeline**:
@@ -175,7 +187,7 @@ The following diagram details the flow of data from raw video upload to database
 
 ---
 
-## 4. Database Architecture (21 Tables & Provenance Contract)
+## 4. Database Architecture (24 Tables & Provenance Contract)
 
 ### 4.1 Entity Relationship Diagram
 
@@ -185,6 +197,8 @@ erDiagram
     WorkspaceTable ||--o{ KnowledgeConceptTable : contains
     WorkspaceTable ||--o{ FlashcardDeckTable : contains
     WorkspaceTable ||--o{ QuizTable : contains
+    WorkspaceTable ||--o{ NoteFolderTable : contains
+    WorkspaceTable ||--o{ NoteTable : contains
     WorkspaceTable ||--o{ WorkspaceAnalyticsTable : tracks
 
     MediaItemTable ||--o{ TranscriptSegmentTable : yields
@@ -199,6 +213,10 @@ erDiagram
 
     QuizTable ||--o{ QuizQuestionTable : contains
     QuizTable ||--o{ QuizAttemptTable : records_attempts
+
+    NoteFolderTable ||--o{ NoteTable : organizes
+    NoteTable ||--o{ NoteSectionTable : contains
+    MediaItemTable ||--o{ NoteTable : transcribed_source
 ```
 
 ### 4.2 Provenance Grounding Contract
@@ -228,6 +246,12 @@ Every learning artifact (concept, flashcard, quiz question) contains four strict
 | | `/api/v1/learning/decks/{id}/export` | GET | Exports deck as CSV or Anki `.apkg` file. |
 | **Quiz Studio** (`view-quiz`) | `/api/v1/learning/quizzes/generate` | POST | On-demand quiz generation/evolution with Target Budget. |
 | | `/api/v1/learning/quizzes/{id}/attempt` | POST | Grades user attempt, saves score, and publishes `QuizAttemptEvent`. |
+| **Notes** (`view-notes`) | `/api/v1/learning/folders/{workspace_id}` | GET/POST | Lists or creates workspace note folders. |
+| | `/api/v1/learning/folders/{folder_id}` | PATCH/DELETE | Renames a folder or cascade-deletes its notes and sections. |
+| | `/api/v1/learning/notes/{workspace_id}/item` | POST | Creates an editable note in the selected folder or Unorganized Notes. |
+| | `/api/v1/learning/notes/item/{note_id}` | GET/PATCH/DELETE | Retrieves, autosaves, reassigns, or deletes one note. |
+| | `/api/v1/learning/notes/item/{note_id}/attach-audio` | POST | Persists a transcribed media link on the note. |
+| | `/api/v1/learning/notes/item/{note_id}/generate` | POST | Persists grounded AI summary, actions, and sections on the active note. |
 | **Analytics** (`view-analytics`) | `/api/v1/analytics/workspace/{id}/summary` | GET | Returns precomputed analytics, concept masteries, and revision plan. |
 
 ---

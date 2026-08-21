@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from app.domain.learning.entities import FlashcardCard, FlashcardDeck, QuizContainer, QuizQuestionItem, Note, NoteSection
+from app.domain.learning.entities import FlashcardCard, FlashcardDeck, QuizContainer, QuizQuestionItem, Note, NoteFolder, NoteSection
 from app.domain.learning.flashcard_service import FlashcardService
 from app.domain.learning.quiz_service import QuizService
 from app.domain.learning.note_service import NoteService
@@ -485,6 +485,61 @@ def patch_workspace_learning_settings(workspace_id: str, payload: WorkspaceLearn
 # ---------------------------------------------------------------------------
 # Note studio responses & endpoints
 # ---------------------------------------------------------------------------
+class NoteFolderMutation(BaseModel):
+    name: str
+
+
+class NoteFolderResponse(BaseModel):
+    id: str
+    workspace_id: str
+    name: str
+    note_count: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+def _folder_to_response(folder: NoteFolder) -> NoteFolderResponse:
+    return NoteFolderResponse(
+        id=folder.id,
+        workspace_id=folder.workspace_id,
+        name=folder.name,
+        note_count=folder.note_count,
+        created_at=folder.created_at.isoformat() if folder.created_at else None,
+        updated_at=folder.updated_at.isoformat() if folder.updated_at else None,
+    )
+
+
+@router.get("/learning/folders/{workspace_id}", response_model=List[NoteFolderResponse])
+def list_note_folders(workspace_id: str):
+    return [_folder_to_response(folder) for folder in note_service.list_folders(workspace_id)]
+
+
+@router.post("/learning/folders/{workspace_id}", response_model=NoteFolderResponse, status_code=201)
+def create_note_folder(workspace_id: str, payload: NoteFolderMutation):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Folder name cannot be empty")
+    return _folder_to_response(note_service.create_folder(workspace_id, name))
+
+
+@router.patch("/learning/folders/{folder_id}", response_model=NoteFolderResponse)
+def rename_note_folder(folder_id: str, payload: NoteFolderMutation):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Folder name cannot be empty")
+    folder = note_service.rename_folder(folder_id, name)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return _folder_to_response(folder)
+
+
+@router.delete("/learning/folders/{folder_id}", status_code=204)
+def delete_note_folder(folder_id: str):
+    if not note_service.delete_folder(folder_id):
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return Response(status_code=204)
+
+
 class NoteSectionResponse(BaseModel):
     id: str
     note_id: str
@@ -504,6 +559,8 @@ class NoteResponse(BaseModel):
     id: str
     workspace_id: str
     title: str
+    folder_id: Optional[str] = None
+    content: Optional[str] = None
     summary: Optional[str] = None
     media_id: Optional[str] = None
     version: int = 1
@@ -536,6 +593,8 @@ def _note_to_response(note: Note) -> NoteResponse:
         id=note.id,
         workspace_id=note.workspace_id,
         title=note.title,
+        folder_id=note.folder_id,
+        content=note.content,
         summary=note.summary,
         media_id=note.media_id,
         version=note.version,
@@ -545,6 +604,89 @@ def _note_to_response(note: Note) -> NoteResponse:
         created_at=note.created_at.isoformat() if note.created_at else None,
         updated_at=note.updated_at.isoformat() if note.updated_at else None,
     )
+
+
+class NoteCreateRequest(BaseModel):
+    title: str = "Untitled Note"
+    folder_id: Optional[str] = None
+    content: Optional[str] = None
+
+
+class NoteUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    folder_id: Optional[str] = None
+    content: Optional[str] = None
+
+
+class NoteAudioAttachmentRequest(BaseModel):
+    media_id: str
+
+
+@router.post("/learning/notes/{workspace_id}/item", response_model=NoteResponse, status_code=201)
+def create_manual_note(workspace_id: str, payload: NoteCreateRequest):
+    try:
+        return _note_to_response(
+            note_service.create_manual_note(
+                workspace_id=workspace_id,
+                title=payload.title,
+                folder_id=payload.folder_id,
+                content=payload.content,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/learning/notes/item/{note_id}", response_model=NoteResponse)
+def get_note_item(note_id: str):
+    note = note_service.get_note(note_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return _note_to_response(note)
+
+
+@router.patch("/learning/notes/item/{note_id}", response_model=NoteResponse)
+def update_note_item(note_id: str, payload: NoteUpdateRequest):
+    try:
+        changes = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+        note = note_service.update_note(note_id, changes)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return _note_to_response(note)
+
+
+@router.delete("/learning/notes/item/{note_id}", status_code=204)
+def delete_note_item(note_id: str):
+    if not note_service.delete_note(note_id):
+        raise HTTPException(status_code=404, detail="Note not found")
+    return Response(status_code=204)
+
+
+@router.post("/learning/notes/item/{note_id}/attach-audio", response_model=NoteResponse)
+def attach_note_audio(note_id: str, payload: NoteAudioAttachmentRequest):
+    try:
+        note = note_service.attach_audio(note_id, payload.media_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return _note_to_response(note)
+
+
+@router.post("/learning/notes/item/{note_id}/generate", response_model=NoteResponse)
+async def generate_note_item(note_id: str, custom_instruction: Optional[str] = None):
+    try:
+        note = await note_service.generate_note_content(
+            note_id,
+            custom_instruction=custom_instruction,
+        )
+        return _note_to_response(note)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/learning/notes/{workspace_id}", response_model=NoteResponse)
@@ -571,8 +713,18 @@ async def create_note(
 
 
 @router.get("/learning/notes/{workspace_id}", response_model=List[NoteResponse])
-def list_notes(workspace_id: str, media_id: Optional[str] = None):
-    notes = note_service.list_notes(workspace_id, media_id=media_id)
+def list_notes(
+    workspace_id: str,
+    media_id: Optional[str] = None,
+    folder_id: Optional[str] = None,
+    unorganized: bool = False,
+):
+    notes = note_service.list_notes(
+        workspace_id,
+        media_id=media_id,
+        folder_id=folder_id,
+        unorganized=unorganized,
+    )
     return [_note_to_response(n) for n in notes]
 
 

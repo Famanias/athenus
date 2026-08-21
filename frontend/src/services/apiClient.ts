@@ -35,6 +35,9 @@ export async function apiClient<T>(
       );
     }
 
+    if (response.status === 204) {
+      return undefined as T;
+    }
     return (await response.json()) as T;
   } catch (error: any) {
     if (error instanceof ApiError) {

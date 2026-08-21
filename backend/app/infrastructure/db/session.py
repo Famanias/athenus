@@ -73,6 +73,14 @@ try:
                     cols = [c["name"] for c in inspector.get_columns("system_settings")]
                     if "active_models" not in cols:
                         conn.execute(text("ALTER TABLE system_settings ADD COLUMN active_models TEXT"))
+
+                if inspector.has_table("notes"):
+                    cols = [c["name"] for c in inspector.get_columns("notes")]
+                    if "folder_id" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN folder_id VARCHAR"))
+                    if "content" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN content TEXT"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_notes_folder_id ON notes (folder_id)"))
                 conn.commit()
         except Exception as e:
             print("MIGRATION ERROR:", e)
@@ -139,7 +147,22 @@ except ImportError:
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
         def init_db() -> None:
+            import app.infrastructure.db.models  # noqa: F401
             Base.metadata.create_all(bind=engine)
+            try:
+                from sqlalchemy import inspect, text
+
+                inspector = inspect(engine)
+                if inspector.has_table("notes"):
+                    columns = [column["name"] for column in inspector.get_columns("notes")]
+                    with engine.begin() as connection:
+                        if "folder_id" not in columns:
+                            connection.execute(text("ALTER TABLE notes ADD COLUMN folder_id VARCHAR"))
+                        if "content" not in columns:
+                            connection.execute(text("ALTER TABLE notes ADD COLUMN content TEXT"))
+                        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_notes_folder_id ON notes (folder_id)"))
+            except Exception as exc:
+                print("MIGRATION ERROR:", exc)
 
         def get_session():
             db = SessionLocal()

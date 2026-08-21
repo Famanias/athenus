@@ -42,6 +42,11 @@ All tables are defined as dual-compatible **SQLModel** / **SQLAlchemy ORM** clas
 - **`quiz_questions`**: Concept-balanced multiple choice questions (`quiz_id`, `workspace_id`, `concept_id`, `question_text`, `options_json`, `correct_index`, `explanation`).
 - **`quiz_attempts`**: Immutable quiz execution attempts (`quiz_id`, `workspace_id`, `version`, `score`, `total_questions`, `correct_count`, `answers_json`, `time_taken`).
 
+### Notes Workspace Tables
+- **`note_folders`**: Workspace-scoped folder metadata (`workspace_id`, `name`, `created_at`, `updated_at`). Note counts are computed dynamically from current note rows.
+- **`notes`**: Editable note records (`workspace_id`, nullable `folder_id`, manual Markdown `content`, nullable linked `media_id`, `title`, AI `summary`, `action_items_json`, `version`, `status`, timestamps). A null `folder_id` places the note in **Unorganized Notes**.
+- **`note_sections`**: Ordered AI-generated sections (`note_id`, `workspace_id`, `heading`, `body`, `key_takeaways_json`, timestamps, and source chunk provenance). Note and folder deletion remove dependent sections in the same database transaction.
+
 ### Precomputed Learning Analytics Tables
 - **`workspace_analytics`**: Precomputed workspace summary counters (`workspace_id`, `total_media`, `total_concepts`, `total_flashcards`, `total_quiz_attempts`, `total_reviews`, `avg_quiz_score`, `total_study_seconds`, `review_streak_days`, `last_activity_at`).
 - **`concept_mastery`**: Real-time concept retention scores (`concept_id`, `workspace_id`, `concept_name`, `mastery_level`, `review_count`, `quiz_correct`, `quiz_attempts`, `last_reviewed_at`).
@@ -54,27 +59,30 @@ All tables are defined as dual-compatible **SQLModel** / **SQLAlchemy ORM** clas
 When **CLEAR MY DATA** (`POST /api/v1/system/clear-data`) is invoked, `SystemResetService` executes a single transaction purging all tables in strict foreign key order (child tables first):
 
 ```
-1. FlashcardReviewTable
-2. FlashcardTable
-3. FlashcardDeckTable
-4. QuizAttemptTable
-5. QuizQuestionTable
-6. QuizTable
-7. ConceptMasteryTable
-8. WorkspaceAnalyticsTable
-9. StudySessionTable
-10. ConceptAliasTable
-11. KnowledgeRelationTable
-12. KnowledgeConceptTable
-13. ArtifactJobTable
-14. ChatMessageTable
-15. ChatSessionTable
-16. TranscriptSegmentTable
-17. TranscriptChunkTable (and transcript_chunks_fts)
-18. ProcessingLogTable
-19. MediaItemTable
-20. WorkspaceTable (re-initialized with default workspace)
-21. SystemSettings (reset to defaults)
+1. NoteSectionTable
+2. NoteTable
+3. NoteFolderTable
+4. FlashcardReviewTable
+5. FlashcardTable
+6. FlashcardDeckTable
+7. QuizAttemptTable
+8. QuizQuestionTable
+9. QuizTable
+10. ConceptMasteryTable
+11. WorkspaceAnalyticsTable
+12. StudySessionTable
+13. ConceptAliasTable
+14. KnowledgeRelationTable
+15. KnowledgeConceptTable
+16. ArtifactJobTable
+17. ChatMessageTable
+18. ChatSessionTable
+19. TranscriptSegmentTable
+20. TranscriptChunkTable (and transcript_chunks_fts)
+21. ProcessingLogTable
+22. MediaItemTable
+23. WorkspaceTable (re-initialized with default workspace)
+24. SystemSettings (reset to defaults)
 ```
 
 ---

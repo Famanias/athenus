@@ -144,6 +144,16 @@ class QuizAttempt:
 # Note studio entities (concept-grounded, timestamp/page provenance-aware)
 # ---------------------------------------------------------------------------
 @dataclass
+class NoteFolder:
+    id: str
+    workspace_id: str
+    name: str
+    note_count: int = 0
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass
 class NoteSection:
     id: str
     note_id: str
@@ -165,6 +175,8 @@ class Note:
     id: str
     workspace_id: str
     title: str
+    folder_id: Optional[str] = None
+    content: Optional[str] = None
     summary: Optional[str] = None
     media_id: Optional[str] = None
     version: int = 1

@@ -13,6 +13,180 @@ from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
 client = TestClient(app)
 
 
+def test_user_can_create_and_list_note_folders():
+    init_db()
+    ws_id = f"ws_folders_{uuid.uuid4().hex[:8]}"
+
+    create_res = client.post(
+        f"/api/v1/learning/folders/{ws_id}",
+        json={"name": "Research"},
+    )
+    assert create_res.status_code == 201
+    folder = create_res.json()
+    assert folder["name"] == "Research"
+    assert folder["workspace_id"] == ws_id
+    assert folder["note_count"] == 0
+
+    list_res = client.get(f"/api/v1/learning/folders/{ws_id}")
+    assert list_res.status_code == 200
+    assert [item["id"] for item in list_res.json()] == [folder["id"]]
+
+
+def test_user_can_create_and_retrieve_a_manual_note():
+    init_db()
+    ws_id = f"ws_note_item_{uuid.uuid4().hex[:8]}"
+    folder = client.post(
+        f"/api/v1/learning/folders/{ws_id}",
+        json={"name": "Lectures"},
+    ).json()
+
+    create_res = client.post(
+        f"/api/v1/learning/notes/{ws_id}/item",
+        json={
+            "title": "Week 1",
+            "folder_id": folder["id"],
+            "content": "# Operating systems\n\nProcesses and threads.",
+        },
+    )
+    assert create_res.status_code == 201
+    created = create_res.json()
+    assert created["title"] == "Week 1"
+    assert created["folder_id"] == folder["id"]
+    assert created["content"] == "# Operating systems\n\nProcesses and threads."
+
+    get_res = client.get(f"/api/v1/learning/notes/item/{created['id']}")
+    assert get_res.status_code == 200
+    assert get_res.json() == created
+
+
+def test_user_can_edit_and_reorganize_a_note():
+    init_db()
+    ws_id = f"ws_note_edit_{uuid.uuid4().hex[:8]}"
+    folder = client.post(
+        f"/api/v1/learning/folders/{ws_id}",
+        json={"name": "Inbox"},
+    ).json()
+    note = client.post(
+        f"/api/v1/learning/notes/{ws_id}/item",
+        json={"title": "Draft", "content": "Initial"},
+    ).json()
+
+    update_res = client.patch(
+        f"/api/v1/learning/notes/item/{note['id']}",
+        json={
+            "title": "Final title",
+            "content": "Saved markdown",
+            "folder_id": folder["id"],
+        },
+    )
+    assert update_res.status_code == 200
+    updated = update_res.json()
+    assert updated["title"] == "Final title"
+    assert updated["content"] == "Saved markdown"
+    assert updated["folder_id"] == folder["id"]
+
+    folder_notes = client.get(
+        f"/api/v1/learning/notes/{ws_id}?folder_id={folder['id']}"
+    ).json()
+    assert [item["id"] for item in folder_notes] == [note["id"]]
+    assert client.get(
+        f"/api/v1/learning/notes/{ws_id}?unorganized=true"
+    ).json() == []
+
+
+def test_deleting_a_folder_cascades_to_notes_and_generated_sections():
+    ws_id = f"ws_folder_delete_{uuid.uuid4().hex[:8]}"
+    media_id = f"med_folder_delete_{uuid.uuid4().hex[:8]}"
+    _seed_test_media_and_chunks(ws_id, media_id)
+    folder = client.post(
+        f"/api/v1/learning/folders/{ws_id}",
+        json={"name": "Temporary"},
+    ).json()
+    note = client.post(
+        f"/api/v1/learning/notes/{ws_id}?media_id={media_id}"
+    ).json()
+    client.patch(
+        f"/api/v1/learning/notes/item/{note['id']}",
+        json={"folder_id": folder["id"]},
+    )
+
+    rename_res = client.patch(
+        f"/api/v1/learning/folders/{folder['id']}",
+        json={"name": "Archive"},
+    )
+    assert rename_res.status_code == 200
+    assert rename_res.json()["name"] == "Archive"
+    assert rename_res.json()["note_count"] == 1
+
+    delete_res = client.delete(f"/api/v1/learning/folders/{folder['id']}")
+    assert delete_res.status_code == 204
+    assert client.get(f"/api/v1/learning/notes/item/{note['id']}").status_code == 404
+    assert client.get(f"/api/v1/learning/notes/{note['id']}/sections").json() == []
+
+
+def test_user_can_delete_a_note():
+    init_db()
+    ws_id = f"ws_note_delete_{uuid.uuid4().hex[:8]}"
+    note = client.post(
+        f"/api/v1/learning/notes/{ws_id}/item",
+        json={"title": "Disposable"},
+    ).json()
+
+    delete_res = client.delete(f"/api/v1/learning/notes/item/{note['id']}")
+    assert delete_res.status_code == 204
+    assert client.get(f"/api/v1/learning/notes/item/{note['id']}").status_code == 404
+
+
+def test_transcribed_audio_can_be_attached_to_a_note():
+    ws_id = f"ws_note_audio_{uuid.uuid4().hex[:8]}"
+    media_id = f"med_note_audio_{uuid.uuid4().hex[:8]}"
+    _seed_test_media_and_chunks(ws_id, media_id)
+    note = client.post(
+        f"/api/v1/learning/notes/{ws_id}/item",
+        json={"title": "Recorded lecture"},
+    ).json()
+
+    attach_res = client.post(
+        f"/api/v1/learning/notes/item/{note['id']}/attach-audio",
+        json={"media_id": media_id},
+    )
+    assert attach_res.status_code == 200
+    assert attach_res.json()["media_id"] == media_id
+    assert client.get(
+        f"/api/v1/learning/notes/item/{note['id']}"
+    ).json()["media_id"] == media_id
+
+
+def test_ai_generation_is_persisted_on_the_active_note():
+    ws_id = f"ws_note_generate_{uuid.uuid4().hex[:8]}"
+    media_id = f"med_note_generate_{uuid.uuid4().hex[:8]}"
+    _seed_test_media_and_chunks(ws_id, media_id)
+    note = client.post(
+        f"/api/v1/learning/notes/{ws_id}/item",
+        json={"title": "My lecture", "content": "Keep my manual notes"},
+    ).json()
+    client.post(
+        f"/api/v1/learning/notes/item/{note['id']}/attach-audio",
+        json={"media_id": media_id},
+    )
+
+    generate_res = client.post(
+        f"/api/v1/learning/notes/item/{note['id']}/generate"
+    )
+    assert generate_res.status_code == 200
+    generated = generate_res.json()
+    assert generated["id"] == note["id"]
+    assert generated["content"] == "Keep my manual notes"
+    assert generated["summary"]
+    assert generated["action_items"]
+    assert generated["sections"]
+
+    persisted = client.get(
+        f"/api/v1/learning/notes/item/{note['id']}"
+    ).json()
+    assert persisted == generated
+
+
 def _seed_test_media_and_chunks(ws_id: str, media_id: str):
     init_db()
     with Session(engine) as session:

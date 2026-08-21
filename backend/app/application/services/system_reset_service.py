@@ -26,6 +26,9 @@ from app.infrastructure.db.models import (
     WorkspaceAnalyticsTable,
     ConceptMasteryTable,
     StudySessionTable,
+    NoteFolderTable,
+    NoteSectionTable,
+    NoteTable,
     WorkspaceTable,
     SystemSettings,
 )
@@ -90,6 +93,9 @@ class SystemResetService:
                 try:
                     with Session(engine) as session:
                         for table in [
+                            NoteSectionTable,
+                            NoteTable,
+                            NoteFolderTable,
                             FlashcardReviewTable,
                             FlashcardTable,
                             FlashcardDeckTable,

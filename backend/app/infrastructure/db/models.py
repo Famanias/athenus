@@ -277,12 +277,22 @@ try:
         duration_seconds: float = 0.0
         created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    class NoteFolderTable(SQLModel, table=True):
+        __tablename__ = "note_folders"
+        id: str = Field(primary_key=True)
+        workspace_id: str = Field(index=True)
+        name: str
+        created_at: datetime = Field(default_factory=datetime.utcnow)
+        updated_at: datetime = Field(default_factory=datetime.utcnow)
+
     class NoteTable(SQLModel, table=True):
         __tablename__ = "notes"
         id: str = Field(primary_key=True)
         workspace_id: str = Field(index=True)
+        folder_id: Optional[str] = Field(default=None, foreign_key="note_folders.id", index=True)
+        content: Optional[str] = None
         media_id: Optional[str] = Field(default=None, index=True)
-        title: str
+        title: str = "Untitled Note"
         summary: Optional[str] = None
         version: int = Field(default=1)
         status: str = "ready"  # pending | generating | ready | failed
@@ -293,7 +303,7 @@ try:
     class NoteSectionTable(SQLModel, table=True):
         __tablename__ = "note_sections"
         id: str = Field(primary_key=True)
-        note_id: str = Field(index=True)
+        note_id: str = Field(foreign_key="notes.id", index=True)
         workspace_id: str = Field(index=True)
         heading: str
         body: str
@@ -305,7 +315,7 @@ try:
         created_at: datetime = Field(default_factory=datetime.utcnow)
 
 except ImportError:
-    from sqlalchemy import Column, String, Float, Integer, DateTime, Text
+    from sqlalchemy import Column, String, Float, Integer, DateTime, Text, ForeignKey
     from app.infrastructure.db.session import Base
 
     class SystemSettings(Base):
@@ -575,12 +585,22 @@ except ImportError:
         duration_seconds = Column(Float, default=0.0)
         created_at = Column(DateTime, default=datetime.utcnow)
 
+    class NoteFolderTable(Base):
+        __tablename__ = "note_folders"
+        id = Column(String, primary_key=True)
+        workspace_id = Column(String, index=True, nullable=False)
+        name = Column(String, nullable=False)
+        created_at = Column(DateTime, default=datetime.utcnow)
+        updated_at = Column(DateTime, default=datetime.utcnow)
+
     class NoteTable(Base):
         __tablename__ = "notes"
         id = Column(String, primary_key=True)
         workspace_id = Column(String, index=True, nullable=False)
+        folder_id = Column(String, ForeignKey("note_folders.id", ondelete="CASCADE"), index=True, nullable=True)
+        content = Column(Text, nullable=True)
         media_id = Column(String, index=True, nullable=True)
-        title = Column(String, nullable=False)
+        title = Column(String, nullable=False, default="Untitled Note")
         summary = Column(Text, nullable=True)
         version = Column(Integer, default=1)
         status = Column(String, default="ready")
@@ -591,7 +611,7 @@ except ImportError:
     class NoteSectionTable(Base):
         __tablename__ = "note_sections"
         id = Column(String, primary_key=True)
-        note_id = Column(String, index=True, nullable=False)
+        note_id = Column(String, ForeignKey("notes.id", ondelete="CASCADE"), index=True, nullable=False)
         workspace_id = Column(String, index=True, nullable=False)
         heading = Column(String, nullable=False)
         body = Column(Text, nullable=False)

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 from app.domain.ai.capabilities import TextGenerationRequest
 from app.domain.ai.service_bus import AIServiceBus
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
-from app.domain.learning.entities import Note, NoteSection
+from app.domain.learning.entities import Note, NoteFolder, NoteSection
 from app.domain.learning.note_generation import (
     ExtractedNotes,
     build_notes_prompt,
@@ -90,6 +90,211 @@ class NoteService:
         if hasattr(session, "scalars"):
             return session.scalars(statement).all()
         return session.exec(statement).all()
+
+    def create_folder(self, workspace_id: str, name: str) -> NoteFolder:
+        from app.infrastructure.db.models import NoteFolderTable
+
+        now = datetime.utcnow()
+        record = NoteFolderTable(
+            id=f"folder_{uuid.uuid4().hex}",
+            workspace_id=workspace_id,
+            name=name.strip(),
+            created_at=now,
+            updated_at=now,
+        )
+        with Session(engine) as session:
+            session.add(record)
+            session.commit()
+            session.refresh(record)
+        return NoteFolder(
+            id=record.id,
+            workspace_id=record.workspace_id,
+            name=record.name,
+            note_count=0,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    def list_folders(self, workspace_id: str) -> List[NoteFolder]:
+        from app.infrastructure.db.models import NoteFolderTable, NoteTable
+
+        with Session(engine) as session:
+            statement = (
+                select(NoteFolderTable)
+                .where(NoteFolderTable.workspace_id == workspace_id)
+                .order_by(NoteFolderTable.created_at)
+            )
+            records = self._scalars(session, statement)
+            note_records = self._scalars(
+                session,
+                select(NoteTable).where(NoteTable.workspace_id == workspace_id),
+            )
+            counts = {}
+            for note in note_records:
+                if note.folder_id:
+                    counts[note.folder_id] = counts.get(note.folder_id, 0) + 1
+            return [
+                NoteFolder(
+                    id=record.id,
+                    workspace_id=record.workspace_id,
+                    name=record.name,
+                    note_count=counts.get(record.id, 0),
+                    created_at=record.created_at,
+                    updated_at=record.updated_at,
+                )
+                for record in records
+            ]
+
+    def rename_folder(self, folder_id: str, name: str) -> Optional[NoteFolder]:
+        from app.infrastructure.db.models import NoteFolderTable, NoteTable
+
+        with Session(engine) as session:
+            statement = select(NoteFolderTable).where(NoteFolderTable.id == folder_id)
+            record = session.scalars(statement).first() if hasattr(session, "scalars") else session.exec(statement).first()
+            if not record:
+                return None
+            record.name = name.strip()
+            record.updated_at = datetime.utcnow()
+            note_count = len(
+                self._scalars(
+                    session,
+                    select(NoteTable).where(NoteTable.folder_id == folder_id),
+                )
+            )
+            session.add(record)
+            session.commit()
+            return NoteFolder(
+                id=record.id,
+                workspace_id=record.workspace_id,
+                name=record.name,
+                note_count=note_count,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+            )
+
+    def delete_folder(self, folder_id: str) -> bool:
+        from app.infrastructure.db.models import NoteFolderTable, NoteSectionTable, NoteTable
+
+        with Session(engine) as session:
+            folder_stmt = select(NoteFolderTable).where(NoteFolderTable.id == folder_id)
+            folder = session.scalars(folder_stmt).first() if hasattr(session, "scalars") else session.exec(folder_stmt).first()
+            if not folder:
+                return False
+            notes = self._scalars(session, select(NoteTable).where(NoteTable.folder_id == folder_id))
+            for note in notes:
+                sections = self._scalars(
+                    session,
+                    select(NoteSectionTable).where(NoteSectionTable.note_id == note.id),
+                )
+                for section in sections:
+                    session.delete(section)
+                session.delete(note)
+            session.delete(folder)
+            session.commit()
+            return True
+
+    def create_manual_note(
+        self,
+        workspace_id: str,
+        title: str = "Untitled Note",
+        folder_id: Optional[str] = None,
+        content: Optional[str] = None,
+    ) -> Note:
+        from app.infrastructure.db.models import NoteFolderTable, NoteTable
+
+        now = datetime.utcnow()
+        with Session(engine) as session:
+            if folder_id:
+                folder_stmt = select(NoteFolderTable).where(
+                    NoteFolderTable.id == folder_id,
+                    NoteFolderTable.workspace_id == workspace_id,
+                )
+                folder = session.scalars(folder_stmt).first() if hasattr(session, "scalars") else session.exec(folder_stmt).first()
+                if not folder:
+                    raise ValueError("Folder not found in workspace")
+            record = NoteTable(
+                id=f"note_{uuid.uuid4().hex}",
+                workspace_id=workspace_id,
+                folder_id=folder_id,
+                content=content,
+                title=title.strip() or "Untitled Note",
+                version=1,
+                status="ready",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(record)
+            session.commit()
+            note_id = record.id
+        return self.get_note(note_id)
+
+    def update_note(self, note_id: str, changes: dict) -> Optional[Note]:
+        from app.infrastructure.db.models import NoteFolderTable, NoteTable
+
+        with Session(engine) as session:
+            statement = select(NoteTable).where(NoteTable.id == note_id)
+            record = session.scalars(statement).first() if hasattr(session, "scalars") else session.exec(statement).first()
+            if not record:
+                return None
+
+            if "folder_id" in changes and changes["folder_id"]:
+                folder_stmt = select(NoteFolderTable).where(
+                    NoteFolderTable.id == changes["folder_id"],
+                    NoteFolderTable.workspace_id == record.workspace_id,
+                )
+                folder = session.scalars(folder_stmt).first() if hasattr(session, "scalars") else session.exec(folder_stmt).first()
+                if not folder:
+                    raise ValueError("Folder not found in workspace")
+
+            if "title" in changes:
+                record.title = (changes["title"] or "").strip() or "Untitled Note"
+            if "content" in changes:
+                record.content = changes["content"]
+            if "folder_id" in changes:
+                record.folder_id = changes["folder_id"]
+            record.updated_at = datetime.utcnow()
+            session.add(record)
+            session.commit()
+        return self.get_note(note_id)
+
+    def delete_note(self, note_id: str) -> bool:
+        from app.infrastructure.db.models import NoteSectionTable, NoteTable
+
+        with Session(engine) as session:
+            statement = select(NoteTable).where(NoteTable.id == note_id)
+            note = session.scalars(statement).first() if hasattr(session, "scalars") else session.exec(statement).first()
+            if not note:
+                return False
+            sections = self._scalars(
+                session,
+                select(NoteSectionTable).where(NoteSectionTable.note_id == note_id),
+            )
+            for section in sections:
+                session.delete(section)
+            session.delete(note)
+            session.commit()
+            return True
+
+    def attach_audio(self, note_id: str, media_id: str) -> Optional[Note]:
+        from app.infrastructure.db.models import MediaItemTable, NoteTable
+
+        with Session(engine) as session:
+            note_stmt = select(NoteTable).where(NoteTable.id == note_id)
+            note = session.scalars(note_stmt).first() if hasattr(session, "scalars") else session.exec(note_stmt).first()
+            if not note:
+                return None
+            media_stmt = select(MediaItemTable).where(
+                MediaItemTable.id == media_id,
+                MediaItemTable.workspace_id == note.workspace_id,
+            )
+            media = session.scalars(media_stmt).first() if hasattr(session, "scalars") else session.exec(media_stmt).first()
+            if not media:
+                raise ValueError("Audio media not found in note workspace")
+            note.media_id = media_id
+            note.updated_at = datetime.utcnow()
+            session.add(note)
+            session.commit()
+        return self.get_note(note_id)
 
     def _latest_version(self, workspace_id: str, media_id: Optional[str] = None) -> int:
         if not engine or not Session or not select:
@@ -377,6 +582,82 @@ class NoteService:
 
         return self.get_note(note_id)
 
+    async def generate_note_content(
+        self,
+        note_id: str,
+        custom_instruction: Optional[str] = None,
+    ) -> Note:
+        """Generate and persist AI sections on an existing workspace note."""
+        note = self.get_note(note_id)
+        if not note:
+            raise ValueError("Note not found")
+        if not note.media_id:
+            raise ValueError("Attach transcribed audio before generating notes")
+
+        target_key = note.media_id
+
+        def update_job(stage: str, progress: int, message: str, status: str = "generating") -> None:
+            try:
+                self.graph_service.upsert_artifact_job(
+                    job_id=f"notes_{note.workspace_id}_{target_key}",
+                    workspace_id=note.workspace_id,
+                    artifact_type="notes",
+                    target_key=target_key,
+                    status=status,
+                    stage=stage,
+                    progress=progress,
+                    message=message,
+                )
+            except Exception as exc:
+                logger.warning("Failed to update artifact job status — %s", exc)
+
+        self._upsert_note_record(
+            note.id,
+            note.workspace_id,
+            note.title,
+            note.version,
+            "generating",
+            media_id=note.media_id,
+        )
+        update_job("collect_context", 20, "Collecting transcript chunks and concepts...")
+        chunks = load_chunks(note.media_id, note.workspace_id)
+        if not chunks:
+            self._upsert_note_record(
+                note.id,
+                note.workspace_id,
+                note.title,
+                note.version,
+                "failed",
+                media_id=note.media_id,
+            )
+            update_job("failed", 0, "No transcript chunks available for note generation.", status="failed")
+            raise ValueError("No transcript chunks found for the attached audio")
+
+        concepts = self._concept_dicts(note.workspace_id)
+        update_job("llm_generation", 50, "Synthesizing comprehensive notes with AI model...")
+        extracted = await self._generate_with_llm(
+            chunks,
+            concepts,
+            custom_instruction=custom_instruction,
+        )
+        if not extracted or not extracted.sections:
+            extracted = generate_notes_heuristic(chunks, concepts, version=note.version)
+
+        update_job("persist", 85, "Saving structured sections and action items...")
+        self._upsert_note_record(
+            note.id,
+            note.workspace_id,
+            note.title,
+            note.version,
+            "ready",
+            media_id=note.media_id,
+            summary=extracted.summary,
+            action_items=extracted.action_items,
+        )
+        self._persist_sections(note.id, note.workspace_id, note.media_id, extracted.sections)
+        update_job("ready", 100, "Notes ready.", status="ready")
+        return self.get_note(note.id)
+
     # ------------------------------------------------------------------
     # Retrieval
     # ------------------------------------------------------------------
@@ -420,6 +701,8 @@ class NoteService:
                     id=n.id,
                     workspace_id=n.workspace_id,
                     title=n.title,
+                    folder_id=getattr(n, "folder_id", None),
+                    content=getattr(n, "content", None),
                     summary=n.summary,
                     media_id=n.media_id,
                     version=n.version,
@@ -433,7 +716,13 @@ class NoteService:
             logger.warning("NoteService.get_note failed — %s", exc)
             return None
 
-    def list_notes(self, workspace_id: str, media_id: Optional[str] = None) -> List[Note]:
+    def list_notes(
+        self,
+        workspace_id: str,
+        media_id: Optional[str] = None,
+        folder_id: Optional[str] = None,
+        unorganized: bool = False,
+    ) -> List[Note]:
         if not engine or not Session or not select:
             return []
         try:
@@ -443,13 +732,19 @@ class NoteService:
                 stmt = select(NoteTable).where(NoteTable.workspace_id == workspace_id)
                 if media_id:
                     stmt = stmt.where(NoteTable.media_id == media_id)
-                stmt = stmt.order_by(NoteTable.version.desc())
+                if folder_id:
+                    stmt = stmt.where(NoteTable.folder_id == folder_id)
+                elif unorganized:
+                    stmt = stmt.where(NoteTable.folder_id.is_(None))
+                stmt = stmt.order_by(NoteTable.updated_at.desc())
                 records = self._scalars(session, stmt)
                 return [
                     Note(
                         id=n.id,
                         workspace_id=n.workspace_id,
                         title=n.title,
+                        folder_id=getattr(n, "folder_id", None),
+                        content=getattr(n, "content", None),
                         summary=n.summary,
                         media_id=n.media_id,
                         version=n.version,
