@@ -90,20 +90,35 @@ export const NoteBottomBar: React.FC<NoteBottomBarProps> = ({
         />
       </div>
 
-      {/* Right: "✨ Generate Notes" Action Button */}
-      <div className="flex items-center gap-1 shrink-0">
+      {/* Right: Generate Notes Action Button matching mockup.html */}
+      <div className="flex items-center shrink-0">
         <button
           onClick={onGenerateNotes}
           disabled={generating || isRecording || isUploading}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl border border-[#45464c] bg-[#273647] hover:bg-[#2f4155] text-[#e9c349] font-mono text-xs md:text-sm font-medium transition-all cursor-pointer select-none whitespace-nowrap shadow-sm ${
             generating
-              ? 'bg-primary/50 text-on-primary cursor-wait'
-              : 'bg-primary text-on-primary hover:brightness-110 active:scale-95'
+              ? 'opacity-60 cursor-wait'
+              : 'hover:border-[#e9c349]/40 active:scale-[0.98]'
           }`}
         >
-          <span className="material-symbols-outlined text-[16px] text-yellow-300">sparkles</span>
+          {generating ? (
+            <span className="material-symbols-outlined text-[15px] animate-spin text-[#e9c349]">sync</span>
+          ) : (
+            <svg
+              className="w-[15px] h-[15px] shrink-0 text-[#e9c349]"
+              viewBox="0 0 15 15"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M7.5 1l1.5 4.5L13.5 7l-4.5 1.5L7.5 13 6 8.5 1.5 7l4.5-1.5L7.5 1Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
           <span>{generating ? 'Generating...' : 'Generate Notes'}</span>
-          <span className="material-symbols-outlined text-sm opacity-80">expand_more</span>
         </button>
       </div>
     </div>
