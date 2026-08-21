@@ -23,7 +23,7 @@ Implemented the complete end-to-end **Note Generation & Audio Transcription Work
 ### Frontend Presentation & Audio Recording
 * **[`frontend/src/features/notes/NoteTopToolbar.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteTopToolbar.tsx)**: Streamlined header containing only the editable Note Name and the `[Transcript] | [Notes]` view switcher.
 * **[`frontend/src/features/notes/NotesWorkspace.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NotesWorkspace.tsx)**: Streamlined left sidebar (removed search input and actions row; kept `New note` and Private Spaces). Unified the AI generated notes and manual editor into the `Notes` view.
-* **[`frontend/src/features/notes/NoteBottomBar.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteBottomBar.tsx)**: Floating bottom bar with microphone recording toggle, prompt input field, and `✨ Generate Notes` button.
+* **[`frontend/src/features/notes/NoteBottomBar.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteBottomBar.tsx)**: Floating bottom bar with microphone recording toggle, prompt input field, and the exact `mockup.html` styled **Generate Notes** button (dark navy `#273647` background, golden text `#e9c349`, subtle border `#45464c`, custom four-pointed star SVG, and monospace font).
 * **[`frontend/src/features/notes/useNotes.ts`](file:///e:/repos/athenus/frontend/src/features/notes/useNotes.ts)**: Note state management hook supporting `custom_instruction` query propagation.
 * **[`frontend/src/features/notes/useAudioRecorder.ts`](file:///e:/repos/athenus/frontend/src/features/notes/useAudioRecorder.ts)**: Browser microphone recording and upload hook.
 * **[`mockup.html`](file:///e:/repos/athenus/mockup.html)**: Synchronized HTML mockup prototype.
