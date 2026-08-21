@@ -36,6 +36,7 @@ interface UISlice {
   playbackSpeed: number;
   isWorkspaceModalOpen: boolean;
   searchQuery: string;
+  isSidebarCollapsed: boolean;
 
   // Active source context (generalized document/PDF ingestion)
   activeDocumentId: string | null;
@@ -65,6 +66,7 @@ interface UISlice {
   setPlaybackSpeed: (speed: number) => void;
   setWorkspaceModalOpen: (isOpen: boolean) => void;
   setSearchQuery: (query: string) => void;
+  toggleSidebar: () => void;
   setProviderSettings: (llm: string, stt: string, gpu: boolean, activeModel?: string) => void;
 
   // Active source context actions (generalized document/PDF ingestion)
@@ -96,11 +98,13 @@ export function rehydrateStoredState() {
   const savedSpeed = localStorage.getItem('athenus_playback_speed');
   const playbackSpeed = savedSpeed ? parseFloat(savedSpeed) : 1.0;
   const cachedModel = localStorage.getItem('athenus_active_model') || localStorage.getItem('athenus_selected_ollama_model') || '';
+  const sidebarCollapsed = localStorage.getItem('athenus_sidebar_collapsed') === 'true';
 
   // Set transient render cache to avoid layout flicker
   useAppStore.setState({
     activeMediaId: mediaId,
     playbackSpeed,
+    isSidebarCollapsed: sidebarCollapsed,
     ...(cachedModel ? { activeModel: cachedModel } : {}),
   });
 
@@ -143,6 +147,7 @@ export const useAppStore = create<AppState>()((...args) => {
     playbackSpeed: 1.0,
     isWorkspaceModalOpen: false,
     searchQuery: '',
+    isSidebarCollapsed: false,
 
     // Active source context state (generalized document/PDF ingestion)
     activeDocumentId: null,
@@ -161,6 +166,14 @@ export const useAppStore = create<AppState>()((...args) => {
     gpuAcceleration: true,
 
     setActiveView: (viewId) => set({ activeView: viewId }),
+    toggleSidebar: () =>
+      set((state) => {
+        const isSidebarCollapsed = !state.isSidebarCollapsed;
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('athenus_sidebar_collapsed', String(isSidebarCollapsed));
+        }
+        return { isSidebarCollapsed };
+      }),
     setWorkspaces: (workspaces) => set({ workspaces }),
     setSessions: (sessions) => set({ sessions }),
     setWorkspaceContext: (partialContext) =>

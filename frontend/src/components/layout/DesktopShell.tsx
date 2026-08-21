@@ -23,7 +23,7 @@ import { BackgroundTaskRuntime } from '@/features/pipeline/BackgroundTaskRuntime
 import { PersistentMediaPlayer } from '@/features/video/PersistentMediaPlayer';
 
 export const DesktopShell: React.FC = () => {
-  const { activeView } = useAppStore();
+  const { activeView, isSidebarCollapsed } = useAppStore();
 
   useEffect(() => {
     rehydrateStoredState();
@@ -41,7 +41,11 @@ export const DesktopShell: React.FC = () => {
       <Sidebar />
 
       {/* Workspace Area */}
-      <main className="ml-sidebar-width flex-1 min-w-0 flex flex-col h-full bg-background">
+      <main
+        className={`flex-1 min-w-0 flex flex-col h-full bg-background transition-all duration-200 ${
+          isSidebarCollapsed ? 'ml-16' : 'ml-sidebar-width'
+        }`}
+      >
         {/* Top App Bar */}
         <TopToolbar />
 
