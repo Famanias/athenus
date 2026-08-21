@@ -20,7 +20,7 @@ export const NoteTopToolbar: React.FC<NoteTopToolbarProps> = ({
   hasTranscript = false,
 }) => {
   return (
-    <div className="pb-3 border-b border-outline-variant/30">
+    <div className="w-full">
       {/* Top Row: Title + Transcript | Notes Segmented Switcher */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         {/* Note Title Input */}
