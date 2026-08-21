@@ -106,6 +106,7 @@ export const NotesWorkspace: React.FC = () => {
   const [loadingTranscript, setLoadingTranscript] = useState(false);
   const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion>(null);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const deleteDialogRef = useRef<HTMLDivElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -247,11 +248,13 @@ export const NotesWorkspace: React.FC = () => {
 
   const requestFolderDeletion = (folderId: string, folderName: string, noteCount: number) => {
     deleteTriggerRef.current = document.activeElement as HTMLElement | null;
+    setConfirmDeleteText('');
     setPendingDeletion({ kind: 'folder', id: folderId, name: folderName, noteCount });
   };
 
   const requestNoteDeletion = (note: NoteDTO) => {
     deleteTriggerRef.current = document.activeElement as HTMLElement | null;
+    setConfirmDeleteText('');
     setPendingDeletion({ kind: 'note', id: note.id, name: note.title || 'Untitled Note' });
   };
 
@@ -319,9 +322,9 @@ export const NotesWorkspace: React.FC = () => {
           <button
             type="button"
             onClick={handleNewNote}
-            className="w-full min-h-11 flex items-center gap-2 px-3 rounded-lg bg-surface-container-high/80 hover:bg-surface-container-highest text-on-surface text-xs font-semibold transition-colors border border-outline-variant/30 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+            className="w-full min-h-11 flex items-center gap-2 px-3 rounded-lg bg-secondary text-on-secondary hover:brightness-110 text-xs font-semibold transition-all border border-secondary shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary/70"
           >
-            <span className="material-symbols-outlined text-[17px] text-primary" aria-hidden="true">edit_square</span>
+            <span className="material-symbols-outlined text-[17px] text-on-secondary" aria-hidden="true">edit_square</span>
             <span>New note</span>
             <span className="ml-auto text-[10px] text-on-surface-variant">in selected folder</span>
           </button>
@@ -484,7 +487,7 @@ export const NotesWorkspace: React.FC = () => {
             >
               <span className="material-symbols-outlined text-[18px]" aria-hidden="true">delete</span>
             </button>
-            <button type="button" onClick={handleNewNote} aria-label="Create note" title="Create note" className="w-11 h-11 rounded-md bg-primary/10 text-primary hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70">
+            <button type="button" onClick={handleNewNote} aria-label="Create note" title="Create note" className="w-11 h-11 rounded-md bg-secondary text-on-secondary hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary/70">
               <span className="material-symbols-outlined text-[18px]" aria-hidden="true">note_add</span>
             </button>
             <button type="button" onClick={handleMobileCreateFolder} aria-label="Create folder" title="Create folder" className="w-11 h-11 rounded-md bg-surface-container-high text-on-surface-variant hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70">
@@ -543,11 +546,11 @@ export const NotesWorkspace: React.FC = () => {
             {loading ? (
               <div className="py-24 text-center text-on-surface-variant text-sm">Loading notes…</div>
             ) : !activeNote ? (
-              <div className="py-24 px-6 text-center border border-dashed border-outline-variant rounded-2xl bg-surface-container-low/40 max-w-lg mx-auto">
-                <span className="material-symbols-outlined text-4xl text-primary" aria-hidden="true">note_add</span>
-                <h2 className="mt-3 text-lg font-semibold text-on-surface">Create your first note</h2>
+              <div className="py-24 px-6 text-center border border-dashed border-secondary/60 rounded-2xl bg-surface-container-low/40 max-w-lg mx-auto">
+                <span className="material-symbols-outlined text-4xl text-secondary" aria-hidden="true">note_add</span>
+                <h2 className="mt-3 text-lg font-semibold text-secondary">Create your first note</h2>
                 <p className="mt-2 text-sm text-on-surface-variant">Choose a folder in the sidebar, then create a note for writing, recording, and AI synthesis.</p>
-                <button type="button" onClick={handleNewNote} className="mt-5 min-h-11 px-5 rounded-lg bg-primary text-on-primary text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2">
+                <button type="button" onClick={handleNewNote} className="mt-5 min-h-11 px-5 rounded-lg bg-secondary text-on-secondary hover:brightness-110 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary/70 focus-visible:ring-offset-2">
                   New note
                 </button>
               </div>
@@ -555,7 +558,6 @@ export const NotesWorkspace: React.FC = () => {
               <TranscriptView
                 segments={transcriptSegments}
                 loading={loadingTranscript}
-                onStartRecording={handleToggleRecording}
               />
             ) : (
               <div className="space-y-6">
@@ -599,7 +601,7 @@ export const NotesWorkspace: React.FC = () => {
 
       {pendingDeletion && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeDeletionDialog();
           }}
@@ -610,44 +612,55 @@ export const NotesWorkspace: React.FC = () => {
             aria-modal="true"
             aria-labelledby="delete-dialog-title"
             aria-describedby="delete-dialog-description"
-            className="w-full max-w-md rounded-2xl border border-error/30 bg-surface-container-high p-6 shadow-2xl"
+            className="bg-surface-container-low border border-rose-500/50 rounded-lg p-6 max-w-md w-full space-y-4 shadow-2xl"
           >
-            <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-error/10 text-error">
-                <span className="material-symbols-outlined text-[24px]" aria-hidden="true">warning</span>
-              </div>
-              <div className="min-w-0">
-                <h2 id="delete-dialog-title" className="text-lg font-bold text-on-surface">
-                  Delete {pendingDeletion.kind}?
-                </h2>
-                <p id="delete-dialog-description" className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-                  {pendingDeletion.kind === 'folder' ? (
-                    <>
-                      This will permanently delete <strong className="text-on-surface">“{pendingDeletion.name}”</strong>
-                      {pendingDeletion.noteCount === 0 ? (
-                        <>. The folder is currently empty.</>
-                      ) : (
-                        <>
-                          {' '}and {pendingDeletion.noteCount === 1 ? 'the note' : `all ${pendingDeletion.noteCount} notes`} inside it,
-                          including their manual content and AI-generated sections.
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      This will permanently delete <strong className="text-on-surface">“{pendingDeletion.name}”</strong>,
-                      including its manual content and AI-generated sections.
-                    </>
-                  )}
-                </p>
-                <p className="mt-3 text-sm font-semibold text-error">This action cannot be undone.</p>
-              </div>
+            <div className="flex items-center gap-3 text-rose-400">
+              <span className="material-symbols-outlined text-2xl" aria-hidden="true">warning</span>
+              <h2 id="delete-dialog-title" className="font-bold text-lg font-type-light">
+                Delete {pendingDeletion.kind}?
+              </h2>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
+            <p id="delete-dialog-description" className="text-xs text-on-surface-variant leading-relaxed">
+              {pendingDeletion.kind === 'folder' ? (
+                <>
+                  This will permanently delete <strong className="text-on-surface">“{pendingDeletion.name}”</strong>
+                  {pendingDeletion.noteCount === 0 ? (
+                    <>. The folder is currently empty.</>
+                  ) : (
+                    <>
+                      {' '}and {pendingDeletion.noteCount === 1 ? 'the note' : `all ${pendingDeletion.noteCount} notes`} inside it,
+                      including their manual content and AI-generated sections.
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  This will permanently delete <strong className="text-on-surface">“{pendingDeletion.name}”</strong>,
+                  including its manual content and AI-generated sections. This action cannot be undone.
+                </>
+              )}
+            </p>
+
+            <div className="space-y-2">
+              <label htmlFor="delete-confirm-input" className="block text-xs font-bold text-rose-300 font-mono">
+                Type <code className="bg-rose-950 px-1 py-0.5 rounded">DELETE</code> to confirm:
+              </label>
+              <input
+                id="delete-confirm-input"
+                type="text"
+                autoFocus
+                value={confirmDeleteText}
+                onChange={(event) => setConfirmDeleteText(event.target.value)}
+                placeholder="DELETE"
+                disabled={deleting}
+                className="w-full bg-surface-container border border-rose-500/40 rounded p-2.5 text-xs font-mono text-rose-200 focus:outline-none focus:border-rose-400 disabled:opacity-60"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
               <button
                 type="button"
-                autoFocus
                 disabled={deleting}
                 onClick={closeDeletionDialog}
                 className="min-h-11 rounded-lg border border-outline-variant/50 px-4 text-sm font-semibold text-on-surface hover:bg-surface-container-highest disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
@@ -656,11 +669,11 @@ export const NotesWorkspace: React.FC = () => {
               </button>
               <button
                 type="button"
-                disabled={deleting}
+                disabled={confirmDeleteText !== 'DELETE' || deleting}
                 onClick={confirmDeletion}
-                className="min-h-11 min-w-28 rounded-lg bg-error px-4 text-sm font-bold text-on-error hover:brightness-110 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-high"
+                className="min-h-11 min-w-28 rounded-lg bg-rose-600 px-4 text-sm font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-low"
               >
-                {deleting ? 'Deleting…' : `Delete ${pendingDeletion.kind}`}
+                {deleting ? 'Deleting…' : 'Permanently Delete'}
               </button>
             </div>
           </div>

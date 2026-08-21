@@ -47,9 +47,9 @@ export const NoteTopToolbar: React.FC<NoteTopToolbarProps> = ({
             <button
               type="button"
               onClick={() => onViewModeChange('transcript')}
-              className={`min-h-10 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 ${
+              className={`min-h-10 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary/70 ${
                 viewMode === 'transcript'
-                  ? 'bg-surface text-on-surface shadow-xs font-semibold'
+                  ? 'bg-secondary text-on-secondary shadow-xs font-semibold'
                   : 'text-on-surface-variant hover:text-on-surface'
               }`}
             >
@@ -61,9 +61,9 @@ export const NoteTopToolbar: React.FC<NoteTopToolbarProps> = ({
             <button
               type="button"
               onClick={() => onViewModeChange('editor')}
-              className={`min-h-10 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 ${
+              className={`min-h-10 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary/70 ${
                 viewMode === 'editor'
-                  ? 'bg-surface text-on-surface shadow-xs font-semibold'
+                  ? 'bg-secondary text-on-secondary shadow-xs font-semibold'
                   : 'text-on-surface-variant hover:text-on-surface'
               }`}
             >
