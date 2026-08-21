@@ -40,9 +40,27 @@ export const NoteSummaryHeader: React.FC<NoteSummaryHeaderProps> = ({ note }) =>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-mono font-medium px-2.5 py-1 rounded bg-secondary/10 text-secondary border border-secondary/20 uppercase tracking-wider">
-            AI Synthesized
-          </span>
+          {note.generation_method === 'heuristic' ? (
+            <span
+              title={note.fallback_reason ? `Fallback reason: ${note.fallback_reason}` : 'Generated using heuristic engine'}
+              className="text-[11px] font-mono font-medium px-2.5 py-1 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase tracking-wider flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-xs">offline_bolt</span>
+              Fallback {note.fallback_reason ? `(${note.fallback_reason})` : 'Engine'}
+            </span>
+          ) : note.generation_method === 'manual' ? (
+            <span className="text-[11px] font-mono font-medium px-2.5 py-1 rounded bg-surface-variant text-on-surface-variant border border-outline-variant/40 uppercase tracking-wider">
+              Manual Note
+            </span>
+          ) : (
+            <span
+              title={note.model_id ? `Generated with ${note.model_id}` : 'AI Generated Note'}
+              className="text-[11px] font-mono font-medium px-2.5 py-1 rounded bg-secondary/10 text-secondary border border-secondary/20 uppercase tracking-wider flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-xs">auto_awesome</span>
+              {note.model_id ? `AI (${note.model_id.split('/').pop()})` : 'AI Synthesized'}
+            </span>
+          )}
         </div>
       </div>
 

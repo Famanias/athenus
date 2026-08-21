@@ -2,7 +2,80 @@ import httpx
 import json
 from typing import AsyncGenerator, Dict, List, Optional
 from app.domain.ai.capabilities import TextGenerationRequest, TextGenerationResponse
+from app.domain.ai.exceptions import (
+    LLMProviderError,
+    LLMProviderAuthError,
+    LLMProviderRateLimitError,
+    LLMProviderTimeoutError,
+    LLMProviderUnavailableError,
+    LLMProviderBadRequestError,
+)
 from app.domain.ai.provider_interface import BaseLLMProvider, LLMProviderCapabilities, LLMModelMetadataDTO
+
+class LLMStreamException(RuntimeError):
+    """Raised when an LLM streaming response encounters an unrecoverable network or provider error mid-stream."""
+    pass
+
+def _map_http_error(
+    provider_id: str,
+    provider_name: str,
+    model_id: str,
+    status_code: int,
+    response_text: str,
+    headers: httpx.Headers,
+) -> LLMProviderError:
+    err_detail = (response_text or "")[:300].strip()
+    retry_after: Optional[float] = None
+    raw_retry = headers.get("retry-after")
+    if raw_retry:
+        try:
+            retry_after = float(raw_retry)
+        except (ValueError, TypeError):
+            pass
+
+    if status_code in (401, 403):
+        return LLMProviderAuthError(
+            f"Authentication failed for {provider_name} ({status_code}): {err_detail}",
+            provider_id=provider_id,
+            model_id=model_id,
+            status_code=status_code,
+            raw_detail=err_detail,
+        )
+    elif status_code == 429:
+        return LLMProviderRateLimitError(
+            f"Rate limit exceeded for {provider_name}: {err_detail}",
+            provider_id=provider_id,
+            model_id=model_id,
+            status_code=status_code,
+            retry_after=retry_after,
+            raw_detail=err_detail,
+        )
+    elif status_code in (400, 404, 422):
+        return LLMProviderBadRequestError(
+            f"Bad request to {provider_name} ({status_code}): {err_detail}",
+            provider_id=provider_id,
+            model_id=model_id,
+            status_code=status_code,
+            raw_detail=err_detail,
+        )
+    elif status_code in (500, 502, 503, 504):
+        return LLMProviderUnavailableError(
+            f"Provider {provider_name} unavailable ({status_code}): {err_detail}",
+            provider_id=provider_id,
+            model_id=model_id,
+            status_code=status_code,
+            retry_after=retry_after,
+            raw_detail=err_detail,
+        )
+    else:
+        return LLMProviderError(
+            f"Provider {provider_name} error ({status_code}): {err_detail}",
+            provider_id=provider_id,
+            model_id=model_id,
+            status_code=status_code,
+            retry_after=retry_after,
+            raw_detail=err_detail,
+        )
 
 class AnthropicProviderAdapter(BaseLLMProvider):
     """Tier 2 Adapter implementing Anthropic's native `/v1/messages` REST API specification."""
@@ -82,17 +155,18 @@ class AnthropicProviderAdapter(BaseLLMProvider):
         ]
 
     async def generate(self, request: TextGenerationRequest) -> TextGenerationResponse:
+        resolved_model = self._resolve_model()
         if not self.api_key:
-            return TextGenerationResponse(
-                text="⚠️ Anthropic API Key Missing: Please enter your Anthropic API Key in .env.",
-                prompt_tokens=0,
-                completion_tokens=0
+            raise LLMProviderAuthError(
+                f"Missing API key for {self.name}. Please enter your {self.name} API Key in Settings or .env.",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
             )
 
         url = f"{self.base_url}/messages"
         headers = self._build_headers()
         payload = {
-            "model": self._resolve_model(),
+            "model": resolved_model,
             "system": request.system_prompt or "You are Athenus AI Assistant.",
             "messages": [{"role": "user", "content": request.prompt}],
             "max_tokens": request.max_tokens or 1024,
@@ -116,31 +190,51 @@ class AnthropicProviderAdapter(BaseLLMProvider):
                     finish_reason=data.get("stop_reason", "end_turn")
                 )
             else:
-                err_detail = resp.text[:200]
-                return TextGenerationResponse(
-                    text=f"⚠️ Anthropic API Error ({resp.status_code}): {err_detail}",
-                    prompt_tokens=0,
-                    completion_tokens=0
+                raise _map_http_error(
+                    self.provider_id,
+                    self.name,
+                    resolved_model,
+                    resp.status_code,
+                    resp.text,
+                    resp.headers,
                 )
+        except httpx.TimeoutException as e:
+            raise LLMProviderTimeoutError(
+                f"Request to {self.name} timed out: {str(e)}",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
+            ) from e
+        except httpx.NetworkError as e:
+            raise LLMProviderUnavailableError(
+                f"Failed to connect to {self.name}: {str(e)}",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
+            ) from e
+        except LLMProviderError:
+            raise
         except Exception as e:
-            return TextGenerationResponse(
-                text=f"⚠️ Anthropic Network Error: Failed to reach Anthropic API ({str(e)}).",
-                prompt_tokens=0,
-                completion_tokens=0
-            )
+            raise LLMProviderError(
+                f"Unexpected error communicating with {self.name}: {str(e)}",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
+            ) from e
         finally:
             if should_close:
                 await client.aclose()
 
     async def stream(self, request: TextGenerationRequest) -> AsyncGenerator[str, None]:
+        resolved_model = self._resolve_model()
         if not self.api_key:
-            yield "⚠️ Anthropic API Key Missing: Please enter your Anthropic API Key in .env."
-            return
+            raise LLMProviderAuthError(
+                f"Missing API key for {self.name}. Please enter your {self.name} API Key in Settings or .env.",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
+            )
 
         url = f"{self.base_url}/messages"
         headers = self._build_headers()
         payload = {
-            "model": self._resolve_model(),
+            "model": resolved_model,
             "system": request.system_prompt or "You are Athenus AI Assistant.",
             "messages": [{"role": "user", "content": request.prompt}],
             "max_tokens": request.max_tokens or 1024,
@@ -154,8 +248,15 @@ class AnthropicProviderAdapter(BaseLLMProvider):
         try:
             async with client.stream("POST", url, headers=headers, json=payload) as resp:
                 if resp.status_code != 200:
-                    yield f"⚠️ Anthropic API Error ({resp.status_code})"
-                    return
+                    resp_text = await resp.aread()
+                    raise _map_http_error(
+                        self.provider_id,
+                        self.name,
+                        resolved_model,
+                        resp.status_code,
+                        resp_text.decode("utf-8", errors="replace"),
+                        resp.headers,
+                    )
 
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data:"):
@@ -171,8 +272,22 @@ class AnthropicProviderAdapter(BaseLLMProvider):
                                 yield text
                     except json.JSONDecodeError:
                         continue
+        except (LLMProviderError, LLMStreamException):
+            raise
+        except httpx.TimeoutException as e:
+            raise LLMProviderTimeoutError(
+                f"{self.name} streaming timed out: {str(e)}",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
+            ) from e
+        except httpx.NetworkError as e:
+            raise LLMProviderUnavailableError(
+                f"{self.name} streaming network connection failed: {str(e)}",
+                provider_id=self.provider_id,
+                model_id=resolved_model,
+            ) from e
         except Exception as e:
-            yield f"⚠️ Anthropic Streaming Error: {str(e)}"
+            raise LLMStreamException(f"{self.name} streaming failed mid-response: {str(e)}") from e
         finally:
             if should_close:
                 await client.aclose()

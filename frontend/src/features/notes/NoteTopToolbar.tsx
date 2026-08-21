@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import type { NoteFolderDTO } from './useNotes';
 
 export type NoteViewMode = 'transcript' | 'editor';
 
@@ -10,9 +9,6 @@ interface NoteTopToolbarProps {
   onTitleChange: (title: string) => void;
   viewMode: NoteViewMode;
   onViewModeChange: (mode: NoteViewMode) => void;
-  folders: NoteFolderDTO[];
-  folderId: string | null;
-  onFolderChange: (folderId: string | null) => void;
   hasTranscript?: boolean;
   saving?: boolean;
   disabled?: boolean;
@@ -23,17 +19,14 @@ export const NoteTopToolbar: React.FC<NoteTopToolbarProps> = ({
   onTitleChange,
   viewMode,
   onViewModeChange,
-  folders,
-  folderId,
-  onFolderChange,
   hasTranscript = false,
   saving = false,
   disabled = false,
 }) => {
   return (
-    <div className="w-full space-y-3">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex-1 min-w-0">
+    <div className="w-full">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex-1 min-w-0 flex items-center gap-3">
           <label htmlFor="note-title" className="sr-only">Note title</label>
           <input
             id="note-title"
@@ -44,6 +37,9 @@ export const NoteTopToolbar: React.FC<NoteTopToolbarProps> = ({
             disabled={disabled}
             className="w-full bg-transparent font-type-light text-2xl font-bold text-on-surface placeholder:text-on-surface-variant/40 outline-none focus-visible:ring-2 focus-visible:ring-primary/60 rounded px-1 -ml-1 tracking-tight disabled:opacity-50"
           />
+          <span className="font-mono text-[11px] text-on-surface-variant shrink-0" role="status" aria-live="polite">
+            {saving ? 'Saving…' : disabled ? '' : 'Saved'}
+          </span>
         </div>
 
         <div className="flex items-center shrink-0">
@@ -75,27 +71,7 @@ export const NoteTopToolbar: React.FC<NoteTopToolbarProps> = ({
               <span>Notes</span>
             </button>
           </div>
-
         </div>
-      </div>
-
-      <div className="flex items-center gap-3 text-xs text-on-surface-variant">
-        <label htmlFor="note-folder" className="font-medium">Folder</label>
-        <select
-          id="note-folder"
-          value={folderId ?? ''}
-          onChange={(event) => onFolderChange(event.target.value || null)}
-          disabled={disabled}
-          className="min-h-9 max-w-56 rounded-md border border-outline-variant/40 bg-surface-container-high px-2 text-on-surface outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:opacity-50"
-        >
-          <option value="">Unorganized Notes</option>
-          {folders.map((folder) => (
-            <option key={folder.id} value={folder.id}>{folder.name}</option>
-          ))}
-        </select>
-        <span className="font-mono text-[11px]" role="status" aria-live="polite">
-          {saving ? 'Saving…' : disabled ? 'No note selected' : 'Saved'}
-        </span>
       </div>
     </div>
   );

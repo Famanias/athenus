@@ -1,12 +1,22 @@
+import asyncio
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
 from app.domain.ai.capabilities import TextGenerationRequest
+from app.domain.ai.exceptions import (
+    LLMProviderError,
+    LLMProviderAuthError,
+    LLMProviderRateLimitError,
+    LLMProviderTimeoutError,
+    LLMProviderUnavailableError,
+    LLMProviderBadRequestError,
+)
 from app.domain.ai.service_bus import AIServiceBus
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.domain.learning.entities import Note, NoteFolder, NoteSection
@@ -18,6 +28,14 @@ from app.domain.learning.note_generation import (
 )
 from app.infrastructure.db.session import engine
 from app.infrastructure.events.event_bus import DomainEvent, EventBus
+
+@dataclass
+class ExtractedNotesResult:
+    extracted: Optional[ExtractedNotes]
+    generation_method: str = "llm"  # "llm" | "heuristic"
+    fallback_reason: Optional[str] = None
+    provider_id: Optional[str] = None
+    model_id: Optional[str] = None
 
 try:
     from sqlmodel import Session, select
@@ -220,6 +238,7 @@ class NoteService:
                 title=title.strip() or "Untitled Note",
                 version=1,
                 status="ready",
+                generation_method="manual",
                 created_at=now,
                 updated_at=now,
             )
@@ -323,6 +342,10 @@ class NoteService:
         media_id: Optional[str] = None,
         summary: Optional[str] = None,
         action_items: Optional[List[str]] = None,
+        generation_method: str = "llm",
+        fallback_reason: Optional[str] = None,
+        provider_id: Optional[str] = None,
+        model_id: Optional[str] = None,
     ) -> None:
         if not engine or not Session or not select:
             return
@@ -339,6 +362,10 @@ class NoteService:
                     existing.media_id = media_id
                     existing.summary = summary
                     existing.action_items_json = json.dumps(action_items) if action_items else None
+                    existing.generation_method = generation_method
+                    existing.fallback_reason = fallback_reason
+                    existing.provider_id = provider_id
+                    existing.model_id = model_id
                     existing.updated_at = datetime.utcnow()
                     session.add(existing)
                 else:
@@ -352,6 +379,10 @@ class NoteService:
                             version=version,
                             status=status,
                             action_items_json=json.dumps(action_items) if action_items else None,
+                            generation_method=generation_method,
+                            fallback_reason=fallback_reason,
+                            provider_id=provider_id,
+                            model_id=model_id,
                             created_at=datetime.utcnow(),
                             updated_at=datetime.utcnow(),
                         )
@@ -413,36 +444,102 @@ class NoteService:
         chunks: List[dict],
         concepts: Optional[List[dict]] = None,
         custom_instruction: Optional[str] = None,
-    ) -> Optional[ExtractedNotes]:
+    ) -> ExtractedNotesResult:
         if not self.ai_service_bus:
             logger.warning("NoteService: ai_service_bus is None — falling back to heuristic.")
-            return None
+            return ExtractedNotesResult(extracted=None, generation_method="heuristic", fallback_reason="no_ai_bus")
+
         try:
             text_capability = self.ai_service_bus.get_text_capability()
         except Exception as exc:
             logger.warning("NoteService: failed to resolve text capability — %s", exc)
-            return None
+            return ExtractedNotesResult(extracted=None, generation_method="heuristic", fallback_reason="capability_resolution_error")
+
+        provider_id = getattr(text_capability, "provider_id", None)
+        model_id = None
+        if hasattr(text_capability, "_resolve_model"):
+            try:
+                model_id = text_capability._resolve_model()
+            except Exception:
+                model_id = getattr(text_capability, "default_model", None)
+        elif hasattr(text_capability, "default_model"):
+            model_id = getattr(text_capability, "default_model", None)
 
         prompt = build_notes_prompt(chunks, concepts, custom_instruction=custom_instruction)
-        try:
-            gen_res = await text_capability.generate(
-                TextGenerationRequest(
-                    prompt=prompt,
-                    temperature=0.3,
-                    max_tokens=4096,
-                )
-            )
-        except Exception as exc:
-            logger.warning("NoteService: LLM generate() raised — %s", exc)
-            return None
+        max_attempts = 3
+        last_reason = "generation_failed"
 
-        parsed = parse_llm_notes(gen_res.text)
-        if not parsed:
-            logger.warning(
-                "NoteService: parse_llm_notes returned None (raw text len=%d). Falling back to heuristic.",
-                len(gen_res.text or ""),
-            )
-        return parsed
+        for attempt in range(1, max_attempts + 1):
+            try:
+                gen_res = await text_capability.generate(
+                    TextGenerationRequest(
+                        prompt=prompt,
+                        temperature=0.3,
+                        max_tokens=4096,
+                    )
+                )
+                parsed = parse_llm_notes(gen_res.text)
+                if parsed and parsed.sections:
+                    logger.info(
+                        "NoteService: LLM note generation succeeded (provider=%s, model=%s, sections=%d, attempt=%d)",
+                        provider_id, model_id, len(parsed.sections), attempt,
+                    )
+                    return ExtractedNotesResult(
+                        extracted=parsed,
+                        generation_method="llm",
+                        fallback_reason=None,
+                        provider_id=provider_id,
+                        model_id=model_id,
+                    )
+                else:
+                    logger.warning(
+                        "NoteService: parse_llm_notes returned invalid or empty sections (raw text len=%d, attempt=%d).",
+                        len(gen_res.text or ""), attempt,
+                    )
+                    last_reason = "parse_error"
+                    break
+            except LLMProviderRateLimitError as exc:
+                last_reason = "rate_limit"
+                retry_after = exc.retry_after or min(1.5 * (2 ** (attempt - 1)), 6.0)
+                logger.warning(
+                    "NoteService: LLM rate limited (attempt %d/%d, retry_after=%.1fs) — %s",
+                    attempt, max_attempts, retry_after, exc,
+                )
+                if attempt < max_attempts:
+                    await asyncio.sleep(retry_after)
+                    continue
+            except LLMProviderTimeoutError as exc:
+                last_reason = "timeout"
+                logger.warning("NoteService: LLM generation timeout (attempt %d/%d) — %s", attempt, max_attempts, exc)
+                if attempt < max_attempts:
+                    await asyncio.sleep(1.0)
+                    continue
+            except LLMProviderUnavailableError as exc:
+                last_reason = "provider_unavailable"
+                logger.warning("NoteService: LLM provider unavailable (attempt %d/%d) — %s", attempt, max_attempts, exc)
+                if attempt < max_attempts:
+                    await asyncio.sleep(1.5)
+                    continue
+            except LLMProviderAuthError as exc:
+                last_reason = "auth_error"
+                logger.warning("NoteService: LLM provider auth error — %s", exc)
+                break
+            except LLMProviderBadRequestError as exc:
+                last_reason = "bad_request"
+                logger.warning("NoteService: LLM provider rejected request — %s", exc)
+                break
+            except Exception as exc:
+                last_reason = "provider_error"
+                logger.warning("NoteService: LLM generate() raised unexpected exception — %s", exc)
+                break
+
+        return ExtractedNotesResult(
+            extracted=None,
+            generation_method="heuristic",
+            fallback_reason=last_reason,
+            provider_id=provider_id,
+            model_id=model_id,
+        )
 
     def _concept_dicts(self, workspace_id: str) -> List[dict]:
         try:
@@ -508,7 +605,6 @@ class NoteService:
         if media_id:
             chunks = load_chunks(media_id, workspace_id)
         else:
-            # If no media_id specified, collect all chunks for the workspace
             try:
                 from app.infrastructure.db.models import TranscriptChunkTable
 
@@ -542,9 +638,15 @@ class NoteService:
         concepts = self._concept_dicts(workspace_id)
 
         update_job("llm_generation", 50, "Synthesizing comprehensive notes with AI model...")
-        extracted: Optional[ExtractedNotes] = await self._generate_with_llm(chunks, concepts, custom_instruction=custom_instruction)
-        if not extracted or not extracted.sections:
+        result = await self._generate_with_llm(chunks, concepts, custom_instruction=custom_instruction)
+        if result.extracted and result.extracted.sections:
+            extracted = result.extracted
+            generation_method = "llm"
+            fallback_reason = None
+        else:
             extracted = generate_notes_heuristic(chunks, concepts, version=version)
+            generation_method = "heuristic"
+            fallback_reason = result.fallback_reason or "heuristic_fallback"
 
         update_job("persist", 85, "Saving structured sections and action items...")
         final_title = title or extracted.title or note_title
@@ -557,10 +659,15 @@ class NoteService:
             media_id=media_id,
             summary=extracted.summary,
             action_items=extracted.action_items,
+            generation_method=generation_method,
+            fallback_reason=fallback_reason,
+            provider_id=result.provider_id,
+            model_id=result.model_id,
         )
         self._persist_sections(note_id, workspace_id, media_id, extracted.sections)
 
-        update_job("ready", 100, "Notes ready.", status="ready")
+        job_msg = "Notes ready." if generation_method == "llm" else f"Notes ready (heuristic fallback: {fallback_reason})."
+        update_job("ready", 100, job_msg, status="ready")
 
         if self.event_bus:
             try:
@@ -574,6 +681,8 @@ class NoteService:
                             "media_id": media_id,
                             "version": version,
                             "section_count": len(extracted.sections),
+                            "generation_method": generation_method,
+                            "fallback_reason": fallback_reason,
                         },
                     )
                 )
@@ -635,13 +744,19 @@ class NoteService:
 
         concepts = self._concept_dicts(note.workspace_id)
         update_job("llm_generation", 50, "Synthesizing comprehensive notes with AI model...")
-        extracted = await self._generate_with_llm(
+        result = await self._generate_with_llm(
             chunks,
             concepts,
             custom_instruction=custom_instruction,
         )
-        if not extracted or not extracted.sections:
+        if result.extracted and result.extracted.sections:
+            extracted = result.extracted
+            generation_method = "llm"
+            fallback_reason = None
+        else:
             extracted = generate_notes_heuristic(chunks, concepts, version=note.version)
+            generation_method = "heuristic"
+            fallback_reason = result.fallback_reason or "heuristic_fallback"
 
         update_job("persist", 85, "Saving structured sections and action items...")
         self._upsert_note_record(
@@ -653,9 +768,14 @@ class NoteService:
             media_id=note.media_id,
             summary=extracted.summary,
             action_items=extracted.action_items,
+            generation_method=generation_method,
+            fallback_reason=fallback_reason,
+            provider_id=result.provider_id,
+            model_id=result.model_id,
         )
         self._persist_sections(note.id, note.workspace_id, note.media_id, extracted.sections)
-        update_job("ready", 100, "Notes ready.", status="ready")
+        job_msg = "Notes ready." if generation_method == "llm" else f"Notes ready (heuristic fallback: {fallback_reason})."
+        update_job("ready", 100, job_msg, status="ready")
         return self.get_note(note.id)
 
     # ------------------------------------------------------------------
@@ -709,6 +829,10 @@ class NoteService:
                     status=n.status,
                     action_items=_json_loads_or_list(getattr(n, "action_items_json", None)),
                     sections=sections,
+                    generation_method=getattr(n, "generation_method", "llm") or "llm",
+                    fallback_reason=getattr(n, "fallback_reason", None),
+                    provider_id=getattr(n, "provider_id", None),
+                    model_id=getattr(n, "model_id", None),
                     created_at=n.created_at,
                     updated_at=n.updated_at,
                 )
@@ -750,6 +874,10 @@ class NoteService:
                         version=n.version,
                         status=n.status,
                         action_items=_json_loads_or_list(getattr(n, "action_items_json", None)),
+                        generation_method=getattr(n, "generation_method", "llm") or "llm",
+                        fallback_reason=getattr(n, "fallback_reason", None),
+                        provider_id=getattr(n, "provider_id", None),
+                        model_id=getattr(n, "model_id", None),
                         created_at=n.created_at,
                         updated_at=n.updated_at,
                     )

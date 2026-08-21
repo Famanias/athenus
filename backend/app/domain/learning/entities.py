@@ -183,6 +183,9 @@ class Note:
     status: str = "ready"  # pending | generating | ready | failed
     action_items: List[str] = field(default_factory=list)
     sections: List[NoteSection] = field(default_factory=list)
+    generation_method: str = "llm"  # llm | heuristic | manual
+    fallback_reason: Optional[str] = None
+    provider_id: Optional[str] = None
+    model_id: Optional[str] = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
-

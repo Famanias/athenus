@@ -276,12 +276,6 @@ export const NotesWorkspace: React.FC = () => {
     }
   };
 
-  const handleFolderChange = async (folderId: string | null) => {
-    if (!activeNote) return;
-    const updated = await updateNote(activeNote.id, { folder_id: folderId });
-    if (updated) setActiveFolderId(folderId);
-  };
-
   const handleToggleRecording = async () => {
     if (!isRecording) {
       let target = activeNote;
@@ -512,9 +506,6 @@ export const NotesWorkspace: React.FC = () => {
               onTitleChange={setNoteTitle}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
-              folders={folders}
-              folderId={activeNote?.folder_id ?? null}
-              onFolderChange={handleFolderChange}
               hasTranscript={transcriptSegments.length > 0}
               saving={saving}
               disabled={!activeNote}

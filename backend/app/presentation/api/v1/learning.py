@@ -567,6 +567,10 @@ class NoteResponse(BaseModel):
     status: str = "ready"
     action_items: List[str] = []
     sections: List[NoteSectionResponse] = []
+    generation_method: str = "llm"  # llm | heuristic | manual
+    fallback_reason: Optional[str] = None
+    provider_id: Optional[str] = None
+    model_id: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -601,6 +605,10 @@ def _note_to_response(note: Note) -> NoteResponse:
         status=note.status,
         action_items=note.action_items or [],
         sections=[_section_to_response(s) for s in (note.sections or [])],
+        generation_method=getattr(note, "generation_method", "llm") or "llm",
+        fallback_reason=getattr(note, "fallback_reason", None),
+        provider_id=getattr(note, "provider_id", None),
+        model_id=getattr(note, "model_id", None),
         created_at=note.created_at.isoformat() if note.created_at else None,
         updated_at=note.updated_at.isoformat() if note.updated_at else None,
     )

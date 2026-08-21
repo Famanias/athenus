@@ -94,7 +94,46 @@ def test_openai_compatible_adapter_missing_key():
         assert health.is_available is False
         assert health.error_message == "Missing API key in .env"
 
-        res = await adapter.generate(TextGenerationRequest(prompt="Hello"))
-        assert "API Key Missing" in res.text
+        from app.domain.ai.exceptions import LLMProviderAuthError, LLMProviderRateLimitError, LLMProviderUnavailableError, LLMProviderTimeoutError
+        with pytest.raises(LLMProviderAuthError) as exc_info:
+            await adapter.generate(TextGenerationRequest(prompt="Hello"))
+        assert "Missing API key" in str(exc_info.value)
 
     asyncio.run(run())
+
+
+def test_openai_compatible_adapter_error_integrity_status_codes():
+    async def run():
+        from app.domain.ai.exceptions import LLMProviderAuthError, LLMProviderRateLimitError, LLMProviderUnavailableError
+
+        # 401 Unauthorized
+        transport_401 = httpx.MockTransport(lambda req: httpx.Response(401, text='{"error": "Invalid API key"}'))
+        client_401 = httpx.AsyncClient(transport=transport_401)
+        adapter_401 = OpenAICompatibleProviderAdapter("groq", "Groq API", "https://api.groq.com/openai/v1", "bad-key", "model-a", http_client=client_401)
+        with pytest.raises(LLMProviderAuthError) as exc:
+            await adapter_401.generate(TextGenerationRequest(prompt="test"))
+        assert exc.value.status_code == 401
+        await client_401.aclose()
+
+        # 429 Rate Limit with Retry-After
+        headers_429 = {"retry-after": "4.5"}
+        transport_429 = httpx.MockTransport(lambda req: httpx.Response(429, headers=headers_429, text='{"error": "Rate limit reached (TPM)"}'))
+        client_429 = httpx.AsyncClient(transport=transport_429)
+        adapter_429 = OpenAICompatibleProviderAdapter("groq", "Groq API", "https://api.groq.com/openai/v1", "key", "model-a", http_client=client_429)
+        with pytest.raises(LLMProviderRateLimitError) as exc:
+            await adapter_429.generate(TextGenerationRequest(prompt="test"))
+        assert exc.value.status_code == 429
+        assert exc.value.retry_after == 4.5
+        await client_429.aclose()
+
+        # 503 Service Unavailable
+        transport_503 = httpx.MockTransport(lambda req: httpx.Response(503, text='Service overloaded'))
+        client_503 = httpx.AsyncClient(transport=transport_503)
+        adapter_503 = OpenAICompatibleProviderAdapter("groq", "Groq API", "https://api.groq.com/openai/v1", "key", "model-a", http_client=client_503)
+        with pytest.raises(LLMProviderUnavailableError) as exc:
+            await adapter_503.generate(TextGenerationRequest(prompt="test"))
+        assert exc.value.status_code == 503
+        await client_503.aclose()
+
+    asyncio.run(run())
+

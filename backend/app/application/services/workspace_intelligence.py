@@ -61,8 +61,15 @@ class WorkspaceIntelligenceManager:
             temperature=0.3,
             max_tokens=2048
         )
-        response = await text_capability.generate(gen_request)
-        final_answer = response.text
+        try:
+            response = await text_capability.generate(gen_request)
+            final_answer = response.text
+        except Exception:
+            if retrieval_ctx.retrieved_chunks:
+                context_excerpts = "\n".join([f"- {c.get('text', '')}" for c in retrieval_ctx.retrieved_chunks[:3]])
+                final_answer = f"Based on the retrieved context:\n\n{context_excerpts}"
+            else:
+                final_answer = "I could not find sufficient context in the workspace materials to answer that question."
 
         # 3. Update Memory
         self.memory_manager.add_turn("user", query)

@@ -187,13 +187,17 @@ def test_note_service_heuristic_execution():
     assert note.media_id == media_id
     assert note.version == 1
     assert note.status == "ready"
+    assert note.generation_method == "heuristic"
+    assert note.fallback_reason == "no_ai_bus"
     assert len(note.sections) >= 1
     assert len(note.action_items) >= 1
 
 
 class FakeTextCapability:
-    def __init__(self, response_text: str):
+    def __init__(self, response_text: str, provider_id: str = "mock-groq", default_model: str = "llama-3.3-70b"):
         self.response_text = response_text
+        self.provider_id = provider_id
+        self.default_model = default_model
 
     async def generate(self, request):
         class GenResult:
@@ -272,10 +276,141 @@ def test_note_service_llm_execution():
     assert note is not None
     assert note.title == "Transformer Architectures"
     assert note.summary.startswith("Overview of self-attention")
+    assert note.generation_method == "llm"
+    assert note.fallback_reason is None
     assert len(note.sections) == 1
     assert note.sections[0].heading == "Self-Attention Mechanism"
     assert note.sections[0].start_time == 0.0
     assert note.sections[0].end_time == 30.0
+
+
+def test_note_service_retry_on_429_success():
+    from app.domain.ai.exceptions import LLMProviderRateLimitError
+
+    init_db()
+    ws_id = f"ws_retry_{uuid.uuid4().hex[:8]}"
+    media_id = f"med_retry_{uuid.uuid4().hex[:8]}"
+
+    try:
+        from sqlmodel import Session
+    except ImportError:
+        from sqlalchemy.orm import Session
+
+    from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+
+    with Session(engine) as session:
+        session.add(
+            MediaItemTable(id=media_id, workspace_id=ws_id, title="Lecture", file_path="/mock/test.mp4", status="completed")
+        )
+        session.add(
+            TranscriptChunkTable(id=f"chk_{media_id}_0", media_id=media_id, workspace_id=ws_id, text="Audio transcript text.", start_time=0.0, end_time=10.0, chunk_index=0, word_count=5)
+        )
+        session.commit()
+
+    call_count = 0
+    llm_payload = json.dumps({
+        "title": "Recovered Notes",
+        "summary": "Recovered summary.",
+        "sections": [{"heading": "Section 1", "body": "Body text.", "key_takeaways": ["Point 1"]}],
+        "action_items": ["Action 1"]
+    })
+
+    class FlakyCapability:
+        provider_id = "groq"
+        default_model = "llama-3.3-70b"
+
+        async def generate(self, request):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise LLMProviderRateLimitError("Rate limit exceeded", provider_id="groq", status_code=429, retry_after=0.01)
+            class Result:
+                text = llm_payload
+            return Result()
+
+    service = NoteService(ai_service_bus=FakeAIServiceBus(FlakyCapability()))
+    note = asyncio.run(service.generate_notes(workspace_id=ws_id, media_id=media_id))
+
+    assert note is not None
+    assert call_count == 2
+    assert note.generation_method == "llm"
+    assert note.title == "Recovered Notes"
+
+
+def test_note_service_fallback_on_persistent_429():
+    from app.domain.ai.exceptions import LLMProviderRateLimitError
+
+    init_db()
+    ws_id = f"ws_fail_{uuid.uuid4().hex[:8]}"
+    media_id = f"med_fail_{uuid.uuid4().hex[:8]}"
+
+    try:
+        from sqlmodel import Session
+    except ImportError:
+        from sqlalchemy.orm import Session
+
+    from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+
+    with Session(engine) as session:
+        session.add(
+            MediaItemTable(id=media_id, workspace_id=ws_id, title="Lecture", file_path="/mock/test.mp4", status="completed")
+        )
+        session.add(
+            TranscriptChunkTable(id=f"chk_{media_id}_0", media_id=media_id, workspace_id=ws_id, text="Audio transcript text for testing persistent 429.", start_time=0.0, end_time=10.0, chunk_index=0, word_count=7)
+        )
+        session.commit()
+
+    class FailingCapability:
+        provider_id = "groq"
+        default_model = "llama-3.3-70b"
+
+        async def generate(self, request):
+            raise LLMProviderRateLimitError("Rate limit persistent", provider_id="groq", status_code=429, retry_after=0.01)
+
+    service = NoteService(ai_service_bus=FakeAIServiceBus(FailingCapability()))
+    note = asyncio.run(service.generate_notes(workspace_id=ws_id, media_id=media_id))
+
+    assert note is not None
+    assert note.generation_method == "heuristic"
+    assert note.fallback_reason == "rate_limit"
+
+
+def test_note_service_fallback_on_parse_error():
+    init_db()
+    ws_id = f"ws_parse_fail_{uuid.uuid4().hex[:8]}"
+    media_id = f"med_parse_fail_{uuid.uuid4().hex[:8]}"
+
+    try:
+        from sqlmodel import Session
+    except ImportError:
+        from sqlalchemy.orm import Session
+
+    from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+
+    with Session(engine) as session:
+        session.add(
+            MediaItemTable(id=media_id, workspace_id=ws_id, title="Lecture", file_path="/mock/test.mp4", status="completed")
+        )
+        session.add(
+            TranscriptChunkTable(id=f"chk_{media_id}_0", media_id=media_id, workspace_id=ws_id, text="Audio transcript text.", start_time=0.0, end_time=10.0, chunk_index=0, word_count=5)
+        )
+        session.commit()
+
+    class NonJsonCapability:
+        provider_id = "groq"
+        default_model = "llama-3.3-70b"
+
+        async def generate(self, request):
+            class Result:
+                text = "This is plain prose without any JSON schema."
+            return Result()
+
+    service = NoteService(ai_service_bus=FakeAIServiceBus(NonJsonCapability()))
+    note = asyncio.run(service.generate_notes(workspace_id=ws_id, media_id=media_id))
+
+    assert note is not None
+    assert note.generation_method == "heuristic"
+    assert note.fallback_reason == "parse_error"
 
 
 def test_note_service_caching_and_versioning():

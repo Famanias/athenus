@@ -297,6 +297,10 @@ try:
         version: int = Field(default=1)
         status: str = "ready"  # pending | generating | ready | failed
         action_items_json: Optional[str] = None
+        generation_method: str = Field(default="llm")  # llm | heuristic | manual
+        fallback_reason: Optional[str] = Field(default=None)
+        provider_id: Optional[str] = Field(default=None)
+        model_id: Optional[str] = Field(default=None)
         created_at: datetime = Field(default_factory=datetime.utcnow)
         updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -605,6 +609,10 @@ except ImportError:
         version = Column(Integer, default=1)
         status = Column(String, default="ready")
         action_items_json = Column(Text, nullable=True)
+        generation_method = Column(String, default="llm")
+        fallback_reason = Column(String, nullable=True)
+        provider_id = Column(String, nullable=True)
+        model_id = Column(String, nullable=True)
         created_at = Column(DateTime, default=datetime.utcnow)
         updated_at = Column(DateTime, default=datetime.utcnow)
 

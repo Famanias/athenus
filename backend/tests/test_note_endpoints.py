@@ -53,6 +53,7 @@ def test_user_can_create_and_retrieve_a_manual_note():
     assert created["title"] == "Week 1"
     assert created["folder_id"] == folder["id"]
     assert created["content"] == "# Operating systems\n\nProcesses and threads."
+    assert created["generation_method"] == "manual"
 
     get_res = client.get(f"/api/v1/learning/notes/item/{created['id']}")
     assert get_res.status_code == 200
@@ -180,6 +181,7 @@ def test_ai_generation_is_persisted_on_the_active_note():
     assert generated["summary"]
     assert generated["action_items"]
     assert generated["sections"]
+    assert generated["generation_method"] in ("llm", "heuristic")
 
     persisted = client.get(
         f"/api/v1/learning/notes/item/{note['id']}"

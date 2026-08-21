@@ -1,75 +1,68 @@
-# Note Generation Engine & Study Workspace — Implementation Walkthrough
+# Walkthrough: Note Generation Heuristic Fallback Remediation & Provider Error Integrity
 
-## 1. Summary of Changes
-
-Implemented the complete end-to-end **Note Generation & Audio Transcription Workspace** in Athenus, directly modeled after the OpenWhispr user interface. This feature captures audio transcripts from the user's microphone and computer audio into the **`Transcript`** tab and synthesizes clean, structured markdown notes with executive summaries and action items into the **`Notes`** tab.
-
-### Core Architectural Highlights
-1. **Configured Canonical Note Synthesis Prompt (`note_generation.py`):**
-   > *"Transform the provided transcript into clean, well-structured notes in markdown. Preserve the user's intent and all substantive information. Remove filler, small talk, false starts, and redundant content. For personal notes, improve grammar and structure for readability. For meeting transcripts, extract key discussion points, decisions, action items, and follow-ups."*
-2. **Dedicated Bottom Audio Bar (`NoteBottomBar.tsx`, `useAudioRecorder.ts`):** In-browser live microphone recording button (`MediaRecorder` with WebM/Opus encoding), real-time audio wave analysis and elapsed duration timer (`00:15`), prompt input field ("Ask anything or add formatting instructions..."), and `✨ Generate Notes` action button.
-3. **Streamlined 2-Way View Switcher (`NoteTopToolbar.tsx`):**
-   - **`Transcript`:** Speech transcript capturing audio turns from user's microphone and system audio with speaker labels and timestamp badges (`TranscriptView.tsx`).
-   - **`Notes`:** AI-generated structured markdown notes, executive summary, action items checklist, section cards with takeaways, and manual writing area (`ManualNotesEditor.tsx`).
-4. **Clean Spaces Navigation (`NotesWorkspace.tsx`):** Left spaces sidebar (`Personal (5)`, `Meetings (1)`, `Videos (0)`, `Learning (4)`) and `+ New note` button.
-5. **Domain Note Generation Engine (`note_generation.py`):** Structured JSON schema prompt builder with custom instruction support, resilient markdown-fence JSON parser, and offline deterministic heuristic clustering fallback.
-6. **Domain Service & Versioning (`note_service.py`):** Lifecycle management with staged progress tracking (`collect_context(20%)` $\to$ `llm_generation(50%)` $\to$ `persist(85%)` $\to$ `ready(100%)`) recorded into `artifact_jobs`. Enforces immutable versions (`note_{ws}_{media}_v{n}`).
-7. **Database Schema & REST Endpoints:** `NoteTable` / `NoteSectionTable` and 6 REST routes (`/api/v1/learning/notes/`).
+We have executed the comprehensive remediation of the Note Generation Heuristic Fallback Root Cause Analysis ([NOTE_GENERATION_HEURISTIC_FALLBACK_RCA.md](file:///E:/repos/athenus/docs/NOTE_GENERATION_HEURISTIC_FALLBACK_RCA.md)).
 
 ---
 
-## 2. Changes Made by File
+## Changes Implemented
 
-### Frontend Presentation & Audio Recording
-* **[`frontend/src/features/notes/NoteTopToolbar.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteTopToolbar.tsx)**: Streamlined header containing only the editable Note Name and the `[Transcript] | [Notes]` view switcher.
-* **[`frontend/src/features/notes/NotesWorkspace.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NotesWorkspace.tsx)**: Streamlined left sidebar (removed search input, quick actions, and Team Spaces; kept `+ New note` and folder spaces). Structured the canvas body, header, and bottom bar inside a centered `max-w-4xl` container with generous horizontal padding (`px-8 md:px-12`) so text and cards do not stretch wall-to-wall across wide displays.
-* **[`frontend/src/features/notes/NoteBottomBar.tsx`](file:///e:/repos/athenus/frontend/src/features/notes/NoteBottomBar.tsx)**: Floating bottom bar with microphone recording toggle, prompt input field, and the exact `mockup.html` styled **Generate Notes** button (dark navy `#273647` background, golden text `#e9c349`, subtle border `#45464c`, custom four-pointed star SVG, and monospace font).
-* **[`frontend/src/features/notes/useNotes.ts`](file:///e:/repos/athenus/frontend/src/features/notes/useNotes.ts)**: Note state management hook supporting `custom_instruction` query propagation.
-* **[`frontend/src/features/notes/useAudioRecorder.ts`](file:///e:/repos/athenus/frontend/src/features/notes/useAudioRecorder.ts)**: Browser microphone recording and upload hook.
-* **[`mockup.html`](file:///e:/repos/athenus/mockup.html)**: Synchronized HTML mockup prototype.
+### 1. AI Domain Exception Hierarchy & Adapter Error Integrity
+- **[exceptions.py](file:///E:/repos/athenus/backend/app/domain/ai/exceptions.py)**:
+  - Created a domain exception hierarchy inheriting from `LLMProviderError`: `LLMProviderAuthError`, `LLMProviderRateLimitError` (with structured `retry_after`), `LLMProviderTimeoutError`, `LLMProviderUnavailableError`, `LLMProviderBadRequestError`.
+- **[openai_compatible_adapter.py](file:///E:/repos/athenus/backend/app/infrastructure/adapters/openai_compatible_adapter.py)** & **[anthropic_adapter.py](file:///E:/repos/athenus/backend/app/infrastructure/adapters/anthropic_adapter.py)**:
+  - Removed synthetic 200 OK warning string returns (`⚠️ ... API Error ...`).
+  - Added HTTP status code mapping to typed domain exceptions (`401`/`403` -> `AuthError`, `429` -> `RateLimitError` with parsed `Retry-After`, `500`/`502`/`503`/`504` -> `UnavailableError`, `400`/`404`/`422` -> `BadRequestError`).
+  - Stream methods yield error-free tokens or raise typed exceptions.
 
-### Backend Domain & Media Pipeline
-* **[`backend/app/domain/learning/note_generation.py`](file:///e:/repos/athenus/backend/app/domain/learning/note_generation.py)**: Configured the exact transformation prompt for LLM note synthesis.
-* **[`backend/app/domain/learning/note_service.py`](file:///e:/repos/athenus/backend/app/domain/learning/note_service.py)**: Added `custom_instruction` parameter to `generate_notes` and `_generate_with_llm`.
-* **[`backend/app/presentation/api/v1/learning.py`](file:///e:/repos/athenus/backend/app/presentation/api/v1/learning.py)**: Added `custom_instruction` query param to `POST /learning/notes/{workspace_id}`.
+### 2. Multi-Strategy LLM Output Parsing
+- **[note_generation.py](file:///E:/repos/athenus/backend/app/domain/learning/note_generation.py)**:
+  - Upgraded `parse_llm_notes()` with a 3-tier extraction engine:
+    1. Direct JSON parse.
+    2. Markdown code-fence block extraction (` ```json ... ``` `).
+    3. Balanced brace state-machine scanner that slices the outermost JSON dictionary ignoring surrounding conversational text.
+  - Added schema tolerance for field variations (`heading` vs `title` vs `topic`, list vs string summaries/takeaways/action items).
+
+### 3. NoteService Bounded Retries, Provenance Tracking & DB Migrations
+- **[entities.py](file:///E:/repos/athenus/backend/app/domain/learning/entities.py)** & **[models.py](file:///E:/repos/athenus/backend/app/infrastructure/db/models.py)**:
+  - Added `generation_method` (`'llm' | 'heuristic' | 'manual'`), `fallback_reason`, `provider_id`, `model_id` to both domain `Note` and database `NoteTable`.
+- **[session.py](file:///E:/repos/athenus/backend/app/infrastructure/db/session.py)**:
+  - Added automatic SQLite schema migration columns for `notes` table (`generation_method`, `fallback_reason`, `provider_id`, `model_id`).
+- **[note_service.py](file:///E:/repos/athenus/backend/app/domain/learning/note_service.py)**:
+  - Introduced `ExtractedNotesResult` dataclass.
+  - Implemented bounded exponential backoff retries (up to 3 attempts) handling `LLMProviderRateLimitError`, `LLMProviderTimeoutError`, and `LLMProviderUnavailableError`.
+  - Stored explicit provenance and updated `ArtifactJobTable` progress messages to transparently indicate whether notes were generated via LLM or heuristic fallback engine.
+
+### 4. API DTOs & Frontend Transparency
+- **[learning.py (API)](file:///E:/repos/athenus/backend/app/presentation/api/v1/learning.py)**:
+  - Updated `NoteResponse` DTO and `_note_to_response()` mapping with `generation_method`, `fallback_reason`, `provider_id`, and `model_id`.
+- **[useNotes.ts](file:///E:/repos/athenus/frontend/src/features/notes/useNotes.ts)**:
+  - Updated `NoteDTO` interface.
+  - Configured user toast notifications to differentiate AI note generation from heuristic fallback.
+- **[NoteSummaryHeader.tsx](file:///E:/repos/athenus/frontend/src/features/notes/NoteSummaryHeader.tsx)**:
+  - Replaced hardcoded "AI Synthesized" badge with dynamic provenance badges (`AI Synthesized (<model_id>)`, `Fallback (<fallback_reason>)` with warning styling, `Manual Note`).
+- **[workspace_intelligence.py](file:///E:/repos/athenus/backend/app/application/services/workspace_intelligence.py)**:
+  - Handled provider errors gracefully in `query_workspace` during chat queries when LLM providers are offline.
 
 ---
 
-## 3. Automated Test Results
+## Verification Results
 
-All 175 tests in the backend test suite passed with 100% success rate:
-
+### Backend Test Suite (Pytest)
+Executed full backend test suite:
+```powershell
+python -m pytest -q
 ```
-============================= test session starts =============================
-platform win32 -- Python 3.11.5, pytest-8.3.5, pluggy-1.5.0
-rootdir: E:\repos\athenus\backend
+**Result**: `187 passed in 21.32s (100% passing)`
 
-tests/test_note_endpoints.py::test_note_generation_endpoints_e2e PASSED  [ 61%]
-tests/test_note_generation.py::test_build_notes_prompt PASSED            [ 62%]
-tests/test_note_generation.py::test_parse_llm_notes_valid_json PASSED    [ 62%]
-tests/test_note_generation.py::test_parse_llm_notes_markdown_fences PASSED [ 63%]
-tests/test_note_generation.py::test_parse_llm_notes_malformed_returns_none PASSED [ 64%]
-tests/test_note_generation.py::test_generate_notes_heuristic_empty PASSED [ 64%]
-tests/test_note_generation.py::test_generate_notes_heuristic_with_chunks PASSED [ 65%]
-tests/test_note_generation.py::test_note_service_heuristic_execution PASSED [ 65%]
-tests/test_note_generation.py::test_note_service_llm_execution PASSED    [ 66%]
-tests/test_note_generation.py::test_note_service_caching_and_versioning PASSED [ 66%]
-...
-============================ 175 passed in 30.65s =============================
+#### Key Test Suites Validated:
+- `test_openai_compatible_adapter.py`: 4 passed (HTTP 401, 429 with retry-after, 503, valid streaming/generation).
+- `test_anthropic_adapter.py`: 3 passed (HTTP 401, 429, valid generation).
+- `test_note_generation.py`: 12 passed (valid JSON, code fences, malformed responses, heuristic generation, LLM generation, 429 retry success, persistent 429 fallback discrimination, parse error fallback, versioning).
+- `test_note_endpoints.py`: 8 passed (folders, manual notes, audio attachments, generation persistence, e2e workflows).
+
+### Frontend Build (Next.js & TypeScript)
+Executed production build:
+```powershell
+npm run build
 ```
-
-Frontend TypeScript compilation (`npx tsc --noEmit`): **0 errors**.
-
----
-
-## 4. Manual QA Validation Matrix
-
-Follow these step-by-step instructions to manually verify the complete Note Taking UI and Audio Transcription feature:
-
-| Test Case # | Feature / User Flow | Step-by-Step Instructions | Expected Behavior |
-| :--- | :--- | :--- | :--- |
-| **QA-1** | **Notes Workspace Layout** | 1. Open browser to the running app (`http://localhost:1420` or `http://localhost:3000`).<br>2. Click the **Notes** icon in the left navigation sidebar. | The workspace displays with the streamlined left spaces sidebar (`+ New note`, `Personal`, `Meetings`, `Videos`, `Learning`), note name title at the top, and the **`[Transcript] \| [Notes]`** view toggle. |
-| **QA-2** | **Live Audio Recording & Transcript Tab** | 1. In the bottom bar, click the **Microphone** button.<br>2. Grant browser microphone access.<br>3. Speak for 5–10 seconds.<br>4. Click the Microphone button again to stop recording. | • While recording: red pulsing halo and elapsed timer (e.g. `00:07`) display.<br>• On stop: audio is packaged into a `.webm` file, uploaded, transcribed, and speech segments appear in the **`Transcript`** tab with timestamps. |
-| **QA-3** | **AI Note Generation (`Notes` Tab)** | 1. In the bottom prompt bar, optionally type formatting instructions.<br>2. Click **`✨ Generate Notes`**.<br>3. Observe the inline progress bar. | The progress bar advances through stages (`20%` $\to$ `50%` $\to$ `85%` $\to$ `100%`) using the exact prompt: *"Transform the provided transcript into clean, well-structured notes in markdown..."* and populates the **`Notes`** tab with the executive summary, action items checklist, and section cards. |
-| **QA-4** | **Manual Notes Writing** | 1. In the **`Notes`** tab, type text in the "Start writing..." editor. | The editor allows full writing and displays a word count. |
-| **QA-5** | **Spaces & New Note Reset** | 1. Click **`+ New note`** in the left sidebar.<br>2. Click between different spaces (`Personal`, `Meetings`, `Videos`, `Learning`). | The canvas resets cleanly for taking a new note while tracking the selected space. |
+**Result**: Compiled successfully in 3.4s, TypeScript type check passed with 0 errors.

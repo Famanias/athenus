@@ -80,6 +80,14 @@ try:
                         conn.execute(text("ALTER TABLE notes ADD COLUMN folder_id VARCHAR"))
                     if "content" not in cols:
                         conn.execute(text("ALTER TABLE notes ADD COLUMN content TEXT"))
+                    if "generation_method" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN generation_method VARCHAR DEFAULT 'llm'"))
+                    if "fallback_reason" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN fallback_reason VARCHAR"))
+                    if "provider_id" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN provider_id VARCHAR"))
+                    if "model_id" not in cols:
+                        conn.execute(text("ALTER TABLE notes ADD COLUMN model_id VARCHAR"))
                     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_notes_folder_id ON notes (folder_id)"))
                 conn.commit()
         except Exception as e:
@@ -160,6 +168,14 @@ except ImportError:
                             connection.execute(text("ALTER TABLE notes ADD COLUMN folder_id VARCHAR"))
                         if "content" not in columns:
                             connection.execute(text("ALTER TABLE notes ADD COLUMN content TEXT"))
+                        if "generation_method" not in columns:
+                            connection.execute(text("ALTER TABLE notes ADD COLUMN generation_method VARCHAR DEFAULT 'llm'"))
+                        if "fallback_reason" not in columns:
+                            connection.execute(text("ALTER TABLE notes ADD COLUMN fallback_reason VARCHAR"))
+                        if "provider_id" not in columns:
+                            connection.execute(text("ALTER TABLE notes ADD COLUMN provider_id VARCHAR"))
+                        if "model_id" not in columns:
+                            connection.execute(text("ALTER TABLE notes ADD COLUMN model_id VARCHAR"))
                         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_notes_folder_id ON notes (folder_id)"))
             except Exception as exc:
                 print("MIGRATION ERROR:", exc)

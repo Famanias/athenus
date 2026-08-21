@@ -38,6 +38,10 @@ export interface NoteDTO {
   status: string;
   action_items: string[];
   sections: NoteSectionDTO[];
+  generation_method?: 'llm' | 'heuristic' | 'manual';
+  fallback_reason?: string | null;
+  provider_id?: string | null;
+  model_id?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -265,7 +269,12 @@ export function useNotes() {
       setActiveNote(note);
       setNotes((current) => current.map((item) => item.id === note.id ? note : item));
       await refreshFolders();
-      notify('AI notes generated and saved');
+      if (note.generation_method === 'heuristic') {
+        const reason = note.fallback_reason ? ` (${note.fallback_reason})` : '';
+        notify(`Notes generated via fallback engine${reason}`);
+      } else {
+        notify('AI notes generated and saved');
+      }
       return note;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Failed to generate study notes.');

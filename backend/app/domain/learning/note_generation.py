@@ -89,46 +89,117 @@ Transcript Chunks:
 """
 
 
-def parse_llm_notes(text: str) -> Optional[ExtractedNotes]:
-    """Parse JSON notes response from LLM, handling markdown code fences and minor formatting anomalies."""
+def _extract_json_object(text: str) -> Optional[dict]:
+    """Extract a dictionary JSON object from LLM response using multi-stage extraction."""
     if not text or not text.strip():
         return None
+    cleaned = text.strip()
 
-    cleaned_text = text.strip()
-    # Strip markdown code blocks if present
-    if cleaned_text.startswith("```"):
-        cleaned_text = re.sub(r"^```(?:json)?\s*", "", cleaned_text)
-        cleaned_text = re.sub(r"\s*```$", "", cleaned_text)
-
+    # Strategy 1: Direct JSON parse
     try:
-        match = re.search(r"\{.*\}", cleaned_text, re.DOTALL)
-        if not match:
-            return None
-        data = json.loads(match.group(0))
-    except Exception as exc:
-        logger.warning("parse_llm_notes: JSON decoding failed — %s", exc)
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # Strategy 2: Code fence extraction
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, re.DOTALL)
+    if fence_match:
+        try:
+            data = json.loads(fence_match.group(1))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    # Strategy 3: Balanced brace matching for top-level JSON objects
+    start_idx = cleaned.find("{")
+    while start_idx != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start_idx, len(cleaned)):
+            char = cleaned[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == "\\":
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char == "{":
+                    depth += 1
+                elif char == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = cleaned[start_idx : idx + 1]
+                        try:
+                            data = json.loads(candidate)
+                            if isinstance(data, dict):
+                                return data
+                        except Exception:
+                            pass
+                        break
+        start_idx = cleaned.find("{", start_idx + 1)
+
+    return None
+
+
+def parse_llm_notes(text: str) -> Optional[ExtractedNotes]:
+    """Parse JSON notes response from LLM, handling markdown code fences, prose, and minor schema variations."""
+    if not text or not text.strip():
+        logger.debug("parse_llm_notes: empty text received")
         return None
 
-    if not isinstance(data, dict):
+    data = _extract_json_object(text)
+    if not data or not isinstance(data, dict):
+        logger.warning("parse_llm_notes: failed to extract valid JSON object from raw response (len=%d)", len(text))
         return None
 
-    title = str(data.get("title") or "Lecture Study Notes").strip()
-    summary = str(data.get("summary") or "").strip()
-    action_items = [str(a).strip() for a in (data.get("action_items") or []) if str(a).strip()]
+    # Flexible field extraction
+    title = str(data.get("title") or data.get("topic") or "Lecture Study Notes").strip()
 
-    raw_sections = data.get("sections") or []
+    raw_summary = data.get("summary") or data.get("overview") or ""
+    if isinstance(raw_summary, list):
+        summary = "\n".join(str(item).strip() for item in raw_summary if str(item).strip())
+    else:
+        summary = str(raw_summary).strip()
+
+    raw_action_items = data.get("action_items") or data.get("actions") or data.get("next_steps") or data.get("follow_ups") or []
+    if isinstance(raw_action_items, str):
+        action_items = [line.strip().lstrip("-*• ") for line in raw_action_items.splitlines() if line.strip()]
+    elif isinstance(raw_action_items, list):
+        action_items = [str(a).strip().lstrip("-*• ") for a in raw_action_items if str(a).strip()]
+    else:
+        action_items = []
+
+    raw_sections = data.get("sections") or data.get("subsections") or data.get("modules") or data.get("topics") or []
+    if isinstance(raw_sections, dict):
+        raw_sections = list(raw_sections.values())
+    elif not isinstance(raw_sections, list):
+        raw_sections = []
+
     sections: List[ExtractedNoteSection] = []
 
     for s in raw_sections:
         if not isinstance(s, dict):
             continue
-        heading = str(s.get("heading") or "").strip()
-        body = str(s.get("body") or "").strip()
+        heading = str(s.get("heading") or s.get("title") or s.get("topic") or "").strip()
+        body = str(s.get("body") or s.get("content") or s.get("notes") or s.get("text") or "").strip()
         if not heading and not body:
             continue
 
-        raw_takeaways = s.get("key_takeaways") or []
-        takeaways = [str(t).strip() for t in raw_takeaways if str(t).strip()]
+        raw_takeaways = s.get("key_takeaways") or s.get("takeaways") or s.get("points") or []
+        if isinstance(raw_takeaways, str):
+            takeaways = [line.strip().lstrip("-*• ") for line in raw_takeaways.splitlines() if line.strip()]
+        elif isinstance(raw_takeaways, list):
+            takeaways = [str(t).strip().lstrip("-*• ") for t in raw_takeaways if str(t).strip()]
+        else:
+            takeaways = []
 
         start_time = None
         end_time = None
@@ -143,8 +214,13 @@ def parse_llm_notes(text: str) -> Optional[ExtractedNotes]:
             except (ValueError, TypeError):
                 pass
 
-        raw_chunk_ids = s.get("source_chunk_ids") or []
-        chunk_ids = [str(c).strip() for c in raw_chunk_ids if str(c).strip()]
+        raw_chunk_ids = s.get("source_chunk_ids") or s.get("chunk_ids") or []
+        if isinstance(raw_chunk_ids, str):
+            chunk_ids = [c.strip() for c in raw_chunk_ids.split(",") if c.strip()]
+        elif isinstance(raw_chunk_ids, list):
+            chunk_ids = [str(c).strip() for c in raw_chunk_ids if str(c).strip()]
+        else:
+            chunk_ids = []
 
         sections.append(
             ExtractedNoteSection(
@@ -158,6 +234,7 @@ def parse_llm_notes(text: str) -> Optional[ExtractedNotes]:
         )
 
     if not sections and not summary:
+        logger.warning("parse_llm_notes: parsed JSON has neither sections nor summary")
         return None
 
     return ExtractedNotes(
