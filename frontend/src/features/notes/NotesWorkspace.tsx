@@ -143,12 +143,9 @@ export const NotesWorkspace: React.FC = () => {
             </button>
           </div>
 
-          {/* Private Spaces List */}
+          {/* Spaces List */}
           <div className="space-y-1">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant/60 font-semibold px-2">
-              Private Spaces
-            </span>
-            <div className="space-y-0.5 pt-1">
+            <div className="space-y-0.5">
               {[
                 { name: 'Personal', icon: 'folder', count: 5 },
                 { name: 'Meetings', icon: 'folder', count: 1 },
@@ -176,17 +173,6 @@ export const NotesWorkspace: React.FC = () => {
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Team Spaces */}
-          <div className="space-y-1 pt-2">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-on-surface-variant/60 font-semibold px-2">
-              Team Spaces
-            </span>
-            <button className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high/50 transition-colors cursor-pointer">
-              <span className="material-symbols-outlined text-[15px]">add</span>
-              <span>New team space</span>
-            </button>
           </div>
         </div>
       </aside>
