@@ -927,3 +927,38 @@ Run `cd frontend; npm.cmd test -- --run src/features/video/transcriptQueries.tes
 Expected: four tests pass, covering cache-neutral HTTP transport, workspace/media query-key isolation, and exact transcript refresh.
 
 QA-19 result: ☐ Pass / ☐ Fail
+
+---
+
+# Transcript Reliability Remediation — Phase 3 Manual QA
+
+## QA-20 Provider-independent Note Audio Transcription
+
+Purpose: verify that note recordings use the process-wide speech-to-text capability selected by the AI routing configuration rather than constructing a private Whisper adapter.
+
+### Step-by-step validation
+
+1. Start the backend and confirm a speech-to-text provider/model is configured in Settings.
+   - Expected: the configured STT provider is available without any note-specific provider setup.
+2. Open Notes and create a manual note in the active workspace.
+   - Expected: the note is created and remains selected.
+3. Start note audio recording, speak a short distinctive sentence, and stop the recording.
+   - Expected: the UI enters the transcribing state and the backend routes the audio through the configured STT capability.
+4. Wait for transcription to finish.
+   - Expected: timestamped segments containing the spoken sentence appear in the note Transcript view.
+5. Switch to Notes view and back to Transcript view.
+   - Expected: the same persisted segments are returned; the recording is attached only to the active note and does not appear as a library video.
+6. Upload a short video and allow its transcription to complete.
+   - Expected: video and note transcription both succeed under the same configured STT provider, while remaining separately persisted.
+7. Temporarily configure an unavailable STT model/provider and retry a disposable note recording.
+   - Expected: the request reports a clear transcription failure; it does not silently instantiate a different provider or attach an empty transcript.
+8. Restore the working STT configuration.
+   - Expected: subsequent note recording succeeds again without restarting or changing note-specific settings.
+
+### Automated validation
+
+Run `cd backend; python -m pytest tests/test_note_endpoints.py::test_note_audio_transcription_uses_injected_stt_capability -q`.
+
+Expected: one test passes and the endpoint returns the transcript supplied by the injected STT capability without constructing Faster Whisper directly.
+
+QA-20 result: ☐ Pass / ☐ Fail

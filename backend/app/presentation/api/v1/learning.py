@@ -17,6 +17,7 @@ from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.cache.runtime import application_memory_cache
 from app.infrastructure.events.event_bus import event_bus as global_event_bus
 from app.domain.analytics.analytics_service import AnalyticsService
+from app.domain.ai.service_bus import AIServiceBus
 
 router = APIRouter()
 
@@ -26,11 +27,13 @@ quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_b
 note_service = NoteService(graph_service=graph_service, event_bus=global_event_bus)
 # Precomputed analytics subscribe to domain events once at import time.
 _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
+_ai_service_bus: Optional[AIServiceBus] = None
 
 
-def set_ai_service_bus(ai_bus) -> None:
+def set_ai_service_bus(ai_bus: AIServiceBus) -> None:
     """Inject the process-wide AIServiceBus instance built in main.py cleanly into services."""
-    global flashcard_service, quiz_service, note_service, _analytics
+    global flashcard_service, quiz_service, note_service, _analytics, _ai_service_bus
+    _ai_service_bus = ai_bus
     flashcard_service = FlashcardService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
     quiz_service = QuizService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
     note_service = NoteService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
@@ -699,10 +702,12 @@ async def transcribe_note_audio(
     import uuid
     from app.core.config import settings
     from app.domain.ai.capabilities import SpeechToTextRequest
-    from app.infrastructure.adapters.whisper_adapter import FasterWhisperSTTAdapter
     from app.infrastructure.db.models import TranscriptChunkTable, TranscriptSegmentTable
     from app.infrastructure.db.session import engine
-    from sqlmodel import Session
+    try:
+        from sqlmodel import Session
+    except ImportError:
+        from sqlalchemy.orm import Session
     from sqlalchemy import text
 
     filename = file.filename or "recording.webm"
@@ -715,8 +720,12 @@ async def transcribe_note_audio(
         f.write(content)
 
     try:
-        adapter = FasterWhisperSTTAdapter()
-        stt_resp = await adapter.transcribe(SpeechToTextRequest(audio_file_path=temp_path))
+        if _ai_service_bus is None:
+            raise RuntimeError("AI service bus is not configured")
+        stt_capability = _ai_service_bus.get_stt_capability()
+        stt_resp = await stt_capability.transcribe(
+            SpeechToTextRequest(audio_file_path=temp_path)
+        )
     except Exception as exc:
         if os.path.exists(temp_path):
             os.remove(temp_path)

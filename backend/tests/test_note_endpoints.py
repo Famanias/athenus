@@ -9,6 +9,8 @@ except ImportError:
     from sqlalchemy.orm import Session
 
 from app.infrastructure.db.models import MediaItemTable, TranscriptChunkTable
+from app.domain.ai.capabilities import SpeechToTextResponse, TranscriptSegmentDTO
+from app.presentation.api.v1 import learning as learning_api
 
 client = TestClient(app)
 
@@ -156,6 +158,58 @@ def test_transcribed_audio_can_be_attached_to_a_note():
     assert client.get(
         f"/api/v1/learning/notes/item/{note['id']}"
     ).json()["media_id"] == media_id
+
+
+def test_note_audio_transcription_uses_injected_stt_capability(monkeypatch):
+    ws_id = f"ws_note_stt_{uuid.uuid4().hex[:8]}"
+    note = client.post(
+        f"/api/v1/learning/notes/{ws_id}/item",
+        json={"title": "Provider-independent recording"},
+    ).json()
+
+    class FakeSTTCapability:
+        async def transcribe(self, request):
+            return SpeechToTextResponse(
+                text="Injected provider transcript",
+                segments=[
+                    TranscriptSegmentDTO(
+                        start_time=0.0,
+                        end_time=4.0,
+                        text="Injected provider transcript",
+                    )
+                ],
+                language_detected="en",
+            )
+
+    class FakeAIServiceBus:
+        def get_stt_capability(self):
+            return FakeSTTCapability()
+
+    def concrete_adapter_must_not_be_constructed():
+        raise AssertionError("note transcription constructed a concrete STT adapter")
+
+    monkeypatch.setattr(
+        "app.infrastructure.adapters.whisper_adapter.FasterWhisperSTTAdapter",
+        concrete_adapter_must_not_be_constructed,
+    )
+
+    from app.main import ai_service_bus as production_ai_service_bus
+
+    learning_api.set_ai_service_bus(FakeAIServiceBus())
+    try:
+        response = client.post(
+            f"/api/v1/learning/notes/item/{note['id']}/transcribe",
+            files={"file": ("recording.webm", b"fake audio", "audio/webm")},
+            data={"workspace_id": ws_id},
+        )
+    finally:
+        learning_api.set_ai_service_bus(production_ai_service_bus)
+
+    assert response.status_code == 200
+    assert response.json()["full_text"] == "Injected provider transcript"
+    assert response.json()["segments"] == [
+        {"start_time": 0.0, "end_time": 4.0, "text": "Injected provider transcript"}
+    ]
 
 
 def test_ai_generation_is_persisted_on_the_active_note():
