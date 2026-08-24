@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 from app.core.config import settings
 from app.domain.ai.model_registry import ModelRegistry
 from app.domain.settings.settings_service import SettingsService
+from app.infrastructure.cache.runtime import application_memory_cache
 
 from app.domain.ai.local_model_provider import ProviderStatusDTO, ModelCatalogDTO
 from app.application.registries.local_provider_registry import LocalModelProviderRegistry
@@ -12,7 +13,7 @@ from app.infrastructure.adapters.ollama_provider import OllamaProviderAdapter
 
 router = APIRouter()
 model_registry = ModelRegistry()
-settings_service = SettingsService()
+settings_service = SettingsService(cache_store=application_memory_cache)
 
 local_provider_registry = LocalModelProviderRegistry()
 local_provider_registry.register(OllamaProviderAdapter())

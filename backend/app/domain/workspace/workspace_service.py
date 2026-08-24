@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict
 import uuid
 from datetime import datetime
+from app.domain.common.cache_interface import ICacheStore, NullCacheStore
 from app.domain.workspace.entities import Workspace
 from app.infrastructure.db.models import (
     WorkspaceTable, MediaItemTable, TranscriptChunkTable,
@@ -22,15 +23,33 @@ class WorkspaceService:
     _instance: Optional["WorkspaceService"] = None
     _initialized: bool = False
 
-    def __new__(cls) -> "WorkspaceService":
+    def __new__(
+        cls,
+        application_cache: Optional[ICacheStore] = None,
+        persistent_cache: Optional[ICacheStore] = None,
+    ) -> "WorkspaceService":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        application_cache: Optional[ICacheStore] = None,
+        persistent_cache: Optional[ICacheStore] = None,
+    ) -> None:
         if WorkspaceService._initialized:
+            if application_cache is not None:
+                self._application_cache = application_cache
+            if persistent_cache is not None:
+                self._persistent_cache = persistent_cache
             return
         WorkspaceService._initialized = True
+        self._application_cache = (
+            application_cache if application_cache is not None else NullCacheStore()
+        )
+        self._persistent_cache = (
+            persistent_cache if persistent_cache is not None else NullCacheStore()
+        )
         self._workspaces: Dict[str, Workspace] = {}
         self._active_workspace_id: str = "default"
         self._load_from_db()
@@ -230,10 +249,9 @@ class WorkspaceService:
             except Exception:
                 pass
 
-        from app.infrastructure.cache.runtime import application_memory_cache, persistent_cache
-        application_memory_cache.delete_prefix(f"kg:ws:{workspace_id}:")
-        application_memory_cache.delete_prefix(f"rag:{workspace_id}:")
-        persistent_cache.delete_prefix(f"llm:ws:{workspace_id}:")
+        self._application_cache.delete_prefix(f"kg:ws:{workspace_id}:")
+        self._application_cache.delete_prefix(f"rag:{workspace_id}:")
+        self._persistent_cache.delete_prefix(f"llm:ws:{workspace_id}:")
 
         return True
 

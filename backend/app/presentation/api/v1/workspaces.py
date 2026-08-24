@@ -3,9 +3,13 @@ from pydantic import BaseModel
 from typing import List, Optional
 from app.domain.workspace.entities import Workspace
 from app.domain.workspace.workspace_service import WorkspaceService
+from app.infrastructure.cache.runtime import application_memory_cache, persistent_cache
 
 router = APIRouter()
-workspace_service = WorkspaceService()
+workspace_service = WorkspaceService(
+    application_cache=application_memory_cache,
+    persistent_cache=persistent_cache,
+)
 
 def ensure_default_workspace():
     """Ensure at least one default workspace exists."""

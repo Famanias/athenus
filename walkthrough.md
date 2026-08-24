@@ -997,3 +997,36 @@ Run `cd backend; python -m pytest tests/test_note_generation.py tests/test_note_
 Expected: 24 tests pass, covering both the pure repository contract and the production SQLite adapter through note generation and API behavior.
 
 QA-21 result: ☐ Pass / ☐ Fail
+
+---
+
+# Transcript Reliability Remediation — Phase 5 Manual QA
+
+## QA-22 Injected Cache Boundaries
+
+Purpose: verify that domain services use injected cache ports while production composition retains cache reuse and workspace-scoped invalidation.
+
+### Step-by-step validation
+
+1. Start the application, open a workspace with a completed transcript, and open its Knowledge Graph twice.
+   - Expected: both requests return the same nodes and relations; the second request may use the shared application cache without changing the response.
+2. Add or reprocess media so that graph concepts are created or merged, then reopen the graph.
+   - Expected: newly persisted concepts appear; stale graph cache entries do not hide the mutation.
+3. Open Settings, change the active text or speech-to-text model, save, and reload Settings.
+   - Expected: the saved selection is returned consistently through the injected settings cache.
+4. Upload a short video, allow transcription to complete, and verify its transcript renders.
+   - Expected: transcript ingestion and retrieval remain unaffected by the cache dependency refactor.
+5. Create a disposable workspace, populate it with media, run one graph/search or AI operation, then delete that workspace.
+   - Expected: the workspace is deleted and its `kg`, `rag`, and `llm` cache namespaces are invalidated through the injected cache ports.
+6. Return to an unrelated workspace and reopen its transcript and Knowledge Graph.
+   - Expected: unrelated cached data remains available and correct; deletion did not perform a global cache clear.
+7. Restart the backend and reopen Settings plus the unrelated workspace.
+   - Expected: persistent settings and workspace data load normally, demonstrating that no domain service depends on a concrete in-memory cache implementation.
+
+### Automated validation
+
+Run `cd backend; python -m pytest tests/test_domain_cache_boundaries.py tests/test_caching.py tests/test_knowledge_graph.py tests/test_settings_persistence.py tests/test_sqlite_repository.py -q`.
+
+Expected: 26 tests pass, including an architecture guard against concrete cache imports and workspace-prefix invalidation through injected cache ports.
+
+QA-22 result: ☐ Pass / ☐ Fail

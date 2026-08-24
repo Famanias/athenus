@@ -164,7 +164,7 @@ async def search_concepts(
         raise HTTPException(status_code=422, detail="Query parameter 'q' is required.")
     query_lower = q.lower()
 
-    merging = ConceptMergingService()
+    merging = ConceptMergingService(cache_store=application_memory_cache)
     rows = merging.list_concepts(workspace_id)
     if not rows:
         return []
@@ -183,7 +183,10 @@ async def search_concepts(
     # 2. Semantic scoring via embedding distance
     try:
         embedding_cap = _get_embedding_capability()
-        semantic = ConceptMergingService(embedding_capability=embedding_cap)
+        semantic = ConceptMergingService(
+            embedding_capability=embedding_cap,
+            cache_store=application_memory_cache,
+        )
         query_vec = await embedding_cap.embed_query(q)
         for row in rows:
             if not row.embedding:

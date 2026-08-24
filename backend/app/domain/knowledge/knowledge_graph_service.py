@@ -12,8 +12,7 @@ from app.infrastructure.db.models import (
     KnowledgeRelationTable,
 )
 from app.infrastructure.db.session import engine
-from app.domain.common.cache_interface import ICacheStore
-from app.infrastructure.cache.memory_cache import MemoryCacheAdapter
+from app.domain.common.cache_interface import ICacheStore, NullCacheStore
 
 try:
     from sqlmodel import Session, select
@@ -32,7 +31,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
     def __init__(self, cache_store: Optional[ICacheStore] = None) -> None:
         self._nodes: Dict[str, ConceptNode] = {}
         self._edges: List[ConceptRelation] = []
-        self._cache = cache_store if cache_store is not None else MemoryCacheAdapter(maxsize=500)
+        self._cache = cache_store if cache_store is not None else NullCacheStore()
 
     def invalidate_workspace(self, workspace_id: str) -> int:
         return self._cache.delete_prefix(f"kg:ws:{workspace_id}:")

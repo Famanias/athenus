@@ -1,9 +1,9 @@
 from datetime import datetime
 import json
 from typing import Optional, Dict, Any
+from app.domain.common.cache_interface import ICacheStore, NullCacheStore
 from app.infrastructure.db.models import SystemSettings
 from app.infrastructure.db.session import engine
-from app.infrastructure.cache.runtime import application_memory_cache
 
 try:
     from sqlmodel import Session
@@ -17,10 +17,19 @@ class SettingsService:
     _instance: Optional["SettingsService"] = None
     _cache_key = "settings:global"
 
-    def __new__(cls) -> "SettingsService":
+    def __new__(
+        cls,
+        cache_store: Optional[ICacheStore] = None,
+    ) -> "SettingsService":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+
+    def __init__(self, cache_store: Optional[ICacheStore] = None) -> None:
+        if cache_store is not None:
+            self._cache = cache_store
+        elif not hasattr(self, "_cache"):
+            self._cache = NullCacheStore()
 
     @staticmethod
     def _parse_active_models(raw) -> Dict[str, str]:
@@ -58,7 +67,7 @@ class SettingsService:
 
     def get_settings(self) -> SystemSettings:
         """Fetch persistent settings from SQLite database, initializing defaults if none exist."""
-        cached = application_memory_cache.get(self._cache_key)
+        cached = self._cache.get(self._cache_key)
         if isinstance(cached, SystemSettings):
             return cached.model_copy(deep=True) if hasattr(cached, "model_copy") else self._detach(cached)
         if not engine or not Session:
@@ -75,7 +84,7 @@ class SettingsService:
                     session.commit()
                     session.refresh(settings_rec)
                 detached = self._detach(settings_rec)
-                application_memory_cache.set(self._cache_key, detached)
+                self._cache.set(self._cache_key, detached)
                 return detached.model_copy(deep=True) if hasattr(detached, "model_copy") else detached
         except Exception:
             rec = SystemSettings(id="global")
@@ -120,7 +129,7 @@ class SettingsService:
                 session.commit()
                 session.refresh(rec)
                 detached = self._detach(rec)
-                application_memory_cache.set(self._cache_key, detached)
+                self._cache.set(self._cache_key, detached)
                 return detached.model_copy(deep=True) if hasattr(detached, "model_copy") else detached
         except Exception:
             rec = SystemSettings(id="global")

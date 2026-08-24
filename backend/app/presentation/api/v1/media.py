@@ -14,11 +14,15 @@ from app.application.repositories.sqlite_media_repository import SqliteMediaRepo
 from app.core.config import settings
 from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
 from app.infrastructure.events.event_bus import DomainEvent, event_bus
+from app.infrastructure.cache.runtime import application_memory_cache, persistent_cache
 
 from app.domain.workspace.workspace_service import WorkspaceService
 
 router = APIRouter()
-workspace_service = WorkspaceService()
+workspace_service = WorkspaceService(
+    application_cache=application_memory_cache,
+    persistent_cache=persistent_cache,
+)
 
 # Global repository instance
 media_repository: MediaRepository = SqliteMediaRepository()

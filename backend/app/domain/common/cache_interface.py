@@ -33,3 +33,27 @@ class ICacheStore(ABC):
     @abstractmethod
     def clear(self) -> None:
         """Delete every entry in this store."""
+
+
+class NullCacheStore(ICacheStore):
+    """No-op cache used when a composition root does not provide an adapter."""
+
+    def get(self, key: str) -> Optional[Any]:
+        return None
+
+    def set(
+        self,
+        key: str,
+        value: Any,
+        ttl_seconds: Optional[float] = None,
+    ) -> None:
+        return None
+
+    def delete(self, key: str) -> bool:
+        return False
+
+    def delete_prefix(self, prefix: str) -> int:
+        return 0
+
+    def clear(self) -> None:
+        return None

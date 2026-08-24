@@ -6,8 +6,7 @@ from datetime import datetime
 from typing import Any, List, Optional, Tuple
 
 from app.domain.ai.capabilities import IEmbeddingCapability
-from app.domain.common.cache_interface import ICacheStore
-from app.infrastructure.cache.memory_cache import MemoryCacheAdapter
+from app.domain.common.cache_interface import ICacheStore, NullCacheStore
 from app.infrastructure.db.models import ConceptAliasTable, KnowledgeConceptTable
 from app.infrastructure.db.session import engine
 
@@ -51,7 +50,7 @@ class ConceptMergingService:
         cache_store: Optional[ICacheStore] = None,
     ) -> None:
         self.embedding_capability = embedding_capability
-        self._cache = cache_store if cache_store is not None else MemoryCacheAdapter(maxsize=100)
+        self._cache = cache_store if cache_store is not None else NullCacheStore()
 
     def _invalidate_workspace(self, workspace_id: str) -> None:
         self._cache.delete_prefix(f"kg:ws:{workspace_id}:")
