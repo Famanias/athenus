@@ -1,118 +1,61 @@
-# CONTEXT.md
+# Athenus Learning Context
 
-# Project Context: Athenus
+Athenus turns source material into workspace-isolated, traceable learning resources. This glossary defines the domain language shared by ingestion, learning, and playback experiences.
 
-This document serves as the living memory of the project. It records the active scope, architectural status, and accepted decisions.
+## Language
 
----
+**Workspace**:
+The ownership boundary that groups source material, transcripts, conversations, and learning artifacts for one body of study.
+_Avoid_: Project, collection, tenant
 
-# Project Name
+**Media Item**:
+A video or audio source selected for ingestion and playback within one workspace.
+_Avoid_: File, asset, upload
 
-**Athenus**
+**Document**:
+A page-oriented source whose locations are expressed as page and section provenance rather than playback time.
+_Avoid_: Media item, PDF file
 
----
+**Transcript**:
+The complete time-aligned textual representation of one media item's spoken content.
+_Avoid_: Captions, notes, raw text
 
-# Vision
+**Transcript Segment**:
+A display and navigation unit of a transcript with a start time, end time, and spoken text.
+_Avoid_: Subtitle, paragraph
 
-Build a local-first, AI-native learning platform (Knowledge Operating System) that transforms educational content into interactive, searchable, and explainable learning experiences.
+**Transcript Chunk**:
+A retrieval unit derived from one or more transcript segments and used as source evidence for learning artifacts and answers.
+_Avoid_: Transcript segment, embedding
 
-The platform supports multiple knowledge sources while remaining modular, extensible, offline-capable, and provider-agnostic.
+**Processing Job**:
+The observable lifecycle of transforming a source into usable learning material, including progress and failure state.
+_Avoid_: Upload, worker, task
 
----
+**AI Capability**:
+A provider-independent kind of AI work, such as speech-to-text, text generation, embeddings, document parsing, or OCR.
+_Avoid_: Provider, model, adapter
 
-# Current Scope & Content Support
+**Active Provider**:
+The configured provider selected to fulfill an AI capability.
+_Avoid_: Capability, model
 
-Primary knowledge sources supported:
-* Educational Videos & Audio Transcripts
-* Concept Graphs & Slide Keyframes
+**Note**:
+A workspace-owned learning artifact containing user-authored or generated study content, optionally grounded in one media item.
+_Avoid_: Transcript, summary, document
 
-Future knowledge sources:
-* PDFs
-* Websites & Documentation
-* GitHub repositories
-* eBooks & Research Papers
+**Note Folder**:
+A workspace-local organizational container whose deletion also removes the notes it owns.
+_Avoid_: Workspace, tag, collection
 
----
+**Note Section**:
+An ordered part of generated note content with optional source provenance.
+_Avoid_: Transcript chunk, paragraph
 
-# Current Phase & Implementation Status
+**Learning Artifact**:
+A derived study resource, such as a note, flashcard deck, or quiz, created from workspace knowledge.
+_Avoid_: Source, transcript, output
 
-**Current Phase**: Version 1.0 Final Release Complete (Phases 1 through 5) plus Master Architecture Plan (Milestones 1-4) fully implemented and verified.
-
-**Status**:
-* **Phase 1 (v0.1 MVP)**: Local Video Upload, Audio Extraction (FFmpeg), Faster-Whisper Transcription, Semantic Chunker, Embedded Qdrant Vector Indexing, 8-Stage Retrieval, RAG Chat with Timestamp Citations, Next.js UI, Tauri Desktop Shell Config.
-* **Phase 2 (v0.2)**: Multi-video Workspace Management (`WorkspaceService`, `/api/v1/workspaces`).
-* **Phase 3 (v0.3)**: Knowledge Graph Engine (`KnowledgeGraphService`), Keyframe Sampling (`FrameExtractor`), `KnowledgeGraphWorker`, Concept Prerequisite APIs (`/api/v1/graph`).
-* **Phase 4 (v0.4)**: Active Recall Learning Tools: `SummaryWorker`, `QuizWorker`, `FlashcardWorker` (Anki SM-2 export), Learning APIs (`/api/v1/learning`).
-* **Phase 5 (v1.0)**: Agentic AI Suite (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`), Agent APIs (`/api/v1/agents`).
-* **Milestone 1 (M1) — Knowledge Graph & Entity Consolidation**: Concept-centric graph model with provenance (media/source chunks/timestamps), `ConceptMergingService` dedup (exact + alias + semantic 0.88 cosine), event-driven `GraphExtractionWorker` with LLM + heuristic fallback, `ConceptAliasTable`/`ArtifactJobTable`, interactive Blueprint visualizer (`KnowledgeGraphCanvas.tsx`) with search, shortest-path, and timestamp jump links.
-* **Milestone 2 (M2) — Flashcards & Spaced Repetition**: Pure SM-2 algorithm (`learning/sm2.py`), on-demand versioned `FlashcardService` (cached deck reuse, immutable vN+1), `FlashcardReviewedEvent`, valid `.apkg` + CSV exporters, flip-card UI with provenance links.
-* **Milestone 3 (M3) — Adaptive Quiz Studio**: Concept-balanced generation + heuristic fallback, versioned `QuizService`, graded immutable attempts publishing `QuizAttemptEvent` (per-question concept/accuracy/time), timed quiz runner with instant feedback, explanations, and jump-to-source.
-* **Milestone 4 (M4) — Learning Analytics & Unified Pipeline**: `AnalyticsService` (event-driven precomputed workspace/concept mastery/study-session tables, streak logic, revision recommendations), analytics APIs, `AnalyticsDashboard.tsx`, and `UnifiedLearningPipeline.tsx` (ingestion + downstream artifact stage links).
-* **Frontend Presentation Layer (Phases A-F + M1-M4 Complete)**: Next.js + React + Tauri Desktop App (`npx tauri dev`) with Athena Theme (`#051424` & `#e9c349`), custom typography (`TT Carvist`, `Geist`, `JetBrains Mono`), Zustand state store, and domain feature modules (`features/chat/`, `features/video/`, `features/transcript/`, `features/library/`, `features/flashcards/`, `features/quiz/`, `features/graph/`, `features/ingestion/`, `features/analytics/`, `features/settings/`).
-* **Runtime Verification**: End-to-end integration verified. Native Tauri desktop app (`npx tauri dev`) communicates with FastAPI backend RAG query endpoint (`python app/main.py`).
-* **Automated Tests**: 111 of 111 unit and integration tests passing in `backend/tests/` (baseline was 73).
-* **Clean UI & Real Data Pipeline**: All sample/mock data removed; clean empty states implemented across all frontend feature modules (`features/library/`, `features/video/`, `features/transcript/`, `features/quiz/`, `features/flashcards/`, `features/graph/`, `features/analytics/`, `features/ingestion/`).
-* **Event-Driven Pipeline & Single Progress Source**: Asynchronous video ingestion pipeline decoupled from HTTP layer using `MediaRepository`, application-layer event handlers (`media_event_handlers.py`), and snapshot replay via `ProgressStore`.
-* **SQLite System Settings Persistence**: `SystemSettings` table in SQLite (`./data/athenus.db`) managed via `SettingsService` and auto-rehydrated on application launch.
-* **Local Ollama Model Discovery**: Pure local filesystem model discovery (`OllamaModelScanner`) with dynamic dropdown selection in LLM settings.
-* **Dockerized Development Architecture**: Single-command web stack (`docker compose up -d --build` → http://localhost:47734) with containerized FastAPI backend, Next.js frontend, and Ollama; GPU acceleration via an overlay file (`docker-compose.gpu.yml`, NVIDIA Container Toolkit); Tauri desktop shell remains native against the containerized backend. See [`docs/DEPLOYMENT.md`](DEPLOYMENT.md) and [`docs/ONBOARDING.md`](ONBOARDING.md).
-
----
-
-# Primary Objective
-
-Build a flagship open-source AI Engineering project demonstrating:
-* Modern RAG (8-Stage Layered Retrieval)
-* Multimodal AI (Video, Audio, Keyframes)
-* Local-First AI (Ollama Scanner, Faster-Whisper, BGE Small, Embedded Qdrant)
-* Agentic AI Workflows (`AgentCoordinator`, `PlannerAgent`, `RetrieverAgent`, `CitationValidatorAgent`)
-* Production Engineering & Clean Architecture (7 Bounded Contexts)
-
----
-
-# Application Architecture
-
-Desktop-first application using a local web architecture.
-
-* **Frontend**: React + Next.js 16 + TypeScript + Vanilla CSS Design System
-* **Backend**: FastAPI (Python 3.11)
-* **Desktop Shell**: Tauri (Rust) with sidecar bearer token authorization
-* **Database**: SQLite (SQLModel) for Desktop; PostgreSQL for Cloud/Multi-user
-* **Vector Database**: Embedded Qdrant (`./data/qdrant`) with in-memory fallback on disk lock contention
-
----
-
-# Deployment Philosophy
-
-Supports three deployment modes:
-* **Local Mode (Default)**: Runs 100% offline on user's machine.
-* **Hybrid Mode**: Local Whisper/BGE + optional cloud LLM reasoning (Groq/OpenRouter/Gemini/Claude).
-* **Cloud Mode**: Docker / Railway / Coolify multi-user cloud deployment.
-
----
-
-# Accepted Architectural Decisions
-
-* **Desktop-First & Local-First Architecture**
-* **Domain-Driven Architecture with 7 Bounded Contexts**: `Knowledge`, `Learning`, `Workspace`, `AI`, `User`, `Evaluation`, `Media`.
-* **AI Service Bus & Model Registry Architecture**: Centralized gateway for capability routing and model metadata resolution (`whisper-base`, `bge-small-en-v1.5`).
-* **Workload Scheduler Subsystem**: Resource-aware AI task concurrency throttle.
-* **Event-Driven Task Queue & Background Workers**: Asynchronous worker pipeline (`TranscriptWorker`, `EmbeddingWorker`, `KnowledgeGraphWorker`, `SummaryWorker`, `QuizWorker`, `FlashcardWorker`).
-* **Decomposed Workspace Intelligence**: Decomposed into `MemoryManager`, `RetrievalManager`, `ContextBuilder`, `RecommendationEngine`, and `AgentCoordinator`.
-* **4-Layer Memory Model**: Short-Term Memory, Working Memory, Long-Term Memory, Semantic Memory (Knowledge Graph).
-* **Separation of Storage vs Memory**: Knowledge Storage (immutable chunks/embeddings) vs User Memory (progress/notes/SM-2 flashcards).
-* **8-Stage Layered Retrieval Engine**: Query Rewrite, HyDE, Intent Detection, Context Injection, Knowledge Graph Traversal, Hybrid Search (Vector + BM25), Cross-Encoder Re-Ranking, Context Compression, Grounded Prompt Assembly.
-* **Capability-Based Provider Abstraction & Provider Router**
-* **MediaRepository & ProgressStore Ingestion Pattern**: Decoupled HTTP layer using repository abstractions and domain-event snapshot streaming (`docs/adr/0005-event-driven-pipeline-and-progress-store.md`).
-* **Multi-Workspace & Multi-Session Architecture**: In-app workspace switching, lazy chat session creation, and explicit confirmation modals (`docs/adr/0006-multi-workspace-and-multi-session-architecture.md`).
-* **SQLite Settings Persistence & Local Ollama Model Scanner**: Persistent settings table in SQLite and pure filesystem scanner (`docs/adr/0007-sqlite-settings-persistence-and-local-ollama-scanner.md`).
-* **Dockerized Development Architecture**: Containerized web stack (backend/frontend/Ollama), GPU overlay for NVIDIA acceleration, native Tauri desktop, single `.env` for native + container runtimes, GPU-aware Whisper settings (`docs/adr/0008-dockerized-development-architecture.md`).
-* **Architecture Decision Record (ADR) Process**: Established under `docs/adr/` (`0001` - `0008`).
-* **First-Class AI Evaluation Subsystem**: Automated benchmark suite evaluating Retrieval Precision/Recall@K, Groundedness, Latency, and Token Cost.
-* **Machine Learning & Deep Learning Reviewer Guide**: Comprehensive architectural theory reference in `docs/ML_DL_ARCHITECTURE.md`.
-* **Concept-Centric Learning Artifacts**: Flashcards and quiz questions are anchored to canonical knowledge-graph concepts (never raw chunks), each carrying full provenance (`media_id`, `source_chunk_ids`, `start_time`, `end_time`).
-* **On-Demand, Versioned Artifact Generation**: Decks/quizzes are cached and reused unless `force_new_version`; regeneration creates immutable `vN+1` rows, preserving prior versions and review history (`FlashcardService`, `QuizService`).
-* **Event-Driven Precomputed Analytics**: `AnalyticsService` subscribes to `QuizAttemptEvent`, `FlashcardReviewedEvent`, `ConceptGraphUpdatedEvent` to maintain workspace analytics, concept mastery, study sessions, and revision recommendations.
-* **SM-2 Spaced Repetition**: Pure SM-2 scheduling on a 1-4 scale (`Again/Hard/Good/Easy`) with EF floor 1.3, interval progression, and failure reset.
-
-> **User-facing change log**: see [`docs/WHATS_NEW.md`](WHATS_NEW.md). **Technical implementation & manual testing guide**: see [`docs/IMPLEMENTATION_SUMMARY.md`](IMPLEMENTATION_SUMMARY.md).
+**Source Provenance**:
+The workspace, source identifier, source units, and location range that support a derived statement or learning artifact.
+_Avoid_: Citation text, metadata

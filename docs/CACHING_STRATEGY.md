@@ -10,13 +10,9 @@
 
 Athenus Knowledge OS is a **local-first, privacy-focused educational intelligence platform** that combines multi-modal ingestion (video, audio, PDF/document), multi-stage hybrid RAG (dense vector search + SQLite FTS5 BM25 + cross-encoder re-ranking), an incremental Knowledge Graph, and spaced repetition (SM-2 flashcards, comprehension quizzes, and structured note generation).
 
-A comprehensive architectural scan of the codebase reveals that Athenus currently relies primarily on **ad-hoc, transient in-memory dictionaries** and **SQLite-persisted versioned tables** with minimal formal caching infrastructure:
-1. **No centralized Key-Value (KV) cache engine** (such as Redis, Valkey, or an abstracted local in-memory/SQLite KV store) exists.
-2. **Heavy computational bottlenecks** (sentence-transformer embedding generation, LLM prompt completions, and knowledge graph BFS/re-ranking traversals) execute synchronously on every request without caching.
-3. **Database engine configuration** lacks SQLite page caching, memory-mapped I/O, and WAL optimizations.
-4. **Client-server communication** lacks HTTP cache semantics (`ETag`, `Cache-Control`) and frontend request deduplication/stale-while-revalidate caching.
+Athenus now has a formal local-first cache boundary: domain services depend on `ICacheStore`, composition roots supply memory or SQLite adapters, deterministic AI work uses capability-level caches, and resource-specific frontend query modules own server-state caching. Remaining opportunities in this document are explicitly described as planned work rather than current behavior.
 
-This document establishes a **formal, local-first Key-Value (KV) caching architecture** designed to reduce RAG latency by up to 70%, eliminate redundant LLM inference costs, optimize local hardware resource utilization (CPU/GPU/RAM), and maintain data consistency across workspaces.
+The key consistency rule is ownership: a cache policy lives with the resource or capability that knows when its value becomes stale. Generic transports remain cache-neutral, and workspace deletion invalidates only that workspace's `kg`, `rag`, and `llm` namespaces.
 
 ---
 
@@ -106,6 +102,12 @@ The following inventory details every caching mechanism currently implemented in
 * **Component**: Container volume mapping `hf-cache:/root/.cache/huggingface` and `ollama-data:/root/.ollama`
 * **Data Flow**: Persists downloaded weights (BGE embeddings, Whisper models, GGUF LLMs) across container lifecycle events.
 
+### 1.9 Resource-owned Frontend Transcript Cache
+* **Files**: `frontend/src/features/video/transcriptQueries.ts`, `frontend/src/features/video/useVideo.ts`
+* **Component**: TanStack Query transcript resource policy.
+* **Data Flow**: Queries are keyed by workspace and media identity. A completed ingestion job invalidates and immediately refetches exactly that transcript while subscribed components render the updated response.
+* **Ownership Rule**: `apiClient` performs HTTP transport only; it does not cache GET responses.
+
 ---
 
 ## 2. Assessment: What Is Cached, What Is Not, and Vulnerability Analysis
@@ -120,7 +122,7 @@ The following inventory details every caching mechanism currently implemented in
 | **Ingestion Progress Store** (`ProgressStore`) | ⚠️ **Unbounded RAM** | In-memory dictionary `_snapshots` | **Memory Leak Risk**: Snapshots are never evicted upon completion; historical processing runs accumulate in RAM over time. |
 | **SQLite DB Connection & PRAGMAs** (`session.py`) | ❌ **NO** | Default single-threaded connection pool | **Disk I/O Contention**: Missing WAL mode, `cache_size=-64000`, and `mmap_size` causes frequent disk syncs and table lock contention during concurrent ingestion and chat. |
 | **HTTP / Static Media Delivery** (`media.py`) | ❌ **NO** | Bare `FileResponse` without headers | **Bandwidth Waste**: Static video, audio, and PDF binaries lack `ETag` and `Cache-Control`, causing browser reload re-downloads. |
-| **Frontend API Data Layer** (`apiClient.ts`) | ❌ **NO** | Direct `fetch()` without SWR/React Query | **Excessive Network Roundtrips**: Switching views between Chat, Graph, Flashcards, and Settings re-triggers identical REST calls without caching or deduplication. |
+| **Frontend transcript resource** (`transcriptQueries.ts`) | ✅ **Yes** | TanStack Query keyed by workspace and media | Other frontend resources should adopt the same resource-owned pattern rather than adding cache policy to `apiClient`. |
 
 ---
 
@@ -276,7 +278,8 @@ Beyond Key-Value caching, deep codebase inspection indicates four high-impact ar
   * [`frontend/src/services/apiClient.ts`](file:///E:/repos/athenus/frontend/src/services/apiClient.ts)
   * [`backend/app/presentation/api/v1/media.py:214-222`](file:///E:/repos/athenus/backend/app/presentation/api/v1/media.py#L214-L222)
 * **Enhancements**:
-  * Introduce **TanStack Query** (or SWR) into frontend hooks (`useGraph`, `useFlashcards`, `useQuiz`, `useAnalytics`, `useNotes`) with configured `staleTime: 30_000` (30s) and request deduplication.
+  * **Implemented for transcripts**: TanStack Query owns workspace/media identity, a 30-second freshness window, subscriptions, and exact refresh when ingestion completes. The generic HTTP client is intentionally cache-neutral.
+  * Extend the same resource-owned pattern to `useGraph`, `useFlashcards`, `useQuiz`, `useAnalytics`, and `useNotes`; each resource must define its own key and invalidation contract.
   * Add HTTP `ETag` and `Cache-Control: public, max-age=31536000, immutable` headers when serving static files via `/api/v1/media/{id}/file`.
 
 ---

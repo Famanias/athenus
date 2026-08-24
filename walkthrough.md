@@ -1073,3 +1073,38 @@ Run `frontend\node_modules\.bin\tsc.cmd --noEmit --incremental false -p frontend
 Expected: TypeScript exits successfully with no diagnostics.
 
 QA-23 result: ☐ Pass / ☐ Fail
+
+---
+
+# Transcript Reliability Remediation — Phase 7 Manual QA
+
+## QA-24 Architecture and Domain Documentation
+
+Purpose: verify that the documented domain language and architectural decisions accurately describe the remediated transcript system and lead maintainers to the correct ownership boundaries.
+
+### Step-by-step validation
+
+1. Open `docs/CONTEXT.md` and read the definitions for Media Item, Transcript, Transcript Segment, Transcript Chunk, AI Capability, Note, and Source Provenance.
+   - Expected: each term has one concise domain meaning; segments are presentation/navigation units, chunks are retrieval evidence, and notes are not described as transcripts.
+2. Open ADR 0025 and compare it with video upload transcription and note-recording transcription in the application.
+   - Expected: both paths resolve the configured speech-to-text capability, while keeping their media identities and persistence workflows separate.
+3. Change the configured speech-to-text provider/model and process one disposable video plus one disposable note recording.
+   - Expected: both operations use the new active capability; neither feature silently constructs its own provider.
+4. Open ADR 0026 and inspect a transcript request in browser developer tools while a video moves from processing to complete.
+   - Expected: transcript identity includes workspace and media, completion causes an exact refresh, and the generic API client does not retain the earlier empty response.
+5. Switch between two videos and two workspaces after their transcripts have loaded.
+   - Expected: each selection renders only its own transcript, consistent with the resource-owned query policy.
+6. Open `docs/CACHING_STRATEGY.md` and compare its transcript-cache section with ADR 0026 and the observed requests.
+   - Expected: all three agree that transcript cache policy belongs to the transcript query module and that `apiClient` is cache-neutral.
+7. Open the ADR summary in `docs/ARCHITECTURE.md` and follow the ADR 0025 and ADR 0026 links.
+   - Expected: both links resolve to the new accepted decision records and their summaries match the full decisions.
+8. Search domain modules for imports from `app.infrastructure.cache` and inspect `NoteService` for database or concrete STT imports.
+   - Expected: no concrete cache imports exist in domain modules, and `NoteService` depends on repository and capability abstractions.
+
+### Automated validation
+
+Run `git diff --check`, confirm both `docs/adr/0025-shared-provider-agnostic-speech-to-text-capability.md` and `docs/adr/0026-resource-owned-frontend-query-caching.md` exist, then run `rg -n "0025|0026|Transcript Segment|Resource-owned Frontend Transcript Cache" docs/CONTEXT.md docs/CACHING_STRATEGY.md docs/ARCHITECTURE.md`.
+
+Expected: `git diff --check` exits successfully; both ADR files exist; the search finds the glossary term, caching policy, and both ADR index entries.
+
+QA-24 result: ☐ Pass / ☐ Fail

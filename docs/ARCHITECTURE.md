@@ -111,6 +111,8 @@ graph TD
 | **[ADR 0022](file:///e:/repos/athenus/docs/adr/0022-frontend-document-pdf-ingestion-integration.md)** | Frontend Document & PDF Ingestion Integration | Implemented the dual-modality workspace (video player / DocumentViewer), `activeSourceType` discriminator, page-aware chat query forwarding, `📄 Page X` citation badges, transient `targetPage` navigation, and document ingestion stages — with zero video regression. |
 | **[ADR 0023](file:///e:/repos/athenus/docs/adr/0023-rag-reliability-remediation-architecture.md)** | RAG Reliability Remediation Architecture | Sub-chunking (<=750 tokens), clean PDF parsing, zero-match KG guardrail, RRF hybrid search (k=60), active document boosting (1.5x), and page text context concatenation. |
 | **[ADR 0024](file:///e:/repos/athenus/docs/adr/0024-ci-pipeline-and-test-infrastructure-architecture.md)** | CI Pipeline & Test Infrastructure Architecture | Three-job GitHub Actions workflow (frontend, backend, tauri), runner pinning (ubuntu-22.04) for Tauri v1 webkit2gtk-4.0 compatibility, and test fixture schema initialization. |
+| **[ADR 0025](adr/0025-shared-provider-agnostic-speech-to-text-capability.md)** | Shared Provider-Agnostic Speech-to-Text Capability | Routes uploaded media and note recordings through the same configured speech-to-text capability without feature-local provider construction. |
+| **[ADR 0026](adr/0026-resource-owned-frontend-query-caching.md)** | Resource-Owned Frontend Query Caching | Keeps generic HTTP transport cache-neutral and assigns transcript query identity, freshness, and exact invalidation to the transcript resource module. |
 
 ---
 
