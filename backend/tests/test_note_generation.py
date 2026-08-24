@@ -12,6 +12,7 @@ from app.domain.learning.note_generation import (
     parse_llm_notes,
 )
 from app.domain.learning.note_service import NoteService
+from app.infrastructure.repositories.sqlite_note_repository import SqliteNoteRepository
 from app.infrastructure.db.session import engine, init_db
 
 
@@ -176,7 +177,10 @@ def test_note_service_heuristic_execution():
             )
         session.commit()
 
-    service = NoteService(ai_service_bus=None)  # None forces heuristic fallback
+    service = NoteService(
+        ai_service_bus=None,
+        repository=SqliteNoteRepository(),
+    )  # None forces heuristic fallback
 
     note = asyncio.run(
         service.generate_notes(workspace_id=ws_id, media_id=media_id)
@@ -267,7 +271,7 @@ def test_note_service_llm_execution():
     })
 
     fake_bus = FakeAIServiceBus(FakeTextCapability(llm_payload))
-    service = NoteService(ai_service_bus=fake_bus)
+    service = NoteService(ai_service_bus=fake_bus, repository=SqliteNoteRepository())
 
     note = asyncio.run(
         service.generate_notes(workspace_id=ws_id, media_id=media_id)
@@ -328,7 +332,10 @@ def test_note_service_retry_on_429_success():
                 text = llm_payload
             return Result()
 
-    service = NoteService(ai_service_bus=FakeAIServiceBus(FlakyCapability()))
+    service = NoteService(
+        ai_service_bus=FakeAIServiceBus(FlakyCapability()),
+        repository=SqliteNoteRepository(),
+    )
     note = asyncio.run(service.generate_notes(workspace_id=ws_id, media_id=media_id))
 
     assert note is not None
@@ -367,7 +374,10 @@ def test_note_service_fallback_on_persistent_429():
         async def generate(self, request):
             raise LLMProviderRateLimitError("Rate limit persistent", provider_id="groq", status_code=429, retry_after=0.01)
 
-    service = NoteService(ai_service_bus=FakeAIServiceBus(FailingCapability()))
+    service = NoteService(
+        ai_service_bus=FakeAIServiceBus(FailingCapability()),
+        repository=SqliteNoteRepository(),
+    )
     note = asyncio.run(service.generate_notes(workspace_id=ws_id, media_id=media_id))
 
     assert note is not None
@@ -405,7 +415,10 @@ def test_note_service_fallback_on_parse_error():
                 text = "This is plain prose without any JSON schema."
             return Result()
 
-    service = NoteService(ai_service_bus=FakeAIServiceBus(NonJsonCapability()))
+    service = NoteService(
+        ai_service_bus=FakeAIServiceBus(NonJsonCapability()),
+        repository=SqliteNoteRepository(),
+    )
     note = asyncio.run(service.generate_notes(workspace_id=ws_id, media_id=media_id))
 
     assert note is not None
@@ -449,7 +462,7 @@ def test_note_service_caching_and_versioning():
         )
         session.commit()
 
-    service = NoteService(ai_service_bus=None)
+    service = NoteService(ai_service_bus=None, repository=SqliteNoteRepository())
 
     # 1. Initial generation (v1)
     note_v1 = asyncio.run(
@@ -476,5 +489,3 @@ def test_note_service_caching_and_versioning():
     assert len(notes_list) == 2
     assert notes_list[0].version == 2
     assert notes_list[1].version == 1
-
-

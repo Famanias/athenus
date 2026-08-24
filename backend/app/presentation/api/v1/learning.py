@@ -16,15 +16,21 @@ from app.infrastructure.exporters.anki_exporter import (
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.cache.runtime import application_memory_cache
 from app.infrastructure.events.event_bus import event_bus as global_event_bus
+from app.infrastructure.repositories.sqlite_note_repository import SqliteNoteRepository
 from app.domain.analytics.analytics_service import AnalyticsService
 from app.domain.ai.service_bus import AIServiceBus
 
 router = APIRouter()
 
 graph_service = KnowledgeGraphService(cache_store=application_memory_cache)
+note_repository = SqliteNoteRepository()
 flashcard_service = FlashcardService(graph_service=graph_service, event_bus=global_event_bus)
 quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_bus)
-note_service = NoteService(graph_service=graph_service, event_bus=global_event_bus)
+note_service = NoteService(
+    graph_service=graph_service,
+    event_bus=global_event_bus,
+    repository=note_repository,
+)
 # Precomputed analytics subscribe to domain events once at import time.
 _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
 _ai_service_bus: Optional[AIServiceBus] = None
@@ -36,7 +42,12 @@ def set_ai_service_bus(ai_bus: AIServiceBus) -> None:
     _ai_service_bus = ai_bus
     flashcard_service = FlashcardService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
     quiz_service = QuizService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
-    note_service = NoteService(graph_service=graph_service, ai_service_bus=ai_bus, event_bus=global_event_bus)
+    note_service = NoteService(
+        graph_service=graph_service,
+        ai_service_bus=ai_bus,
+        event_bus=global_event_bus,
+        repository=note_repository,
+    )
     _analytics = AnalyticsService(event_bus=global_event_bus, graph_service=graph_service, flashcard_service=flashcard_service)
 
 

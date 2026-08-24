@@ -962,3 +962,38 @@ Run `cd backend; python -m pytest tests/test_note_endpoints.py::test_note_audio_
 Expected: one test passes and the endpoint returns the transcript supplied by the injected STT capability without constructing Faster Whisper directly.
 
 QA-20 result: ☐ Pass / ☐ Fail
+
+---
+
+# Transcript Reliability Remediation — Phase 4 Manual QA
+
+## QA-21 Note Persistence Boundary
+
+Purpose: verify that moving note persistence behind the repository interface preserves SQLite-backed folder, note, section, media, and transcript behavior.
+
+### Step-by-step validation
+
+1. Start the application, open a workspace, and create a folder named `Repository QA` in Notes.
+   - Expected: the folder appears immediately with a note count of zero.
+2. Create a manual note inside that folder, enter a distinctive title and body, then reload the application.
+   - Expected: the folder and note survive the reload, and the title/body are unchanged.
+3. Rename the note, edit its body, move it to Unorganized, and reload again.
+   - Expected: all edits persist and the folder count returns to zero.
+4. Move the note back to `Repository QA`, attach an existing audio/video media item from the same workspace, and generate note content.
+   - Expected: the attachment succeeds, generated sections are persisted in timestamp order, and reopening the note returns the same sections.
+5. Attempt to attach media belonging to a different workspace.
+   - Expected: the operation is rejected with `Audio media not found in note workspace`, and the note keeps its prior media association.
+6. Delete the generated note.
+   - Expected: the note and its sections disappear, while the source media and transcript remain available.
+7. Create two disposable notes in `Repository QA`, then delete the folder.
+   - Expected: the folder and its two notes are removed together; unrelated folders, notes, media, and transcript chunks remain intact.
+8. Restart the backend and revisit Notes and the source video's Transcript tab.
+   - Expected: all non-deleted note data and the source transcript remain persisted and readable.
+
+### Automated validation
+
+Run `cd backend; python -m pytest tests/test_note_generation.py tests/test_note_endpoints.py tests/test_note_foreign_keys.py tests/test_note_repository_contract.py -q`.
+
+Expected: 24 tests pass, covering both the pure repository contract and the production SQLite adapter through note generation and API behavior.
+
+QA-21 result: ☐ Pass / ☐ Fail
