@@ -894,3 +894,36 @@ Purpose: verify that a transcript which is empty while a video is processing is 
 Run `cd frontend; npm.cmd test -- --run src/services/apiClient.test.ts`.
 
 Expected: one test passes, demonstrating that an empty processing response is followed by a fresh completed response.
+
+QA-18 result: ☐ Pass / ☐ Fail
+
+---
+
+# Transcript Reliability Remediation — Phase 2 Manual QA
+
+## QA-19 Explicit Transcript Cache Ownership
+
+Purpose: verify that transcript caching is isolated by media and workspace, and that unrelated mutations do not invalidate or overwrite transcript state.
+
+### Step-by-step validation
+
+1. Start the application and open a completed video in workspace A.
+   - Expected: its transcript renders and remains associated with that video.
+2. Navigate to Notes, create or edit a note, then return to the same video.
+   - Expected: the transcript is still present; the unrelated note mutation does not clear or replace it.
+3. Select a second completed video in workspace A.
+   - Expected: the second video's transcript is shown, with no rows from the first video.
+4. Switch to workspace B and select a video there.
+   - Expected: transcript state is isolated to workspace B even if media identifiers or titles are similar.
+5. Upload a new short video and keep its Video Workspace open through completion.
+   - Expected: only the completed video's transcript query refreshes, and its timestamped rows appear automatically.
+6. Return to the earlier completed videos.
+   - Expected: each video still shows its own persisted transcript without cross-workspace contamination.
+
+### Automated validation
+
+Run `cd frontend; npm.cmd test -- --run src/features/video/transcriptQueries.test.ts src/services/apiClient.test.ts`.
+
+Expected: four tests pass, covering cache-neutral HTTP transport, workspace/media query-key isolation, and exact transcript refresh.
+
+QA-19 result: ☐ Pass / ☐ Fail

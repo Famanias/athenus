@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '@/config/env';
-import { queryClient } from '@/services/queryClient';
 
 export class ApiError extends Error {
   status?: number;
@@ -51,9 +50,7 @@ export async function apiClient<T>(
     if (method === 'GET') {
       return await executeRequest<T>(url, options, headers);
     }
-    const result = await executeRequest<T>(url, options, headers);
-    await queryClient.invalidateQueries({ queryKey: ['api'] });
-    return result;
+    return await executeRequest<T>(url, options, headers);
   } catch (error: any) {
     if (error instanceof ApiError) {
       throw error;

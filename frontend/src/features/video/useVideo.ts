@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/store/useAppStore';
-import { getTranscript, getMediaUrl, BackendTranscriptSegmentDTO } from '@/services/mediaService';
+import { getMediaUrl } from '@/services/mediaService';
 import { formatSecondsToTimestamp } from '@/services/chatService';
 import { persistentVideoRef } from './PersistentMediaPlayer';
+import { refreshTranscriptQuery, useTranscriptQuery } from './transcriptQueries';
 
 export interface TranscriptSegment {
   id: string;
@@ -30,12 +31,9 @@ export function useVideo() {
   } = useAppStore();
 
   const { isComplete: isJobComplete } = useJob(activeMediaId);
+  const transcriptQuery = useTranscriptQuery(activeMediaId, activeWorkspaceId);
 
-  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [hasTranscript, setHasTranscript] = useState<boolean>(false);
-  const [mediaSrc, setMediaSrc] = useState<string>('');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isPipActive, setIsPipActive] = useState<boolean>(false);
 
@@ -43,50 +41,34 @@ export function useVideo() {
   const videoRef = persistentVideoRef;
 
   const mediaUrl = activeMediaId ? getMediaUrl(activeMediaId, activeWorkspaceId) : '';
+  const mediaSrc = mediaUrl;
+  const loading = transcriptQuery.isLoading || transcriptQuery.isFetching;
+  const segments = useMemo<TranscriptSegment[]>(
+    () =>
+      (transcriptQuery.data?.segments || []).map((segment, index) => ({
+        id: `seg_${index}`,
+        timestamp: formatSecondsToTimestamp(segment.start_time),
+        start_seconds: segment.start_time,
+        end_seconds: segment.end_time,
+        speaker: segment.speaker || 'Lecturer',
+        text: segment.text,
+      })),
+    [transcriptQuery.data]
+  );
+  const hasTranscript = segments.length > 0;
 
   const fetchTranscript = useCallback(async () => {
     if (!activeMediaId) {
-      setSegments([]);
-      setHasTranscript(false);
-      setMediaSrc('');
       return;
     }
 
-    setMediaSrc(mediaUrl);
-
     try {
-      setLoading(true);
-      const data = await getTranscript(activeMediaId, activeWorkspaceId);
-      if (data && data.segments && data.segments.length > 0) {
-        const mapped: TranscriptSegment[] = data.segments.map((seg: BackendTranscriptSegmentDTO, idx: number) => ({
-          id: `seg_${idx}`,
-          timestamp: formatSecondsToTimestamp(seg.start_time),
-          start_seconds: seg.start_time,
-          end_seconds: seg.end_time,
-          speaker: seg.speaker || 'Lecturer',
-          text: seg.text,
-        }));
-        setSegments(mapped);
-        setHasTranscript(true);
-      } else {
-        setSegments([]);
-        setHasTranscript(false);
-      }
+      await refreshTranscriptQuery(activeMediaId, activeWorkspaceId);
     } catch (_err) {
       // If asset does not belong to this workspace, reset state
-      setSegments([]);
-      setHasTranscript(false);
-      setMediaSrc('');
       setActiveMediaId(null);
-    } finally {
-      setLoading(false);
     }
-  }, [activeMediaId, activeWorkspaceId, mediaUrl, setActiveMediaId]);
-
-  // Fetch transcript segments on activeMediaId change
-  useEffect(() => {
-    fetchTranscript();
-  }, [fetchTranscript]);
+  }, [activeMediaId, activeWorkspaceId, setActiveMediaId]);
 
   // State-driven transcript re-fetching on job completion transition
   useEffect(() => {

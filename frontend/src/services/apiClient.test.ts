@@ -55,4 +55,25 @@ describe('apiClient GET freshness', () => {
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('does not invalidate resource caches after an unrelated mutation', async () => {
+    const resourceKey = ['api', '/api/v1/media/media-1/transcript'] as const;
+    queryClient.setQueryData(resourceKey, { segments: [{ text: 'ready' }] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    );
+
+    await apiClient<{ ok: boolean }>('/api/v1/learning/notes', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Unrelated note' }),
+    });
+
+    expect(queryClient.getQueryState(resourceKey)?.isInvalidated).toBe(false);
+  });
 });
