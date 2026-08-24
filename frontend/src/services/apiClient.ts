@@ -49,19 +49,7 @@ export async function apiClient<T>(
   try {
     const method = (options.method || 'GET').toUpperCase();
     if (method === 'GET') {
-      const isLiveStatus = endpoint.includes('/status') || endpoint.includes('/jobs');
-      const queryOptions = {
-        queryKey: ['api', url],
-        queryFn: () => executeRequest<T>(url, options, headers),
-        staleTime: isLiveStatus ? 0 : 30_000,
-      };
-      if (isLiveStatus) {
-        return await queryClient.fetchQuery(queryOptions);
-      }
-      return await queryClient.ensureQueryData({
-        ...queryOptions,
-        revalidateIfStale: true,
-      });
+      return await executeRequest<T>(url, options, headers);
     }
     const result = await executeRequest<T>(url, options, headers);
     await queryClient.invalidateQueries({ queryKey: ['api'] });

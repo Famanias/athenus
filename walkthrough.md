@@ -863,3 +863,34 @@ Validated by: ____________________
 Date: ____________________
 
 Overall result: ☐ Accepted / ☐ Rejected / ☐ Accepted with follow-up issues
+
+---
+
+# Transcript Reliability Remediation — Phase 1 Manual QA
+
+## QA-18 Fresh Transcript Retrieval After Ingestion
+
+Purpose: verify that a transcript which is empty while a video is processing is fetched again and displayed as soon as ingestion completes.
+
+### Step-by-step validation
+
+1. Start the backend and frontend using the normal local development workflow.
+   - Expected: the dashboard opens without frontend or backend startup errors.
+2. Open the default workspace, go to **Uploads**, and select a short MP4 containing clearly audible speech.
+   - Expected: the upload is accepted and the ingestion job begins at the queued/uploaded stage.
+3. Open the uploaded video in the Video Workspace before transcription completes.
+   - Expected: the video is selectable; a temporary loading or no-transcript state is acceptable while processing continues.
+4. Keep the Video Workspace open until the ingestion job reaches **Completed / 100%**.
+   - Expected: the transcript panel refreshes automatically without a page reload, tab switch, or media reselection.
+5. Confirm that at least one transcript row contains text from the uploaded video.
+   - Expected: timestamped transcript rows replace the empty-state message.
+6. Click a transcript timestamp.
+   - Expected: playback seeks to that segment, the clicked segment becomes active, and transcript highlighting follows playback.
+7. Reload the page and reopen the same completed video.
+   - Expected: the persisted transcript renders immediately and contains the same segment text.
+
+### Automated validation
+
+Run `cd frontend; npm.cmd test -- --run src/services/apiClient.test.ts`.
+
+Expected: one test passes, demonstrating that an empty processing response is followed by a fresh completed response.
