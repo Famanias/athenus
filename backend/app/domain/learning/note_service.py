@@ -206,7 +206,14 @@ class NoteService:
                 )
                 for section in sections:
                     session.delete(section)
+
+            # Existing SQLite databases may predate the ON DELETE CASCADE
+            # constraints. Flush each dependency level explicitly so those
+            # databases remain safe when foreign-key enforcement is enabled.
+            session.flush()
+            for note in notes:
                 session.delete(note)
+            session.flush()
             session.delete(folder)
             session.commit()
             return True
@@ -290,6 +297,7 @@ class NoteService:
             )
             for section in sections:
                 session.delete(section)
+            session.flush()
             session.delete(note)
             session.commit()
             return True
