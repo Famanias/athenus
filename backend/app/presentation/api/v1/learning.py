@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.domain.learning.entities import FlashcardCard, FlashcardDeck, QuizContainer, QuizQuestionItem, Note, NoteFolder, NoteSection
 from app.domain.learning.flashcard_service import FlashcardService
 from app.domain.learning.quiz_service import QuizService
-from app.domain.learning.note_service import NoteService
+from app.domain.learning.note_service import NotePatch, NoteService
 from app.infrastructure.exporters.anki_exporter import (
     export_deck_apkg,
     export_deck_csv,
@@ -671,7 +671,11 @@ def get_note_item(note_id: str):
 @router.patch("/learning/notes/item/{note_id}", response_model=NoteResponse)
 def update_note_item(note_id: str, payload: NoteUpdateRequest):
     try:
-        changes = payload.model_dump(exclude_unset=True) if hasattr(payload, "model_dump") else payload.dict(exclude_unset=True)
+        changes: NotePatch = (
+            payload.model_dump(exclude_unset=True)
+            if hasattr(payload, "model_dump")
+            else payload.dict(exclude_unset=True)
+        )
         note = note_service.update_note(note_id, changes)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

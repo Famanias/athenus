@@ -4,16 +4,14 @@ import { getMediaUrl } from '@/services/mediaService';
 import { formatSecondsToTimestamp } from '@/services/chatService';
 import { persistentVideoRef } from './PersistentMediaPlayer';
 import { refreshTranscriptQuery, useTranscriptQuery } from './transcriptQueries';
+import {
+  findActiveTranscriptSegment,
+  mapTranscriptSegments,
+  timestampToSeconds,
+} from './transcriptSegments';
+import type { TranscriptSegment } from './transcriptSegments';
 
-export interface TranscriptSegment {
-  id: string;
-  timestamp: string;
-  start_seconds: number;
-  end_seconds: number;
-  speaker: string;
-  text: string;
-  isHighlighted?: boolean;
-}
+export type { TranscriptSegment } from './transcriptSegments';
 
 import { useJob } from '@/features/pipeline/useJob';
 
@@ -44,15 +42,7 @@ export function useVideo() {
   const mediaSrc = mediaUrl;
   const loading = transcriptQuery.isLoading || transcriptQuery.isFetching;
   const segments = useMemo<TranscriptSegment[]>(
-    () =>
-      (transcriptQuery.data?.segments || []).map((segment, index) => ({
-        id: `seg_${index}`,
-        timestamp: formatSecondsToTimestamp(segment.start_time),
-        start_seconds: segment.start_time,
-        end_seconds: segment.end_time,
-        speaker: segment.speaker || 'Lecturer',
-        text: segment.text,
-      })),
+    () => mapTranscriptSegments(transcriptQuery.data?.segments || []),
     [transcriptQuery.data]
   );
   const hasTranscript = segments.length > 0;
@@ -162,23 +152,11 @@ export function useVideo() {
     }
 
     // 2. Fallback match: numeric range check for continuous playback between timestamp boundaries
-    const parts = currentTime.split(':');
-    let currentSecs = 0;
-    if (parts.length === 2) {
-      currentSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-    } else if (parts.length === 3) {
-      currentSecs = parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
-    } else {
-      currentSecs = parseFloat(currentTime) || 0;
-    }
-
-    const foundIdx = segments.findIndex(
-      (seg) => currentSecs >= seg.start_seconds && currentSecs < seg.end_seconds
-    );
+    const currentSecs = timestampToSeconds(currentTime);
+    if (currentSecs === null) return;
+    const foundIdx = findActiveTranscriptSegment(segments, currentSecs);
     if (foundIdx !== -1) {
       setActiveSegmentIndex(foundIdx);
-    } else if (segments.length > 0 && currentSecs >= segments[segments.length - 1].end_seconds) {
-      setActiveSegmentIndex(segments.length - 1);
     }
   }, [currentTime, segments]);
 
@@ -200,13 +178,9 @@ export function useVideo() {
     setCurrentTime(tsStr);
 
     if (segments.length > 0) {
-      const foundIdx = segments.findIndex(
-        (seg) => seconds >= seg.start_seconds && seconds < seg.end_seconds
-      );
+      const foundIdx = findActiveTranscriptSegment(segments, seconds);
       if (foundIdx !== -1) {
         setActiveSegmentIndex(foundIdx);
-      } else if (seconds >= segments[segments.length - 1].end_seconds) {
-        setActiveSegmentIndex(segments.length - 1);
       }
     }
 
@@ -214,11 +188,8 @@ export function useVideo() {
   }, [segments, setCurrentTime, setTargetSeekSeconds]);
 
   const seekToTimestamp = useCallback((timestampStr: string) => {
-    const parts = timestampStr.split(':');
-    if (parts.length === 2) {
-      const seconds = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-      seekToSeconds(seconds);
-    }
+    const seconds = timestampToSeconds(timestampStr);
+    if (seconds !== null) seekToSeconds(seconds);
   }, [seekToSeconds]);
 
   const togglePlayPause = useCallback(() => {

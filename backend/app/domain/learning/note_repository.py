@@ -1,10 +1,17 @@
 from copy import deepcopy
-from typing import Dict, List, Optional, Protocol
+from typing import Dict, List, Optional, Protocol, TypedDict
 
 from app.domain.learning.entities import Note, NoteFolder, NoteSection
 
 
-TranscriptChunkRecord = Dict[str, object]
+class TranscriptChunkRecord(TypedDict):
+    id: str
+    media_id: str
+    workspace_id: str
+    text: str
+    start_time: Optional[float]
+    end_time: Optional[float]
+    chunk_index: int
 
 
 class NoteRepository(Protocol):

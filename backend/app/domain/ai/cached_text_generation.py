@@ -2,9 +2,13 @@ import asyncio
 import hashlib
 import json
 from threading import RLock
-from typing import AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict
 
-from app.domain.ai.capabilities import TextGenerationRequest, TextGenerationResponse
+from app.domain.ai.capabilities import (
+    ITextGenerationCapability,
+    TextGenerationRequest,
+    TextGenerationResponse,
+)
 from app.domain.common.cache_interface import ICacheStore
 
 
@@ -14,13 +18,17 @@ class CachedTextGenerationAdapter:
     CACHE_TTL_SECONDS = 24 * 60 * 60
     MAX_CACHE_TEMPERATURE = 0.2
 
-    def __init__(self, provider, cache_store: ICacheStore) -> None:
+    def __init__(
+        self,
+        provider: ITextGenerationCapability,
+        cache_store: ICacheStore,
+    ) -> None:
         self._provider = provider
         self._cache_store = cache_store
         self._locks: Dict[str, asyncio.Lock] = {}
         self._locks_guard = RLock()
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._provider, name)
 
     @property
@@ -65,7 +73,7 @@ class CachedTextGenerationAdapter:
         )
 
     @staticmethod
-    def _decode(value) -> TextGenerationResponse | None:
+    def _decode(value: object) -> TextGenerationResponse | None:
         if not isinstance(value, dict) or not isinstance(value.get("text"), str):
             return None
         return TextGenerationResponse(

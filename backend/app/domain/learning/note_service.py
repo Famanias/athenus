@@ -3,7 +3,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ from app.domain.ai.service_bus import AIServiceBus
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.domain.learning.entities import Note, NoteFolder, NoteSection
 from app.domain.learning.note_generation import (
+    ExtractedNoteSection,
     ExtractedNotes,
     build_notes_prompt,
     generate_notes_heuristic,
@@ -35,6 +36,12 @@ class ExtractedNotesResult:
     fallback_reason: Optional[str] = None
     provider_id: Optional[str] = None
     model_id: Optional[str] = None
+
+
+class NotePatch(TypedDict, total=False):
+    title: Optional[str]
+    folder_id: Optional[str]
+    content: Optional[str]
 
 class NoteService:
     """Domain service orchestrating structured study note generation, immutable
@@ -107,7 +114,7 @@ class NoteService:
         )
         return self.repository.save_note(note)
 
-    def update_note(self, note_id: str, changes: dict) -> Optional[Note]:
+    def update_note(self, note_id: str, changes: NotePatch) -> Optional[Note]:
         note = self.repository.get_note(note_id)
         if note is None:
             return None
@@ -189,7 +196,7 @@ class NoteService:
         note_id: str,
         workspace_id: str,
         media_id: Optional[str],
-        sections: List[ExtractedNotes],
+        sections: List[ExtractedNoteSection],
     ) -> int:
         try:
             records = [

@@ -1030,3 +1030,46 @@ Run `cd backend; python -m pytest tests/test_domain_cache_boundaries.py tests/te
 Expected: 26 tests pass, including an architecture guard against concrete cache imports and workspace-prefix invalidation through injected cache ports.
 
 QA-22 result: ☐ Pass / ☐ Fail
+
+---
+
+# Transcript Reliability Remediation — Phase 6 Manual QA
+
+## QA-23 Typed Transcript Contract and End-to-End Regression Coverage
+
+Purpose: verify the typed transcript/note boundaries and the complete visible path from video ingestion through persisted rows, API response, rendering, highlighting, and seeking.
+
+### Step-by-step validation
+
+1. Start the application and upload a short video containing two clearly separated spoken phrases.
+   - Expected: the media progresses through audio extraction and transcription without a provider or type-contract error.
+2. Keep the Video Workspace open until processing completes.
+   - Expected: the transcript refreshes automatically and displays at least two non-empty timestamped rows.
+3. Compare the visible phrases with `GET /api/v1/media/{media_id}/transcript?workspace_id={workspace_id}`.
+   - Expected: `full_text` is non-empty and every visible row corresponds to an ordered API segment with numeric `start_time` and `end_time` values.
+4. Click the timestamp for the second phrase.
+   - Expected: playback seeks to that segment's start and the second row becomes active.
+5. Let playback cross from the first segment into the second.
+   - Expected: highlighting moves at the exact segment boundary and remains on the final row after the final timestamp.
+6. If a video longer than one hour is available, seek using a timestamp at or beyond `01:00:00`.
+   - Expected: the timestamp is parsed as hours, minutes, and seconds and playback seeks to the correct position.
+7. Reload the page and select the same completed video again.
+   - Expected: persisted transcript rows render with the same ordering, speaker fallback, timestamps, and text.
+8. Create and patch a manual note, including moving it into and out of a folder.
+   - Expected: only supported typed patch fields are applied and note persistence remains unchanged.
+
+### Automated validation
+
+Run `cd backend; python -m pytest tests/test_ingestion_pipeline.py tests/test_video_ingestion_queue_regression.py tests/test_note_repository_contract.py tests/test_note_endpoints.py tests/test_caching.py tests/test_domain_cache_boundaries.py -q`.
+
+Expected: 26 backend tests pass, including non-empty transcript persistence and API retrieval plus architecture boundary guards.
+
+Run `cd frontend; npm.cmd test -- --run src/features/video/transcriptSegments.test.ts src/features/video/transcriptQueries.test.ts src/services/apiClient.test.ts`.
+
+Expected: seven frontend tests pass, covering transcript refresh, query isolation, render-row mapping, active-row selection, and timestamp parsing.
+
+Run `frontend\node_modules\.bin\tsc.cmd --noEmit --incremental false -p frontend\tsconfig.json` from the repository root.
+
+Expected: TypeScript exits successfully with no diagnostics.
+
+QA-23 result: ☐ Pass / ☐ Fail

@@ -1,3 +1,6 @@
+import ast
+from pathlib import Path
+
 from app.domain.learning.note_repository import InMemoryNoteRepository
 from app.domain.learning.note_service import NoteService
 
@@ -35,3 +38,22 @@ def test_deleting_folder_cascades_through_repository_interface():
     assert notes.delete_folder(folder.id) is True
     assert notes.get_note(note.id) is None
     assert notes.get_note_sections(note.id) == []
+
+
+def test_note_service_has_no_database_or_concrete_stt_imports():
+    service_path = (
+        Path(__file__).parents[1]
+        / "app"
+        / "domain"
+        / "learning"
+        / "note_service.py"
+    )
+    tree = ast.parse(service_path.read_text(encoding="utf-8"))
+    imports = [
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    ]
+
+    assert not any(module.startswith("app.infrastructure.db") for module in imports)
+    assert not any("faster_whisper" in module for module in imports)

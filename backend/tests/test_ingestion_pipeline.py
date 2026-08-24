@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 import pytest
 from app.domain.ai.capabilities import (
     ISpeechToTextCapability,
@@ -17,6 +18,18 @@ from app.services.workers.transcript_worker import TranscriptWorker
 from app.services.workers.embedding_worker import EmbeddingWorker
 from fastapi.testclient import TestClient
 from app.main import app
+from app.application.events.progress_store import ProgressStore
+from app.application.repositories.sqlite_media_repository import SqliteMediaRepository
+from app.bootstrap.event_subscribers import register_media_subscribers
+from app.domain.media.entities import MediaItem, MediaType, ProcessingStatus
+from app.infrastructure.db.models import MediaItemTable, TranscriptSegmentTable
+from app.infrastructure.db.session import engine
+
+try:
+    from sqlmodel import Session, select
+except ImportError:
+    from sqlalchemy import select
+    from sqlalchemy.orm import Session
 
 class MockSTTAdapter(ISpeechToTextCapability):
     async def transcribe(self, request: SpeechToTextRequest) -> SpeechToTextResponse:
@@ -28,6 +41,11 @@ class MockSTTAdapter(ISpeechToTextCapability):
             ],
             language_detected="en",
         )
+
+
+class MockAudioExtractor:
+    async def extract_audio(self, input_path: str, output_path: str) -> None:
+        return None
 
 def test_semantic_chunker():
     chunker = SemanticChunker(target_word_count=10)
@@ -73,6 +91,70 @@ def test_worker_pipeline_end_to_end(tmp_path):
         assert events_captured[0].payload["media_id"] == "test_media_1"
 
     asyncio.run(_async_test())
+
+
+def test_video_transcript_is_persisted_and_returned_by_api(tmp_path):
+    media_id = f"media_transcript_regression_{uuid.uuid4().hex}"
+    media_path = tmp_path / f"{media_id}.mp4"
+    media_path.write_bytes(b"test video")
+    repository = SqliteMediaRepository()
+    repository.upsert(
+        MediaItem(
+            id=media_id,
+            workspace_id="default",
+            title="Transcript regression fixture",
+            file_path=str(media_path),
+            media_type=MediaType.VIDEO,
+            status=ProcessingStatus.PENDING,
+        )
+    )
+
+    async def run_pipeline() -> None:
+        bus = EventBus()
+        register_media_subscribers(bus, repository, ProgressStore())
+        registry = ModelRegistry()
+        ai_bus = AIServiceBus(registry, ProviderRouter(registry))
+        ai_bus.register_stt_adapter("faster_whisper", MockSTTAdapter())
+        TranscriptWorker(bus, ai_bus, audio_extractor=MockAudioExtractor())
+        await bus.publish(
+            DomainEvent(
+                event_type="MediaUploadedEvent",
+                aggregate_id=media_id,
+                payload={
+                    "media_id": media_id,
+                    "workspace_id": "default",
+                    "file_path": str(media_path),
+                },
+            )
+        )
+
+    try:
+        asyncio.run(run_pipeline())
+
+        response = TestClient(app).get(f"/api/v1/media/{media_id}/transcript")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "media_id": media_id,
+            "full_text": "Mock transcript content for development testing.",
+            "segments": [
+                {"start_time": 0.0, "end_time": 5.0, "text": "Mock transcript content"},
+                {"start_time": 5.0, "end_time": 10.0, "text": "for development testing."},
+            ],
+        }
+    finally:
+        with Session(engine) as session:
+            segments = session.scalars(
+                select(TranscriptSegmentTable).where(
+                    TranscriptSegmentTable.media_id == media_id
+                )
+            ).all()
+            for segment in segments:
+                session.delete(segment)
+            media = session.get(MediaItemTable, media_id)
+            if media is not None:
+                session.delete(media)
+            session.commit()
 
 def test_media_upload_endpoint():
     client = TestClient(app)

@@ -2,7 +2,6 @@ from typing import Dict, List, Optional, Any
 from app.domain.ai.capabilities import ITextGenerationCapability, ISpeechToTextCapability, IEmbeddingCapability
 from app.domain.ai.model_registry import ModelCapabilityType, ModelRegistry
 from app.domain.ai.provider_router import ProviderRouter
-from app.domain.ai.provider_interface import ILLMProvider
 from app.domain.ai.provider_registry import LLMProviderRegistry
 from app.domain.ai.cached_text_generation import CachedTextGenerationAdapter
 from app.domain.common.cache_interface import ICacheStore
@@ -28,9 +27,12 @@ class AIServiceBus:
         self._text_adapters: Dict[str, ITextGenerationCapability] = {}
         self._stt_adapters: Dict[str, ISpeechToTextCapability] = {}
         self._embedding_adapters: Dict[str, IEmbeddingCapability] = {}
-        self._cached_text_adapters: Dict[int, CachedTextGenerationAdapter] = {}
+        self._cached_text_adapters: Dict[int, ITextGenerationCapability] = {}
 
-    def _with_completion_cache(self, adapter):
+    def _with_completion_cache(
+        self,
+        adapter: ITextGenerationCapability,
+    ) -> ITextGenerationCapability:
         if self.completion_cache is None:
             return adapter
         identity = id(adapter)
@@ -59,7 +61,7 @@ class AIServiceBus:
         self,
         model_id: Optional[str] = None,
         required_capabilities: Optional[List[str]] = None
-    ) -> ILLMProvider:
+    ) -> ITextGenerationCapability:
         """Resolve active text generation provider capability with optional capability negotiation."""
         if self.llm_registry:
             provider = self.llm_registry.get_active_provider()
