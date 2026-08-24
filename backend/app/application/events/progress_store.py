@@ -1,7 +1,7 @@
-import asyncio
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 from app.infrastructure.db.session import engine
+from app.infrastructure.cache.memory_cache import MemoryCacheAdapter
 
 try:
     from sqlmodel import Session
@@ -12,8 +12,13 @@ except ImportError:
 class ProgressStore:
     """Central store tracking media ingestion snapshots and broadcasting SSE updates."""
 
-    def __init__(self) -> None:
-        self._snapshots: Dict[str, Dict[str, Any]] = {}
+    ACTIVE_TTL_SECONDS = 3600
+    TERMINAL_TTL_SECONDS = 600
+
+    def __init__(self, max_snapshots: int = 500) -> None:
+        # Retain the historical attribute name for reset/diagnostic callers,
+        # but make it a bounded TTL cache instead of an unbounded dictionary.
+        self._snapshots = MemoryCacheAdapter(maxsize=max_snapshots)
         self._listeners: Set[Callable[[str, Dict[str, Any]], None]] = set()
 
     def record_stage_progress(
@@ -26,7 +31,7 @@ class ProgressStore:
         error: Optional[str] = None
     ) -> Dict[str, Any]:
         """Record or update stage progress, persist audit log to SQLite, and emit snapshot event."""
-        existing = self._snapshots.get(media_id, {})
+        existing = self._snapshots.get(media_id) or {}
         stage_history = existing.get("stage_history", {})
         stage_history[stage] = {
             "progress": progress,
@@ -46,7 +51,12 @@ class ProgressStore:
             "timestamp": datetime.utcnow().isoformat()
         }
 
-        self._snapshots[media_id] = snapshot
+        ttl = (
+            self.TERMINAL_TTL_SECONDS
+            if status in ("completed", "failed")
+            else self.ACTIVE_TTL_SECONDS
+        )
+        self._snapshots.set(media_id, snapshot, ttl_seconds=ttl)
 
         # Persist audit record to SQLite ProcessingLogTable
         if engine and Session:
@@ -81,6 +91,10 @@ class ProgressStore:
     def snapshot(self, media_id: str) -> Optional[Dict[str, Any]]:
         """Return the current progress snapshot for a media item."""
         return self._snapshots.get(media_id)
+
+    def delete(self, media_id: str) -> bool:
+        """Remove a snapshot when its media item is deleted."""
+        return self._snapshots.delete(media_id)
 
     def is_complete(self, media_id: str) -> bool:
         """Check if media processing is complete."""

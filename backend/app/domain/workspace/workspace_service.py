@@ -230,6 +230,11 @@ class WorkspaceService:
             except Exception:
                 pass
 
+        from app.infrastructure.cache.runtime import application_memory_cache, persistent_cache
+        application_memory_cache.delete_prefix(f"kg:ws:{workspace_id}:")
+        application_memory_cache.delete_prefix(f"rag:{workspace_id}:")
+        persistent_cache.delete_prefix(f"llm:ws:{workspace_id}:")
+
         return True
 
     def touch_last_accessed(self, workspace_id: str) -> None:

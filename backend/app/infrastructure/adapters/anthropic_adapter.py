@@ -138,6 +138,17 @@ class AnthropicProviderAdapter(BaseLLMProvider):
             headers["x-api-key"] = self.api_key
         return headers
 
+    @staticmethod
+    def _prompt_block(text: str):
+        """Use Anthropic's ephemeral prompt cache for large stable context blocks."""
+        if len(text) >= 4096:
+            return [{
+                "type": "text",
+                "text": text,
+                "cache_control": {"type": "ephemeral"},
+            }]
+        return text
+
     async def get_capabilities(self) -> LLMProviderCapabilities:
         return LLMProviderCapabilities(
             supports_streaming=True,
@@ -165,10 +176,11 @@ class AnthropicProviderAdapter(BaseLLMProvider):
 
         url = f"{self.base_url}/messages"
         headers = self._build_headers()
+        system_prompt = request.system_prompt or "You are Athenus AI Assistant."
         payload = {
             "model": resolved_model,
-            "system": request.system_prompt or "You are Athenus AI Assistant.",
-            "messages": [{"role": "user", "content": request.prompt}],
+            "system": self._prompt_block(system_prompt),
+            "messages": [{"role": "user", "content": self._prompt_block(request.prompt)}],
             "max_tokens": request.max_tokens or 1024,
             "temperature": request.temperature
         }
@@ -233,10 +245,11 @@ class AnthropicProviderAdapter(BaseLLMProvider):
 
         url = f"{self.base_url}/messages"
         headers = self._build_headers()
+        system_prompt = request.system_prompt or "You are Athenus AI Assistant."
         payload = {
             "model": resolved_model,
-            "system": request.system_prompt or "You are Athenus AI Assistant.",
-            "messages": [{"role": "user", "content": request.prompt}],
+            "system": self._prompt_block(system_prompt),
+            "messages": [{"role": "user", "content": self._prompt_block(request.prompt)}],
             "max_tokens": request.max_tokens or 1024,
             "temperature": request.temperature,
             "stream": True

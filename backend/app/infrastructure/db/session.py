@@ -2,10 +2,31 @@ from typing import Generator
 from app.core.config import settings
 from app.infrastructure.db.fts5_repair import repair_transcript_chunks_fts
 
+
+def _configure_sqlite_engine(db_engine, database_url: str) -> None:
+    """Apply the local-first concurrency/read-throughput profile per connection."""
+    if db_engine is None or "sqlite" not in database_url:
+        return
+    from sqlalchemy import event
+
+    @event.listens_for(db_engine, "connect")
+    def set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA busy_timeout = 5000")
+            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA synchronous = NORMAL")
+            cursor.execute("PRAGMA cache_size = -64000")
+            cursor.execute("PRAGMA mmap_size = 268435456")
+            cursor.execute("PRAGMA foreign_keys = ON")
+        finally:
+            cursor.close()
+
 try:
     from sqlmodel import SQLModel, Session, create_engine
     connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
     engine = create_engine(settings.DATABASE_URL, echo=settings.DEBUG, connect_args=connect_args)
+    _configure_sqlite_engine(engine, settings.DATABASE_URL)
 
     def _migrate_db_columns() -> None:
         if not engine:
@@ -152,6 +173,7 @@ except ImportError:
             
         connect_args = {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
         engine = create_engine(settings.DATABASE_URL, echo=settings.DEBUG, connect_args=connect_args)
+        _configure_sqlite_engine(engine, settings.DATABASE_URL)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
         def init_db() -> None:

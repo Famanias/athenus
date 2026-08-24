@@ -1,4 +1,6 @@
 import uuid
+import hashlib
+import json
 from collections import deque
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
@@ -10,6 +12,8 @@ from app.infrastructure.db.models import (
     KnowledgeRelationTable,
 )
 from app.infrastructure.db.session import engine
+from app.domain.common.cache_interface import ICacheStore
+from app.infrastructure.cache.memory_cache import MemoryCacheAdapter
 
 try:
     from sqlmodel import Session, select
@@ -23,9 +27,15 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
     persistence, provenance-grounded canonical node storage, and artifact lifecycle
     observability."""
 
-    def __init__(self) -> None:
+    CACHE_TTL_SECONDS = 600
+
+    def __init__(self, cache_store: Optional[ICacheStore] = None) -> None:
         self._nodes: Dict[str, ConceptNode] = {}
         self._edges: List[ConceptRelation] = []
+        self._cache = cache_store if cache_store is not None else MemoryCacheAdapter(maxsize=500)
+
+    def invalidate_workspace(self, workspace_id: str) -> int:
+        return self._cache.delete_prefix(f"kg:ws:{workspace_id}:")
 
     # ------------------------------------------------------------------
     # Persistence helpers
@@ -76,6 +86,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                         session.commit()
             except Exception:
                 pass
+        self.invalidate_workspace(workspace_id)
 
     def add_concept(self, concept: ConceptNode) -> None:
         """Canonical, provenance-grounded concept insert/update (idempotent)."""
@@ -121,6 +132,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                         session.commit()
             except Exception:
                 pass
+        self.invalidate_workspace(workspace_id)
 
     def add_relation(
         self,
@@ -154,6 +166,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
             self._edges.append(relation)
 
         if not engine or not Session:
+            self.invalidate_workspace(workspace_id)
             return
         try:
             with Session(engine) as session:
@@ -177,11 +190,17 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                 session.commit()
         except Exception:
             pass
+        self.invalidate_workspace(workspace_id)
 
     # ------------------------------------------------------------------
     # Retrieval (DB-backed with in-memory fallback)
     # ------------------------------------------------------------------
     def get_concepts(self, workspace_id: str = "default") -> List[ConceptNode]:
+        cache_key = f"kg:ws:{workspace_id}:topology:nodes"
+        cached = self._cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        result: List[ConceptNode] = []
         if engine and Session and select:
             try:
                 with Session(engine) as session:
@@ -192,10 +211,13 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                     )
                     records = self._scalars(session, stmt)
                     if records:
-                        return [self._concept_from_db(r) for r in records]
+                        result = [self._concept_from_db(r) for r in records]
             except Exception:
                 pass
-        return [n for n in self._nodes.values() if n.workspace_id == workspace_id]
+        if not result:
+            result = [n for n in self._nodes.values() if n.workspace_id == workspace_id]
+        self._cache.set(cache_key, result, ttl_seconds=self.CACHE_TTL_SECONDS)
+        return list(result)
 
     def get_concept(self, concept_id: str) -> Optional[ConceptNode]:
         if engine and Session:
@@ -209,6 +231,11 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
         return self._nodes.get(concept_id)
 
     def get_relations(self, workspace_id: str = "default") -> List[ConceptRelation]:
+        cache_key = f"kg:ws:{workspace_id}:topology:relations"
+        cached = self._cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+        result: List[ConceptRelation] = []
         if engine and Session and select:
             try:
                 with Session(engine) as session:
@@ -217,7 +244,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                     )
                     records = self._scalars(session, stmt)
                     if records:
-                        return [
+                        result = [
                             ConceptRelation(
                                 id=r.id,
                                 source_concept_id=r.source_concept,
@@ -230,11 +257,19 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                         ]
             except Exception:
                 pass
-        return [e for e in self._edges if e.source_concept_id in self._nodes or e.target_concept_id in self._nodes]
+        if not result:
+            result = [e for e in self._edges if e.source_concept_id in self._nodes or e.target_concept_id in self._nodes]
+        self._cache.set(cache_key, result, ttl_seconds=self.CACHE_TTL_SECONDS)
+        return list(result)
 
     @staticmethod
     def _concept_from_db(rec) -> ConceptNode:
-        chunk_ids = [c for c in (rec.source_chunk_ids or "").split(",") if c]
+        raw_chunk_ids = rec.source_chunk_ids or ""
+        try:
+            parsed = json.loads(raw_chunk_ids)
+            chunk_ids = list(parsed) if isinstance(parsed, list) else []
+        except (TypeError, json.JSONDecodeError):
+            chunk_ids = [c for c in raw_chunk_ids.split(",") if c]
         return ConceptNode(
             id=rec.id,
             workspace_id=rec.workspace_id,
@@ -282,11 +317,8 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
         """N-hop BFS traversal returning {depth: [concept nodes]}."""
         if max_depth < 1:
             max_depth = 1
-        relations = self.get_relations(workspace_id)
-        adjacency: Dict[str, List[str]] = {}
-        for edge in relations:
-            adjacency.setdefault(edge.source_concept_id, []).append(edge.target_concept_id)
-            adjacency.setdefault(edge.target_concept_id, []).append(edge.source_concept_id)
+        adjacency = self._get_adjacency(workspace_id)
+        concept_map = {node.id: node for node in self.get_concepts(workspace_id)}
 
         visited: Set[str] = {concept_id}
         frontier: List[str] = [concept_id]
@@ -298,9 +330,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
                     if neighbor not in visited:
                         visited.add(neighbor)
                         next_frontier.append(neighbor)
-            nodes_at_depth = [
-                self.get_concept(nid) for nid in next_frontier if self.get_concept(nid)
-            ]
+            nodes_at_depth = [concept_map[nid] for nid in next_frontier if nid in concept_map]
             if nodes_at_depth:
                 result[str(depth)] = nodes_at_depth
             frontier = next_frontier
@@ -312,11 +342,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
         """BFS shortest path resolving prerequisite dependency chains."""
         if source_id == target_id:
             return [source_id]
-        relations = self.get_relations(workspace_id)
-        adjacency: Dict[str, List[str]] = {}
-        for edge in relations:
-            adjacency.setdefault(edge.source_concept_id, []).append(edge.target_concept_id)
-            adjacency.setdefault(edge.target_concept_id, []).append(edge.source_concept_id)
+        adjacency = self._get_adjacency(workspace_id)
 
         queue: deque = deque([source_id])
         parent: Dict[str, Optional[str]] = {source_id: None}
@@ -339,6 +365,18 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
         path.reverse()
         return path
 
+    def _get_adjacency(self, workspace_id: str) -> Dict[str, List[str]]:
+        cache_key = f"kg:ws:{workspace_id}:adjacency"
+        cached = self._cache.get(cache_key)
+        if isinstance(cached, dict):
+            return {str(key): list(value) for key, value in cached.items()}
+        adjacency: Dict[str, List[str]] = {}
+        for edge in self.get_relations(workspace_id):
+            adjacency.setdefault(edge.source_concept_id, []).append(edge.target_concept_id)
+            adjacency.setdefault(edge.target_concept_id, []).append(edge.source_concept_id)
+        self._cache.set(cache_key, adjacency, ttl_seconds=self.CACHE_TTL_SECONDS)
+        return adjacency
+
     def _workspace_of_concept(self, concept_id: str) -> str:
         node = self.get_concept(concept_id)
         if node:
@@ -358,6 +396,13 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
     ) -> List[str]:
         """Retrieve structured text representation of knowledge triples for RAG prompt context expansion.
         Enforces Zero-Match Guardrail and query relevance filtering when query is provided."""
+        normalized_query = " ".join((query or "").lower().split())
+        query_digest = hashlib.sha256(normalized_query.encode("utf-8")).hexdigest()
+        cache_key = f"kg:ws:{workspace_id}:triples:{query_digest}"
+        cached = self._cache.get(cache_key)
+        if isinstance(cached, list):
+            return list(cached)
+
         stop_words = {
             "a", "an", "the", "and", "or", "but", "if", "because", "as", "what", "which",
             "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was",
@@ -376,6 +421,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
         if query is not None:
             if not query_tokens:
                 # Zero-match guardrail: Empty/generic query -> 0 triples
+                self._cache.set(cache_key, [], ttl_seconds=self.CACHE_TTL_SECONDS)
                 return []
 
             concepts = self.get_concepts(workspace_id)
@@ -389,6 +435,7 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
 
             if not relevant_concept_ids:
                 # Zero-match guardrail: No concepts matched query
+                self._cache.set(cache_key, [], ttl_seconds=self.CACHE_TTL_SECONDS)
                 return []
 
         relations = self.get_relations(workspace_id)
@@ -413,7 +460,8 @@ class KnowledgeGraphService(KnowledgeGraphProtocol):
 
             filtered_triples.append(f"{src} --[{rel}]--> {tgt}")
 
-        return filtered_triples
+        self._cache.set(cache_key, filtered_triples, ttl_seconds=self.CACHE_TTL_SECONDS)
+        return list(filtered_triples)
 
     # ------------------------------------------------------------------
     # Artifact lifecycle observability

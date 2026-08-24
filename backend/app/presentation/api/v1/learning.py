@@ -14,12 +14,13 @@ from app.infrastructure.exporters.anki_exporter import (
     export_deck_csv,
 )
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
+from app.infrastructure.cache.runtime import application_memory_cache
 from app.infrastructure.events.event_bus import event_bus as global_event_bus
 from app.domain.analytics.analytics_service import AnalyticsService
 
 router = APIRouter()
 
-graph_service = KnowledgeGraphService()
+graph_service = KnowledgeGraphService(cache_store=application_memory_cache)
 flashcard_service = FlashcardService(graph_service=graph_service, event_bus=global_event_bus)
 quiz_service = QuizService(graph_service=graph_service, event_bus=global_event_bus)
 note_service = NoteService(graph_service=graph_service, event_bus=global_event_bus)

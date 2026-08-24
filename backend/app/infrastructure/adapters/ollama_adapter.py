@@ -161,6 +161,7 @@ class OllamaTextGenAdapter(BaseLLMProvider):
                         "prompt": request.prompt,
                         "system": request.system_prompt or "",
                         "stream": False,
+                        "keep_alive": "30m",
                         "options": {
                             "temperature": request.temperature,
                             "num_predict": request.max_tokens or 512,
@@ -198,6 +199,11 @@ class OllamaTextGenAdapter(BaseLLMProvider):
             "prompt": request.prompt,
             "system": request.system_prompt or "",
             "stream": True,
+            "keep_alive": "30m",
+            "options": {
+                "temperature": request.temperature,
+                "num_predict": request.max_tokens or 512,
+            },
         }
         client = self._get_client(timeout=httpx.Timeout(timeout=None, connect=10.0))
         should_close = self._http_client is None

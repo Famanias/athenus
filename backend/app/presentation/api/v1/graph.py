@@ -6,9 +6,10 @@ from pydantic import BaseModel
 
 from app.domain.knowledge.concept_merging import ConceptMergingService, cosine_similarity
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
+from app.infrastructure.cache.runtime import application_memory_cache
 
 router = APIRouter()
-graph_service = KnowledgeGraphService()
+graph_service = KnowledgeGraphService(cache_store=application_memory_cache)
 
 
 # ---------------------------------------------------------------------------

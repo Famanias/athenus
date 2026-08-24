@@ -1,3 +1,7 @@
+import asyncio
+import copy
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from app.domain.ai.service_bus import AIServiceBus
@@ -7,6 +11,8 @@ from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStore
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.db.models import TranscriptSegmentTable, MediaItemTable
 from app.infrastructure.db.session import engine
+from app.domain.common.cache_interface import ICacheStore
+from app.infrastructure.cache.memory_cache import MemoryCacheAdapter
 
 try:
     from sqlmodel import Session, select
@@ -35,18 +41,53 @@ class RetrievalContext:
 
 class MultiStageRetriever:
     """8-Stage Layered Retrieval Pipeline with Multi-Source Active Context Extraction."""
+
+    CACHE_TTL_SECONDS = 120
     
     def __init__(
         self,
         ai_service_bus: AIServiceBus,
         vector_store: Optional[EmbeddedQdrantVectorStoreAdapter] = None,
-        kg_service: Optional[KnowledgeGraphService] = None
+        kg_service: Optional[KnowledgeGraphService] = None,
+        cache_store: Optional[ICacheStore] = None,
     ) -> None:
         self.ai_service_bus = ai_service_bus
         self.vector_store = vector_store or EmbeddedQdrantVectorStoreAdapter()
         self.kg_service = kg_service or KnowledgeGraphService()
         self.bm25 = BM25Retriever()
         self.reranker = CrossEncoderReranker()
+        self._cache = cache_store if cache_store is not None else MemoryCacheAdapter(maxsize=500)
+        self._retrieval_locks: Dict[str, asyncio.Lock] = {}
+
+    def invalidate_workspace(self, workspace_id: str) -> int:
+        return self._cache.delete_prefix(f"rag:{workspace_id}:")
+
+    @staticmethod
+    def _retrieval_cache_key(
+        query: str,
+        workspace_id: str,
+        media_id: Optional[str],
+        document_id: Optional[str],
+        source_type: Optional[str],
+        current_timestamp: Optional[float],
+        current_page: Optional[int],
+        selected_text: Optional[str],
+    ) -> str:
+        target = document_id or media_id or "workspace"
+        fingerprint = json.dumps(
+            {
+                "query": " ".join(query.split()),
+                "source_type": source_type,
+                "timestamp": current_timestamp,
+                "page": current_page,
+                "selected_text": selected_text,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+        return f"rag:{workspace_id}:{target}:{digest}"
 
     async def execute_retrieval(
         self,
@@ -57,7 +98,61 @@ class MultiStageRetriever:
         source_type: Optional[str] = None,
         current_timestamp: Optional[float] = None,
         current_page: Optional[int] = None,
-        selected_text: Optional[str] = None
+        selected_text: Optional[str] = None,
+        force_refresh: bool = False,
+    ) -> RetrievalContext:
+        cache_key = self._retrieval_cache_key(
+            query,
+            workspace_id,
+            media_id,
+            document_id,
+            source_type,
+            current_timestamp,
+            current_page,
+            selected_text,
+        )
+        if not force_refresh:
+            cached = self._cache.get(cache_key)
+            if isinstance(cached, RetrievalContext):
+                return copy.deepcopy(cached)
+
+        lock = self._retrieval_locks.setdefault(cache_key, asyncio.Lock())
+        try:
+            async with lock:
+                if not force_refresh:
+                    cached = self._cache.get(cache_key)
+                    if isinstance(cached, RetrievalContext):
+                        return copy.deepcopy(cached)
+                context = await self._execute_retrieval_uncached(
+                    query=query,
+                    workspace_id=workspace_id,
+                    media_id=media_id,
+                    document_id=document_id,
+                    source_type=source_type,
+                    current_timestamp=current_timestamp,
+                    current_page=current_page,
+                    selected_text=selected_text,
+                )
+                self._cache.set(
+                    cache_key,
+                    copy.deepcopy(context),
+                    ttl_seconds=self.CACHE_TTL_SECONDS,
+                )
+                return context
+        finally:
+            if not lock.locked():
+                self._retrieval_locks.pop(cache_key, None)
+
+    async def _execute_retrieval_uncached(
+        self,
+        query: str,
+        workspace_id: str,
+        media_id: Optional[str] = None,
+        document_id: Optional[str] = None,
+        source_type: Optional[str] = None,
+        current_timestamp: Optional[float] = None,
+        current_page: Optional[int] = None,
+        selected_text: Optional[str] = None,
     ) -> RetrievalContext:
         ctx = RetrievalContext(
             query=query,

@@ -3,9 +3,10 @@ from pydantic import BaseModel
 from typing import List
 from app.domain.knowledge.entities import ConceptNode
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
+from app.infrastructure.cache.runtime import application_memory_cache
 
 router = APIRouter()
-graph_service = KnowledgeGraphService()
+graph_service = KnowledgeGraphService(cache_store=application_memory_cache)
 
 class ConceptNodeResponse(BaseModel):
     id: str

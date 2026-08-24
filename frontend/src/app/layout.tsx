@@ -1,4 +1,5 @@
 import "./globals.css";
+import { QueryProvider } from "./QueryProvider";
 
 export const metadata = {
   title: "Athenus - AI Learning Space",
@@ -19,7 +20,7 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-background text-on-surface flex h-screen w-full overflow-hidden">
-        {children}
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );

@@ -41,6 +41,7 @@ from app.application.services.workspace_intelligence import WorkspaceIntelligenc
 from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
 from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
 from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
+from app.infrastructure.cache.runtime import application_memory_cache, persistent_cache
 
 # Initialize ProviderConfigResolver & LLMProviderRegistry
 config_resolver = ProviderConfigResolver()
@@ -102,7 +103,12 @@ if getattr(settings, "CUSTOM_LLM_PROVIDERS", None):
 # System AI Service Bus singleton
 registry = ModelRegistry()
 router_policy = ProviderRouter(registry)
-ai_service_bus = AIServiceBus(registry, router_policy, llm_registry=llm_provider_registry)
+ai_service_bus = AIServiceBus(
+    registry,
+    router_policy,
+    llm_registry=llm_provider_registry,
+    completion_cache=persistent_cache,
+)
 
 # Register text & multimodal adapters
 ai_service_bus.register_text_adapter("ollama", ollama_adapter)
@@ -111,7 +117,13 @@ ai_service_bus.register_text_adapter("groq", groq_adapter)
 ai_service_bus.register_text_adapter("openai", openai_adapter)
 ai_service_bus.register_text_adapter("anthropic", anthropic_adapter)
 ai_service_bus.register_stt_adapter("faster_whisper", FasterWhisperSTTAdapter())
-ai_service_bus.register_embedding_adapter("sentence_transformers", SentenceTransformersEmbeddingAdapter())
+ai_service_bus.register_embedding_adapter(
+    "sentence_transformers",
+    SentenceTransformersEmbeddingAdapter(
+        cache_store=persistent_cache,
+        memory_cache=application_memory_cache,
+    ),
+)
 
 # Inject initialized AI service bus into learning module services
 from app.presentation.api.v1.learning import set_ai_service_bus as set_learning_ai_service_bus
@@ -156,11 +168,12 @@ async def lifespan(app: FastAPI):
 
     global vector_store, intelligence_manager, persistent_ingestion_worker
     vector_store = EmbeddedQdrantVectorStoreAdapter()
+    graph_cache_service = KnowledgeGraphService(cache_store=application_memory_cache)
     
     document_worker = DocumentWorker(event_bus)
     transcript_worker = TranscriptWorker(event_bus, ai_service_bus)
     embedding_worker = EmbeddingWorker(event_bus, ai_service_bus, vector_store=vector_store)
-    graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=KnowledgeGraphService())
+    graph_worker = GraphExtractionWorker(event_bus, ai_service_bus, graph_service=graph_cache_service)
     learning_evolution_worker = LearningEvolutionWorker(event_bus)
 
     persistent_ingestion_worker = PersistentIngestionWorker(event_bus)
@@ -168,7 +181,12 @@ async def lifespan(app: FastAPI):
 
     intelligence_manager = WorkspaceIntelligenceManager(
         ai_service_bus,
-        retriever=MultiStageRetriever(ai_service_bus, vector_store=vector_store)
+        retriever=MultiStageRetriever(
+            ai_service_bus,
+            vector_store=vector_store,
+            kg_service=graph_cache_service,
+            cache_store=application_memory_cache,
+        )
     )
     chat_module.intelligence_manager = intelligence_manager
 

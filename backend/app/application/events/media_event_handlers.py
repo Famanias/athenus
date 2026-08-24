@@ -3,6 +3,7 @@ from app.application.repositories.media_repository import MediaRepository
 from app.domain.media.entities import ProcessingStatus
 from app.domain.telemetry.telemetry_service import TelemetryService
 from app.infrastructure.events.event_bus import DomainEvent
+from app.infrastructure.cache.runtime import application_memory_cache
 
 telemetry = TelemetryService()
 
@@ -105,6 +106,7 @@ async def on_chunks_indexed(event: DomainEvent, repo: MediaRepository, progress:
     media_id = event.aggregate_id
     workspace_id = event.payload.get("workspace_id", "default")
     chunk_count = event.payload.get("chunk_count", 0)
+    application_memory_cache.delete_prefix(f"rag:{workspace_id}:")
     repo.update_status(media_id, ProcessingStatus.COMPLETED)
     progress.record_stage_progress(
         media_id=media_id,

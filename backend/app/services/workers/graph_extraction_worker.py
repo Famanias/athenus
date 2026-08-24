@@ -72,7 +72,8 @@ class GraphExtractionWorker:
         self.ai_service_bus = ai_service_bus
         self.graph_service = graph_service
         self.merging_service = merging_service or ConceptMergingService(
-            embedding_capability=self._get_embedding_capability()
+            embedding_capability=self._get_embedding_capability(),
+            cache_store=getattr(graph_service, "_cache", None),
         )
         self.event_bus.subscribe("ChunksIndexedEvent", self.handle_chunks_indexed)
 
@@ -117,6 +118,7 @@ class GraphExtractionWorker:
                     prompt=build_extraction_prompt(chunks),
                     temperature=0.1,
                     max_tokens=2048,
+                    workspace_id=chunks[0].get("workspace_id") if chunks else None,
                 )
             )
         except Exception:

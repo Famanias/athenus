@@ -1,9 +1,10 @@
 import asyncio
+import hashlib
 import json
 import os
 import uuid
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -211,14 +212,28 @@ def get_transcript(media_id: str):
     )
 
 @router.get("/media/{media_id}/file")
-def get_media_file(media_id: str):
+def get_media_file(media_id: str, request: Request):
     """Serve the uploaded media file for playback in the video workspace."""
     item = media_repository.get(media_id)
     if not item or not item.file_path:
         raise HTTPException(status_code=404, detail="Media item not found")
     if not os.path.exists(item.file_path):
         raise HTTPException(status_code=404, detail="Media file not found on disk")
-    return FileResponse(item.file_path, filename=os.path.basename(item.file_path))
+    stat = os.stat(item.file_path)
+    etag = '"' + hashlib.sha256(
+        f"{item.id}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
+    ).hexdigest() + '"'
+    cache_headers = {
+        "ETag": etag,
+        "Cache-Control": "public, max-age=31536000, immutable",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    return FileResponse(
+        item.file_path,
+        filename=os.path.basename(item.file_path),
+        headers=cache_headers,
+    )
 
 
 class MediaInfoResponse(BaseModel):
@@ -245,7 +260,7 @@ def _infer_mime_type(file_path: str) -> str:
 
 
 @router.get("/media/{media_id}/info", response_model=MediaInfoResponse)
-def get_media_info(media_id: str):
+def get_media_info(media_id: str, request: Request, response: Response):
     """Return file metadata for the document viewer to choose the correct
     renderer. Read-only — does not affect ingestion state."""
     item = media_repository.get(media_id)
@@ -261,7 +276,7 @@ def get_media_info(media_id: str):
     )
     mime_type = _infer_mime_type(file_path)
 
-    return MediaInfoResponse(
+    info = MediaInfoResponse(
         media_id=item.id,
         title=item.title or file_name,
         file_path=file_path,
@@ -271,6 +286,16 @@ def get_media_info(media_id: str):
         mime_type=mime_type,
         url=f"/api/v1/media/{item.id}/file",
     )
+    encoded = info.model_dump_json() if hasattr(info, "model_dump_json") else info.json()
+    etag = '"' + hashlib.sha256(encoded.encode("utf-8")).hexdigest() + '"'
+    cache_headers = {
+        "ETag": etag,
+        "Cache-Control": "private, max-age=30, stale-while-revalidate=30",
+    }
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    response.headers.update(cache_headers)
+    return info
 
 
 @router.get("/media/{media_id}/stream")

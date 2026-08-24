@@ -3,9 +3,11 @@ import math
 import re
 import uuid
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from app.domain.ai.capabilities import IEmbeddingCapability
+from app.domain.common.cache_interface import ICacheStore
+from app.infrastructure.cache.memory_cache import MemoryCacheAdapter
 from app.infrastructure.db.models import ConceptAliasTable, KnowledgeConceptTable
 from app.infrastructure.db.session import engine
 
@@ -43,8 +45,16 @@ class ConceptMergingService:
 
     SEMANTIC_THRESHOLD = 0.88
 
-    def __init__(self, embedding_capability: Optional[IEmbeddingCapability] = None) -> None:
+    def __init__(
+        self,
+        embedding_capability: Optional[IEmbeddingCapability] = None,
+        cache_store: Optional[ICacheStore] = None,
+    ) -> None:
         self.embedding_capability = embedding_capability
+        self._cache = cache_store if cache_store is not None else MemoryCacheAdapter(maxsize=100)
+
+    def _invalidate_workspace(self, workspace_id: str) -> None:
+        self._cache.delete_prefix(f"kg:ws:{workspace_id}:")
 
     # ------------------------------------------------------------------
     # Name normalization
@@ -119,17 +129,45 @@ class ConceptMergingService:
 
         best_concept: Optional[KnowledgeConceptTable] = None
         best_score = 0.0
-        for concept in self.list_concepts(workspace_id):
-            if not concept.embedding:
-                continue
+        matrix_key = f"kg:ws:{workspace_id}:concept-matrix"
+        cached_matrix = self._cache.get(matrix_key)
+        if cached_matrix is None:
+            concepts = []
+            vectors = []
+            for concept in self.list_concepts(workspace_id):
+                if not concept.embedding:
+                    continue
+                try:
+                    stored = json.loads(concept.embedding)
+                except Exception:
+                    continue
+                if isinstance(stored, list) and len(stored) == len(query_vec):
+                    concepts.append(concept)
+                    vectors.append(stored)
+            cached_matrix = (concepts, vectors)
+            self._cache.set(matrix_key, cached_matrix, ttl_seconds=600)
+
+        concepts, vectors = cached_matrix
+        if vectors:
             try:
-                stored = json.loads(concept.embedding)
-            except Exception:
-                continue
-            score = cosine_similarity(query_vec, stored)
-            if score > best_score:
-                best_concept = concept
-                best_score = score
+                import numpy as np
+
+                matrix = np.asarray(vectors, dtype=np.float32)
+                query = np.asarray(query_vec, dtype=np.float32)
+                matrix_norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+                matrix_norms[matrix_norms == 0] = 1.0
+                query_norm = float(np.linalg.norm(query))
+                if query_norm > 0:
+                    scores = (matrix / matrix_norms) @ (query / query_norm)
+                    best_index = int(np.argmax(scores))
+                    best_score = float(scores[best_index])
+                    best_concept = concepts[best_index]
+            except (ImportError, ValueError, TypeError):
+                for concept, stored in zip(concepts, vectors):
+                    score = cosine_similarity(query_vec, stored)
+                    if score > best_score:
+                        best_concept = concept
+                        best_score = score
         if best_concept and best_score >= self.SEMANTIC_THRESHOLD:
             return best_concept
         return None
@@ -240,6 +278,7 @@ class ConceptMergingService:
                 )
             )
             session.commit()
+        self._invalidate_workspace(workspace_id)
 
     def _merge_into(
         self,
@@ -291,3 +330,4 @@ class ConceptMergingService:
                         )
                     )
             session.commit()
+        self._invalidate_workspace(concept.workspace_id)

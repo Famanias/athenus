@@ -8,6 +8,8 @@ class TextGenerationRequest:
     temperature: float = 0.7
     max_tokens: int = 2048
     stop_sequences: List[str] = field(default_factory=list)
+    workspace_id: Optional[str] = None
+    force_refresh: bool = False
 
 @dataclass
 class TextGenerationResponse:

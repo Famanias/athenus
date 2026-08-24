@@ -9,6 +9,7 @@ from app.application.events.media_event_handlers import (
 from app.application.events.progress_store import ProgressStore
 from app.application.repositories.media_repository import MediaRepository
 from app.infrastructure.events.event_bus import EventBus
+from app.infrastructure.cache.runtime import application_memory_cache
 
 def register_media_subscribers(
     event_bus: EventBus,
@@ -40,4 +41,16 @@ def register_media_subscribers(
     event_bus.subscribe(
         "ProcessingFailedEvent",
         lambda e: on_processing_failed(e, repo, progress_store)
+    )
+    event_bus.subscribe(
+        "ConceptGraphUpdatedEvent",
+        lambda e: application_memory_cache.delete_prefix(
+            f"kg:ws:{e.payload.get('workspace_id', e.aggregate_id)}:"
+        ),
+    )
+    event_bus.subscribe(
+        "ConceptNodeCreatedEvent",
+        lambda e: application_memory_cache.delete_prefix(
+            f"kg:ws:{e.payload.get('workspace_id', e.aggregate_id)}:"
+        ),
     )

@@ -34,6 +34,7 @@ from app.infrastructure.db.models import (
 )
 from app.infrastructure.db.session import engine
 from app.infrastructure.db.fts5_repair import repair_transcript_chunks_fts
+from app.infrastructure.cache.runtime import application_memory_cache, persistent_cache
 
 try:
     from sqlmodel import Session, select
@@ -59,6 +60,8 @@ class SystemResetService:
         async with self._reset_lock:
             # 1. Clear in-memory active tasks/snapshots
             progress_store._snapshots.clear()
+            application_memory_cache.clear()
+            persistent_cache.clear()
 
             # 2. Clear Qdrant Vector Collection Points
             try:

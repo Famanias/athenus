@@ -28,10 +28,17 @@ def get_intelligence_manager() -> WorkspaceIntelligenceManager:
         from app.main import ai_service_bus, vector_store
         from app.infrastructure.retrieval.multi_stage_retriever import MultiStageRetriever
         from app.infrastructure.adapters.qdrant_adapter import EmbeddedQdrantVectorStoreAdapter
+        from app.infrastructure.cache.runtime import application_memory_cache
+        from app.domain.knowledge.knowledge_graph_service import KnowledgeGraphService
         v_store = vector_store or EmbeddedQdrantVectorStoreAdapter()
         intelligence_manager = WorkspaceIntelligenceManager(
             ai_service_bus,
-            retriever=MultiStageRetriever(ai_service_bus, vector_store=v_store)
+            retriever=MultiStageRetriever(
+                ai_service_bus,
+                vector_store=v_store,
+                kg_service=KnowledgeGraphService(cache_store=application_memory_cache),
+                cache_store=application_memory_cache,
+            )
         )
     return intelligence_manager
 
