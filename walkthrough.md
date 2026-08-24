@@ -421,7 +421,22 @@ The implementation preserves these guarantees:
 - Misses are rechecked inside locks to prevent cache stampedes.
 - Short RAG TTLs provide a self-healing limit even if an invalidation event is missed.
 
-## 15. Automated Verification Completed
+## 15. CI Foreign-Key Regression Correction
+
+Enabling `PRAGMA foreign_keys = ON` exposed a pre-existing inconsistency in note deletion on a brand-new CI database. The SQLModel definitions generated `NO ACTION` constraints from notes to folders and from note sections to notes, while the fallback SQLAlchemy definitions already declared `ON DELETE CASCADE`.
+
+The folder deletion service attempted to delete sections, notes, and the folder in one transaction. Because those models do not define ORM relationships, SQLAlchemy did not have enough relationship metadata to order the queued object deletes and attempted the folder delete first. SQLite correctly rejected that statement with `FOREIGN KEY constraint failed`.
+
+The correction has two complementary parts:
+
+- [`backend/app/infrastructure/db/models.py`](backend/app/infrastructure/db/models.py) now declares `ondelete="CASCADE"` on `NoteTable.folder_id` and `NoteSectionTable.note_id` in the SQLModel definitions, matching the fallback models. Fresh databases therefore create cascading constraints.
+- [`backend/app/domain/learning/note_service.py`](backend/app/domain/learning/note_service.py) flushes each dependency level explicitly: sections first, notes second, then the folder. Direct note deletion also flushes section deletion before deleting the note. This preserves correct behavior for existing SQLite databases whose already-created constraints remain `NO ACTION`.
+
+[`backend/tests/test_note_foreign_keys.py`](backend/tests/test_note_foreign_keys.py) locks down the model-level cascade contract. The existing endpoint regression verifies the complete generated-section, note, and folder deletion flow.
+
+Adding `init_db()` to the failing test was not the solution: its media-seeding helper already calls `init_db()`, and CI was failing against a successfully initialized clean schema. The failure was the newly enforced referential-integrity contract exposing incorrect delete ordering and inconsistent DDL.
+
+## 16. Automated Verification Completed
 
 ### Backend
 
@@ -429,13 +444,16 @@ Command:
 
 ```powershell
 cd E:\repos\athenus\backend
+$env:DATABASE_URL = "sqlite:///./data/ci_validation.db"
+$env:QDRANT_PATH = "./data/ci_validation_qdrant"
+$env:UPLOADS_DIR = "./data/ci_validation_uploads"
 venv\Scripts\python.exe -m pytest -q tests
 ```
 
 Result:
 
 ```text
-192 passed, 1 warning in 76.23s
+193 passed, 1 warning in 68.72s
 ```
 
 The warning is an existing Starlette `TestClient` deprecation warning and is unrelated to caching behavior.
@@ -447,6 +465,13 @@ New cache-focused coverage is in [`backend/tests/test_caching.py`](backend/tests
 - Embedding batch deduplication.
 - LLM temperature eligibility and force-refresh behavior.
 - SQLite connection PRAGMAs.
+
+The CI foreign-key correction was also verified against both database states:
+
+- An already-created schema with `NO ACTION` foreign keys, validating the explicit child-first flushes.
+- A brand-new schema with `ON DELETE CASCADE`, validating the corrected SQLModel declarations.
+
+The focused foreign-key and note-deletion checks passed with `3 passed` before the clean full-suite run.
 
 Targeted graph, RAG, settings, reset, and cache verification also passed:
 
@@ -783,6 +808,34 @@ Expected:
 - UI view switches are faster after the first load.
 - New content is visible after indexing and graph updates.
 
+## QA-17: Verify cascading note-folder deletion
+
+This check validates both the user-visible behavior and the foreign-key correction required by CI.
+
+1. Create a temporary workspace and a folder named `Temporary QA`.
+2. Upload or select transcribed media that can generate a note with at least one generated section.
+3. Generate the note, move it into `Temporary QA`, and confirm the folder shows one note.
+4. Rename the folder to `Temporary QA Renamed` and confirm the note remains in it.
+5. Delete the folder and accept the normal confirmation prompt, if shown.
+6. Refresh the Notes view and try to open the deleted note from any recent-history path.
+7. Confirm the backend log contains no `FOREIGN KEY constraint failed` error.
+
+Expected:
+
+- Folder deletion succeeds rather than returning a server error.
+- The folder, its note, and every generated section belonging to that note are gone.
+- Other folders and notes are unchanged.
+- The database remains referentially valid.
+
+For a deterministic backend validation, run:
+
+```powershell
+cd E:\repos\athenus\backend
+venv\Scripts\python.exe -m pytest -q tests\test_note_foreign_keys.py tests\test_note_endpoints.py::test_deleting_a_folder_cascades_to_notes_and_generated_sections
+```
+
+Expected: `2 passed`.
+
 ## Manual QA Sign-off
 
 | Check | Result | Notes |
@@ -803,6 +856,7 @@ Expected:
 | QA-14 Workspace deletion invalidation | ☐ Pass / ☐ Fail | |
 | QA-15 Factory reset cleanup | ☐ Pass / ☐ Fail | |
 | QA-16 End-to-end regression smoke test | ☐ Pass / ☐ Fail | |
+| QA-17 Cascading note-folder deletion | ☐ Pass / ☐ Fail | |
 
 Validated by: ____________________
 

@@ -289,7 +289,12 @@ try:
         __tablename__ = "notes"
         id: str = Field(primary_key=True)
         workspace_id: str = Field(index=True)
-        folder_id: Optional[str] = Field(default=None, foreign_key="note_folders.id", index=True)
+        folder_id: Optional[str] = Field(
+            default=None,
+            foreign_key="note_folders.id",
+            ondelete="CASCADE",
+            index=True,
+        )
         content: Optional[str] = None
         media_id: Optional[str] = Field(default=None, index=True)
         title: str = "Untitled Note"
@@ -307,7 +312,7 @@ try:
     class NoteSectionTable(SQLModel, table=True):
         __tablename__ = "note_sections"
         id: str = Field(primary_key=True)
-        note_id: str = Field(foreign_key="notes.id", index=True)
+        note_id: str = Field(foreign_key="notes.id", ondelete="CASCADE", index=True)
         workspace_id: str = Field(index=True)
         heading: str
         body: str
